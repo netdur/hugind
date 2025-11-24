@@ -1,0 +1,21 @@
+name: hugind
+description: A simple command-line application.
+version: 1.0.0
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  args: ^2.4.2
+  path: ^1.8.3
+  http: ^1.1.0
+  interact: ^2.2.0
+  yaml: ^3.1.3
+  llama_cpp_dart:
+    path: /Users/adel/Workspace/llama_cpp_dart
+  shelf: ^1.4.0
+  shelf_router: ^1.1.0
+
+executables:
+  hugind:
+dev_dependencies:
+  test: ^1.28.0

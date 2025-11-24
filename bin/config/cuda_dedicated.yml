@@ -1,0 +1,25 @@
+# Preset: NVIDIA CUDA
+# Optimized for dedicated GPUs.
+
+model:
+  gpu_layers: 99                     # Offload all layers
+  split_mode: layer                  # Standard splitting for multi-GPU
+  main_gpu: 0
+  use_mmap: false                    # Disable mmap to force load into VRAM immediately
+
+context:
+  # CPU threads matter less when fully offloaded
+  threads: 4
+  threads_batch: 4
+  
+  # Maximize batch size for throughput
+  batch_size: 4096
+  ubatch_size: 1024
+  
+  # Critical for speed on modern GPUs (Ampere/Ada)
+  flash_attention: true
+  
+  # Use f16 for maximum precision if VRAM allows, 
+  # or switch to q8_0 if running OOM on large contexts.
+  cache_type_k: f16
+  cache_type_v: f16

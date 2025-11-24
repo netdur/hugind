@@ -1,0 +1,24 @@
+# Preset: CPU Only
+# Optimized for systems without a dedicated GPU.
+
+model:
+  gpu_layers: 0                      # Force CPU processing
+  use_mmap: true                     # Essential for fast loading on CPU
+  use_mlock: false                   # Don't lock RAM if system is tight
+
+context:
+  # Leave 1 core for OS tasks to prevent UI freeze
+  threads: {{ physical_cores - 1 }}
+  threads_batch: {{ physical_cores - 1 }}
+  
+  # Keep batch size smaller to maintain responsiveness
+  batch_size: 512
+  ubatch_size: 128
+  
+  # Flash Attention is often slower on pure CPU
+  flash_attention: false
+  
+  # Aggressive quantization to fit context in System RAM
+  # q8_0 saves ~50% RAM compared to f16 with virtually no quality loss
+  cache_type_k: q8_0
+  cache_type_v: q8_0

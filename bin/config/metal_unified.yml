@@ -1,0 +1,25 @@
+# Preset: Apple Metal (M1/M2/M3/M4)
+# Optimized for Mac Unified Memory architecture.
+
+model:
+  gpu_layers: 99                     # Metal treats Unified Memory as VRAM
+  split_mode: none                   # Metal sees one large device
+  use_mmap: true                     # Fast loading on macOS
+
+context:
+  # Use performance cores (usually total - efficiency cores)
+  # A safe heuristic is total - 2
+  threads: {{ physical_cores - 2 }}
+  threads_batch: {{ physical_cores - 2 }}
+  
+  # M-series chips handle large batches well
+  batch_size: 2048
+  ubatch_size: 512
+  
+  # REQUIRED for good performance on Metal
+  flash_attention: true
+  
+  # Unified memory is fast but shared. 
+  # q8_0 is highly recommended to leave RAM for the OS.
+  cache_type_k: q8_0
+  cache_type_v: q8_0

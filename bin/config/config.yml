@@ -1,0 +1,89 @@
+# ==========================================
+# HUGIND NATIVE CONFIGURATION
+# ==========================================
+
+# ------------------------------------------
+# 1. SERVER CONFIGURATION
+# Settings managed by the Dart HTTP Supervisor
+# ------------------------------------------
+server:
+  host: "0.0.0.0"                    # Bind address
+  port: 8080                         # TCP Port
+  api_key: ""                        # Optional Bearer token for security
+  
+  # Architecture Settings
+  concurrency: 1                     # Number of Llama Isolates to spawn (Replicas)
+  max_slots: 4                       # Max concurrent users per Isolate (Context Swapping)
+  
+  # System Integration
+  timeout_seconds: 600               # Idle timeout to unload model
+  system_prompt_file: "prompts/coding_assistant.txt" # Default system prompt if none provided
+
+  # Path to libllama.so / .dylib / .dll
+  # If empty, Hugind tries to auto-detect it.
+  library_path: ""  
+
+# ------------------------------------------
+# 2. ENGINE CONFIGURATION
+# Settings passed directly to llama_cpp_dart
+# ------------------------------------------
+
+# A. Model Loading (ModelParams)
+model:
+  path: "models/llama-3-8b.gguf"     # Absolute path or relative to registry
+  mmproj_path: ""                    # Path to Vision Projector (mmproj-model-f16.gguf)
+  
+  gpu_layers: 99                     # Layers to offload (-1 or 99 for all)
+  split_mode: layer                  # Multi-GPU: none, layer, row
+  main_gpu: 0                        # Index of primary GPU
+  
+  use_mmap: true                     # Fast loading (Memory Map)
+  use_mlock: false                   # Pin memory (prevent swapping)
+  vocab_only: false                  # Debug mode (no weights)
+
+# B. Context & Performance (ContextParams)
+context:
+  size: 4096                         # Context window (n_ctx). 0 = Model Default
+  batch_size: 2048                   # Logical batch size
+  ubatch_size: 512                   # Physical batch size (hardware limit)
+  
+  threads: 8                         # CPU threads for generation
+  threads_batch: 8                   # CPU threads for prompt processing
+  
+  # Optimization & Quantization (Crucial for VRAM)
+  flash_attention: false             # Apple Silicon/NVIDIA: Set true for speed
+  cache_type_k: f16                  # KV Cache K: f16, q8_0, q4_0 (q8_0 saves 50% VRAM)
+  cache_type_v: f16                  # KV Cache V: f16, q8_0, q4_0
+  
+  offload_kqv: true                  # Keep KV cache in VRAM
+
+# ------------------------------------------
+# 4. CHAT FORMATTING
+# ------------------------------------------
+chat:
+  # Format style: gemma, chatml, alpaca, harmony
+  # Leave empty or "auto" to guess based on filename.
+  format: gemma 
+
+# C. Default Sampling (SamplerParams)
+# These can be overridden per-request via the API
+sampling:
+  # Core
+  temp: 0.7                          # Creativity (0.0 - 1.0)
+  top_k: 40                          # Limit vocabulary
+  top_p: 0.95                        # Nucleus sampling
+  min_p: 0.05                        # Minimum probability threshold
+  
+  # Penalties
+  repeat_last_n: 64                  # Lookback window
+  repeat_penalty: 1.1                # Strict penalty
+  frequency_penalty: 0.0             # OpenAI style
+  presence_penalty: 0.0              # OpenAI style
+  
+  # Advanced (Dry / XTC)
+  dry_multiplier: 0.0                # Set 0.8 to enable DRY (better repetition control)
+  dry_base: 1.75
+  dry_allowed_length: 2
+  
+  xtc_probability: 0.0               # Set >0 to enable XTC (removes cliches)
+  xtc_threshold: 0.1
