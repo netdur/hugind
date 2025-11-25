@@ -4,3 +4,14 @@
 .pub/
 build/
 pubspec.lock
+
+# Build artifacts
+bin/hugind
+dist/
+*.tar.gz
+
+# Runtime data
+sessions/
+
+# Dependencies
+*.dylib

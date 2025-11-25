@@ -110,7 +110,6 @@ class InitCommand extends Command {
     // --- C. Load Templates ---
     String baseContent;
     String presetContent;
-
     try {
       baseContent = await _loadTemplate('config.yml');
       presetContent = await _loadTemplate('$chosenPresetName.yml');
@@ -207,9 +206,14 @@ class InitCommand extends Command {
     ).interact();
     final finalCtx = ctxOptions[ctxIndex];
 
-    // --- H. Fetch Global Settings (FIX) ---
-    // We grab the library path from global settings to inject into the config
-    final globalLibPath = await GlobalSettings.getLibraryPath();
+    // --- H. Detect Library Path (THE FIX) ---
+    // 1. Check Global Settings first (Override)
+    String? resolvedLibPath = await GlobalSettings.getLibraryPath();
+
+    // 2. If Global is empty, Auto-Detect relative to Executable
+    if (resolvedLibPath == null || resolvedLibPath.isEmpty) {
+      resolvedLibPath = _detectLibraryPath();
+    }
 
     // --- I. Merge & Replace ---
     var finalContent = baseContent;
@@ -229,10 +233,11 @@ class InitCommand extends Command {
           finalContent, 'mmproj_path', '"${_shortenPath(mmprojPath)}"');
     }
 
-    // 3. Library Path Injection (FIX)
-    if (globalLibPath != null && globalLibPath.isNotEmpty) {
+    // 3. Library Path Injection (THE FIX)
+    // We write the ACTUAL detected path into the YAML
+    if (resolvedLibPath.isNotEmpty) {
       finalContent =
-          _replaceValue(finalContent, 'library_path', '"$globalLibPath"');
+          _replaceValue(finalContent, 'library_path', '"$resolvedLibPath"');
     }
 
     // 4. Chat & Context
@@ -266,8 +271,30 @@ class InitCommand extends Command {
     print('\n✔ Config written to ${destFile.path}');
     print('  • Preset: $chosenPresetName');
     print('  • Model: $shortModel');
-    if (globalLibPath != null) print('  • Library: $globalLibPath');
+    print('  • Library: $resolvedLibPath'); // Show user exactly what we found
     print('  • Context: $finalCtx');
+  }
+
+  /// Looks for the library relative to the running executable
+  String _detectLibraryPath() {
+    final binDir = File(Platform.resolvedExecutable).parent.path;
+
+    // Priority list: mtmd (ours) -> llama (standard)
+    final candidates = [
+      p.join(binDir, 'libmtmd.dylib'),
+      p.join(binDir, 'libllama.dylib'),
+      p.join(binDir, 'libllama.so'),
+      p.join(binDir, 'llama.dll'),
+    ];
+
+    for (final path in candidates) {
+      if (File(path).existsSync()) {
+        return path;
+      }
+    }
+
+    // If not found, return empty string (let user handle it manually)
+    return '';
   }
 
   // --- Template Loader ---
