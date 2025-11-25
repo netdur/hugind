@@ -98,6 +98,7 @@ hugind config defaults --hf-token hf_xxx               # for gated HF repos
 
 ## Demo
 
+```bash
 (base) adel@192 homebrew-hugind % brew install hugind 
 ✔︎ JSON API formula.jws.json                                                                                                                                                          [Downloaded   31.7MB/ 31.7MB]
 ✔︎ JSON API cask.jws.json                                                                                                                                                             [Downloaded   15.0MB/ 15.0MB]
@@ -178,10 +179,11 @@ Saved Configs:
    Local Health: http://127.0.0.1:8080/health
    OpenAI URL:   http://127.0.0.1:8080/v1
    Press Ctrl+C to stop.
-
+```
 
 on another terminal
 
+```bash
 (base) adel@192 hugind % curl -X POST http://127.0.0.1:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
@@ -201,5 +203,4 @@ data: {"id":"chatcmpl-1764031008732","object":"chat.completion.chunk","created":
 data: {"id":"chatcmpl-1764031008739","object":"chat.completion.chunk","created":1764031008,"model":"tiny-llama","choices":[{"index":0,"delta":{"content":"me"},"finish_reason":null}]}
 
 data: [DONE]
-
-(base) adel@192 hugind % 
+```
