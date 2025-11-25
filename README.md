@@ -94,3 +94,112 @@ hugind config defaults --hf-token hf_xxx               # for gated HF repos
 - `docs/SERVER.md` – server architecture and API surface
 - `docs/SLOT.md` – slot-based memory system and eviction strategy
 - `docs/DEV.md` – notes for contributors
+
+
+## Demo
+
+(base) adel@192 homebrew-hugind % brew install hugind 
+✔︎ JSON API formula.jws.json                                                                                                                                                          [Downloaded   31.7MB/ 31.7MB]
+✔︎ JSON API cask.jws.json                                                                                                                                                             [Downloaded   15.0MB/ 15.0MB]
+==> Fetching downloads for: hugind
+✔︎ Formula hugind (0.1.2)                                                                                                                                                             [Verifying     4.8MB/  4.8MB]
+==> Installing hugind from netdur/hugind
+🍺  /opt/homebrew/Cellar/hugind/0.1.2: 16 files, 12.4MB, built in 1 second
+==> Running `brew cleanup hugind`...
+Disable this behaviour by setting `HOMEBREW_NO_INSTALL_CLEANUP=1`.
+Hide these hints with `HOMEBREW_NO_ENV_HINTS=1` (see `man brew`).
+(base) adel@192 homebrew-hugind % hugind --version
+hugind version 0.1.2
+(base) adel@192 homebrew-hugind % hugind config info
+System Information
+------------------
+OS: macos Version 26.1 (Build 25B78)
+Arch: arm64
+CPU: Apple M1 Max
+Cores: 10 physical / 10 logical
+Memory: 32.0 GB
+Disk: 1858.2 GB total / 1017.2 GB free
+GPUs:
+  - Apple M1 Max (Unknown VRAM)
+
+Recommendation: metal_unified
+(base) adel@192 homebrew-hugind % hugind model list 
+No models found. Run "hugind model add <hf_repo>" to download one.
+(base) adel@192 homebrew-hugind % hugind model add llmware/tiny-llama-chat-gguf
+Fetched file list🔍                                                                                                                                                                                               
+✔ Select files to download (Space to select, Enter to confirm): · tiny-llama-chat.gguf                                                                                                                            
+
+Starting download for 1 file(s)...
+
+Done.
+^C
+(base) adel@192 homebrew-hugind % hugind model list                            
+
+Downloaded Repositories:
+----------------------------------------
+llmware/tiny-llama-chat-gguf
+
+(base) adel@192 homebrew-hugind % hugind config init tiny-llama
+Probing hardware... (this may take a moment)
+System probe complete:
+  CPU: Apple M1 Max (10c/10t)
+  Memory: 32.0 GB
+  GPUs: Apple M1 Max
+Recommended preset: metal_unified
+✔ Choose a hardware preset to apply · metal_unified                                                                                                                                                               
+✔ Select a Model Repository · llmware/tiny-llama-chat-gguf                                                                                                                                                        
+✔ Select the Model File · tiny-llama-chat.gguf                                                                                                                                                                    
+✔ Select Chat Format Template · harmony                                                                                                                                                                           
+
+🧠 Memory Analysis:
+  System RAM: 32.0 GB
+  Model Size: 0.6 GB
+  Est. Max Context: ~30083 tokens
+✔ Select Context Size (Ctx) · 16384 (Recommended)                                                                                                                                                                 
+
+✔ Config written to /Users/adel/.hugind/configs/tiny-llama.yml
+  • Preset: metal_unified
+  • Model: ~/.hugind/llmware/tiny-llama-chat-gguf/tiny-llama-chat.gguf
+  • Library: /opt/homebrew/Cellar/hugind/0.1.2/libexec/libmtmd.dylib
+  • Context: 16384
+(base) adel@192 homebrew-hugind % hugind config list           
+Saved Configs:
+- tiny-llama
+(base) adel@192 homebrew-hugind % hugind server start tiny-llama
+🚀 Initializing Hugind Server (tiny-llama)...
+⚠️  Warning: Vision projector not found at . Vision will be disabled.
+   → Model: /Users/adel/.hugind/llmware/tiny-llama-chat-gguf/tiny-llama-chat.gguf
+   → Context: 16384 (Batch: 2048)
+   → Architecture: 1 Workers / 4 Slots per worker
+   → Deploying 1 engine instance(s)...
+     ✓ Instance #1 ready
+
+✅ Server listening at http://0.0.0.0:8080
+   Local Health: http://127.0.0.1:8080/health
+   OpenAI URL:   http://127.0.0.1:8080/v1
+   Press Ctrl+C to stop.
+
+
+on another terminal
+
+(base) adel@192 hugind % curl -X POST http://127.0.0.1:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "tiny-llama",
+    "messages": [{"role": "user", "content": "say hello"}]    
+  }'
+data: {"id":"chatcmpl-1764031008709","object":"chat.completion.chunk","created":1764031008,"model":"tiny-llama","choices":[{"index":0,"delta":{"content":"Ex"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1764031008716","object":"chat.completion.chunk","created":1764031008,"model":"tiny-llama","choices":[{"index":0,"delta":{"content":"pert"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1764031008721","object":"chat.completion.chunk","created":1764031008,"model":"tiny-llama","choices":[{"index":0,"delta":{"content":"|"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1764031008727","object":"chat.completion.chunk","created":1764031008,"model":"tiny-llama","choices":[{"index":0,"delta":{"content":"user"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1764031008732","object":"chat.completion.chunk","created":1764031008,"model":"tiny-llama","choices":[{"index":0,"delta":{"content":"|"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1764031008739","object":"chat.completion.chunk","created":1764031008,"model":"tiny-llama","choices":[{"index":0,"delta":{"content":"me"},"finish_reason":null}]}
+
+data: [DONE]
+
+(base) adel@192 hugind % 
