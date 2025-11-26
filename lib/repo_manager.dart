@@ -79,9 +79,10 @@ class RepoManager {
   Future<List<String>> fetchHFFiles(String repo) async {
     final uri = Uri.parse('https://huggingface.co/api/models/$repo');
 
+    final client = http.Client();
     try {
       final headers = await _getHeaders();
-      final response = await http
+      final response = await client
           .get(uri, headers: headers)
           .timeout(const Duration(seconds: 10));
 
@@ -98,6 +99,8 @@ class RepoManager {
           .toList();
     } catch (e) {
       throw Exception('Could not connect to Hugging Face: $e');
+    } finally {
+      client.close();
     }
   }
 
@@ -120,45 +123,50 @@ class RepoManager {
       await tempFile.delete();
     }
 
-    final request = http.Request('GET', url);
-    request.headers.addAll(await _getHeaders());
-    final response = await http.Client().send(request);
-
-    if (response.statusCode != 200) {
-      throw Exception(
-          'Failed to download file: ${response.statusCode} ${response.reasonPhrase}');
-    }
-
-    final total = response.contentLength;
-    int received = 0;
-    final sink = tempFile.openWrite();
-
+    final client = http.Client();
     try {
-      await response.stream.listen(
-        (chunk) {
-          sink.add(chunk);
-          received += chunk.length;
-          if (onProgress != null) {
-            onProgress(received, total);
-          }
-        },
-        cancelOnError: true,
-      ).asFuture();
+      final request = http.Request('GET', url);
+      request.headers.addAll(await _getHeaders());
+      final response = await client.send(request);
 
-      await sink.flush();
-      await sink.close();
+      if (response.statusCode != 200) {
+        throw Exception(
+            'Failed to download file: ${response.statusCode} ${response.reasonPhrase}');
+      }
 
-      // Atomic rename: Only allow the file to exist if download succeeded
-      if (await finalFile.exists()) {
-        await finalFile.delete();
+      final total = response.contentLength;
+      int received = 0;
+      final sink = tempFile.openWrite();
+
+      try {
+        await response.stream.listen(
+          (chunk) {
+            sink.add(chunk);
+            received += chunk.length;
+            if (onProgress != null) {
+              onProgress(received, total);
+            }
+          },
+          cancelOnError: true,
+        ).asFuture();
+
+        await sink.flush();
+        await sink.close();
+
+        // Atomic rename: Only allow the file to exist if download succeeded
+        if (await finalFile.exists()) {
+          await finalFile.delete();
+        }
+        await tempFile.rename(finalFile.path);
+      } catch (e) {
+        await sink.close();
+        if (await tempFile.exists()) {
+          await tempFile.delete(); // Cleanup corrupted part
+        }
+        rethrow;
       }
-      await tempFile.rename(finalFile.path);
-    } catch (e) {
-      await sink.close();
-      if (await tempFile.exists()) {
-        await tempFile.delete(); // Cleanup corrupted part
-      }
-      rethrow;
+    } finally {
+      client.close();
     }
   }
 

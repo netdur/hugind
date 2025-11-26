@@ -151,17 +151,20 @@ class ServerStartCommand extends Command {
 
       if (finalLibPath == null) {
         // Check config
-        if (config.libraryPath != null &&
-            File(config.libraryPath!).existsSync()) {
-          finalLibPath = config.libraryPath;
-          // print('   → Library (Config): $finalLibPath');
+        if (config.libraryPath != null) {
+          if (File(config.libraryPath!).existsSync()) {
+            finalLibPath = config.libraryPath;
+          } else {
+            print(
+                '⚠️  Warning: Configured library path not found: ${config.libraryPath}');
+            print('   → Attempting auto-detection...');
+          }
         }
       }
 
       if (finalLibPath == null) {
         // Fallback to auto-detect
         finalLibPath = await _resolveLibraryPath();
-        // if (finalLibPath != null) print('   → Library (Auto): $finalLibPath');
       }
 
       // 3. Validate & Set
@@ -218,41 +221,51 @@ class ServerStartCommand extends Command {
     final envPath = Platform.environment['LIBLLAMA_PATH'];
     if (envPath != null && File(envPath).existsSync()) return envPath;
 
-    // 2. NEW: Check Global Settings (The "Set once, work everywhere" fix)
+    // 2. Check Global Settings
     final globalPath = await GlobalSettings.getLibraryPath();
     if (globalPath != null && File(globalPath).existsSync()) {
       return globalPath;
     }
 
-    // 3. Standard Filenames & Auto-detection logic...
-    String filename;
-    if (Platform.isMacOS)
-      filename = 'libllama.dylib';
-    else if (Platform.isWindows)
-      filename = 'libllama.dll';
-    else
-      filename = 'libllama.so';
-
+    // 3. Auto-detection logic
     final scriptDir = p.dirname(Platform.script.toFilePath());
     final exeDir = p.dirname(Platform.resolvedExecutable);
 
-    final candidates = [
-      // Dev
-      p.join(scriptDir, 'bin', 'MAC_ARM64', filename),
-      p.join(Directory.current.path, 'bin', 'MAC_ARM64', filename),
-      p.join(Directory.current.path, 'bin', filename),
-      // Dist
-      p.join(exeDir, filename),
-      p.join(exeDir, 'lib', filename),
-      // System
-      '/opt/homebrew/lib/$filename',
-      '/usr/local/lib/$filename',
-      '/usr/lib/$filename',
+    // Potential filenames
+    final filenames = <String>[];
+    if (Platform.isMacOS) {
+      filenames.addAll(['libmtmd.dylib', 'libllama.dylib']);
+    } else if (Platform.isWindows) {
+      filenames.add('libllama.dll');
+    } else {
+      filenames.add('libllama.so');
+    }
+
+    // Potential directories
+    final directories = [
+      // Relative to executable (Homebrew Cellar / Dist)
+      exeDir,
+      p.join(exeDir, 'lib'),
+      p.join(exeDir, '../lib'), // Common structure: bin/../lib
+
+      // Dev / Script relative
+      p.join(scriptDir, 'bin', 'MAC_ARM64'),
+      p.join(Directory.current.path, 'bin', 'MAC_ARM64'),
+      p.join(Directory.current.path, 'bin'),
+
+      // System / Homebrew
+      '/opt/homebrew/lib',
+      '/usr/local/lib',
+      '/usr/lib',
     ];
 
-    for (final path in candidates) {
-      if (File(path).existsSync()) return path;
+    for (final dir in directories) {
+      for (final name in filenames) {
+        final path = p.join(dir, name);
+        if (File(path).existsSync()) return path;
+      }
     }
+
     return null;
   }
 }

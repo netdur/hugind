@@ -11,7 +11,7 @@ void main() {
 
   setUp(() async {
     tempDir = await Directory.systemTemp.createTemp('hugind_test_');
-    manager = RepoManager(configDir: tempDir);
+    manager = RepoManager(rootDir: tempDir);
     runner = CommandRunner('hugind', 'Test runner')
       ..addCommand(ModelCommand(manager: manager));
   });

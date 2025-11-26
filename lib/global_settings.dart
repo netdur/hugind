@@ -3,7 +3,12 @@ import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
 class GlobalSettings {
+  static File? _testFile;
+
+  static set testFile(File? file) => _testFile = file;
+
   static File get _file {
+    if (_testFile != null) return _testFile!;
     final env = Platform.environment;
     final home = env['HOME'] ?? env['USERPROFILE'] ?? '.';
     return File(p.join(home, '.hugind', 'settings.yml'));
