@@ -4,10 +4,13 @@ import 'dart:typed_data';
 import 'package:path/path.dart' as p;
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
 import '../config/server_config.dart';
+import 'embedding_worker.dart';
 
 class LlamaEngine {
   final ServerConfig config;
-  final LlamaParent _parent;
+  final bool _embeddingsOnly;
+  final LlamaParent? _parent;
+  final EmbeddingsWorker? _embeddingsWorker;
 
   // --- TIER 1: VRAM (Hot) ---
   final Map<String, LlamaScope> _activeSessions = {};
@@ -24,16 +27,32 @@ class LlamaEngine {
   final Duration _ramTtl = Duration(minutes: 60);
 
   LlamaEngine(this.config)
-      : _parent = LlamaParent(LlamaLoad(
-          path: config.modelPath,
-          modelParams: config.modelParams,
-          contextParams: config.contextParams,
-          samplingParams: config.samplerParams,
-          mmprojPath: config.mmprojPath,
-        ));
+      : _embeddingsOnly = config.embeddingsEnabled,
+        _parent = config.embeddingsEnabled
+            ? null
+            : LlamaParent(LlamaLoad(
+                path: config.modelPath,
+                modelParams: config.modelParams,
+                contextParams: config.contextParams,
+                samplingParams: config.samplerParams,
+                mmprojPath: config.mmprojPath,
+              )),
+        _embeddingsWorker = config.embeddingsEnabled
+            ? EmbeddingsWorker.fromConfig(config)
+            : null;
 
   Future<void> init() async {
-    await _parent.init();
+    if (_embeddingsOnly) {
+      await _embeddingsWorker?.start();
+      return;
+    }
+
+    await _parent!.init();
+
+    // Embedding-only configs do not use session caching.
+    if (config.embeddingsEnabled) {
+      return;
+    }
 
     // Ensure session directory exists
     final dir = Directory('sessions');
@@ -47,7 +66,27 @@ class LlamaEngine {
     });
   }
 
+  Future<List<double>> embed(String input) async {
+    if (!config.embeddingsEnabled) {
+      throw StateError('Embeddings are not enabled for this server.');
+    }
+    final prompt = input.trim();
+    if (prompt.isEmpty) return const [];
+    if (_embeddingsOnly) {
+      final worker = _embeddingsWorker;
+      if (worker == null) {
+        throw StateError('Embedding worker not initialized');
+      }
+      return worker.embed(prompt);
+    }
+    return _parent!.getEmbeddings(prompt);
+  }
+
   Stream<String> generateStream(String userId, List<Message> messages) {
+    if (_embeddingsOnly) {
+      throw StateError('Text generation is disabled in embeddings-only mode.');
+    }
+
     late StreamController<String> controller;
     final scopeCompleter = Completer<LlamaScope>();
 
@@ -72,6 +111,12 @@ class LlamaEngine {
     StreamController<String> controller,
     Completer<LlamaScope> scopeCompleter,
   ) async {
+    if (_parent == null) {
+      controller.addError(
+          StateError('Text generation is disabled in embeddings-only mode.'));
+      await controller.close();
+      return;
+    }
     try {
       LlamaScope scope;
       bool isNewSession = false;
@@ -214,7 +259,11 @@ class LlamaEngine {
     }
 
     // 5. Create new scope
-    final scope = _parent.getScope();
+    final parent = _parent;
+    if (parent == null) {
+      throw StateError('Text generation is disabled in embeddings-only mode.');
+    }
+    final scope = parent.getScope();
     _activeSessions[incomingUserId] = scope;
     return scope;
   }
@@ -261,7 +310,11 @@ class LlamaEngine {
   Future<void> dispose() async {
     print('   💤 Shutting down engine...');
     _maintenanceTimer?.cancel();
-    await _parent.dispose();
+    if (_embeddingsOnly) {
+      await _embeddingsWorker?.dispose();
+    } else {
+      await _parent?.dispose();
+    }
     _activeSessions.clear();
     _ramSessions.clear();
   }

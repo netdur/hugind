@@ -23,6 +23,9 @@ class ConfigLoader {
     final apiKey = server['api_key']?.toString().isEmpty == true
         ? null
         : server['api_key'];
+    final embeddingsRaw = server['embeddings'];
+    final embeddingsEnabled = embeddingsRaw == true ||
+        embeddingsRaw?.toString().toLowerCase() == 'true';
 
     // NEW: Parse Library Path
     String? libPath;
@@ -75,7 +78,8 @@ class ConfigLoader {
       ..flashAttention = _parseFlashAttn(context['flash_attention'])
       ..typeK = _parseCacheType(context['cache_type_k'])
       ..typeV = _parseCacheType(context['cache_type_v'])
-      ..offloadKqv = context['offload_kqv'] ?? true;
+      ..offloadKqv = context['offload_kqv'] ?? true
+      ..embeddings = embeddingsEnabled;
 
     final sampling = yaml['sampling'] ?? {};
     final samplerParams = SamplerParams()
@@ -111,6 +115,7 @@ class ConfigLoader {
       maxSlots: server['max_slots'] ?? 4,
       timeoutSeconds: server['timeout_seconds'] ?? 600,
       systemPrompt: systemPrompt,
+      embeddingsEnabled: embeddingsEnabled,
       modelPath: modelPath,
       mmprojPath: mmprojPath,
       modelParams: modelParams,

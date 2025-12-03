@@ -10,6 +10,7 @@ class ServerConfig {
   final int maxSlots;
   final int timeoutSeconds;
   final String systemPrompt;
+  final bool embeddingsEnabled;
 
   // Engine ID
   final String name;
@@ -32,6 +33,7 @@ class ServerConfig {
     required this.maxSlots,
     required this.timeoutSeconds,
     required this.systemPrompt,
+    required this.embeddingsEnabled,
     required this.modelPath,
     this.mmprojPath,
     required this.modelParams,

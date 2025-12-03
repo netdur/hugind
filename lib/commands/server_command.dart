@@ -208,6 +208,7 @@ class ServerStartCommand extends Command {
       maxSlots: c.maxSlots,
       timeoutSeconds: c.timeoutSeconds,
       systemPrompt: c.systemPrompt,
+      embeddingsEnabled: c.embeddingsEnabled,
       modelPath: c.modelPath,
       mmprojPath: c.mmprojPath,
       modelParams: c.modelParams,

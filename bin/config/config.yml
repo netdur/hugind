@@ -11,6 +11,8 @@ server:
   port: 8080                         # TCP Port
   api_key: ""                        # Optional Bearer token for security
   
+  embeddings: false
+
   # Architecture Settings
   concurrency: 1                     # Number of Llama Isolates to spawn (Replicas)
   max_slots: 4                       # Max concurrent users per Isolate (Context Swapping)

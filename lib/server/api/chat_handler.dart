@@ -31,6 +31,14 @@ class ChatHandler {
       }).toList();
 
       final engine = EngineManager.instance.getEngineForUser(userId);
+      if (engine.config.embeddingsEnabled) {
+        return Response(
+          400,
+          body: jsonEncode(
+              {'error': 'This server is configured for embeddings only.'}),
+          headers: {'content-type': 'application/json'},
+        );
+      }
       final tokenStream = engine.generateStream(userId, messages);
 
       // Create the SSE byte stream with [DONE] signal

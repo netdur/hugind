@@ -10,6 +10,7 @@ import 'config/server_config.dart';
 import 'engine/engine_manager.dart';
 import 'api/chat_handler.dart';
 import 'api/models_handler.dart'; // <--- Import
+import 'api/embeddings_handler.dart';
 
 Future<void> bootstrapServer(ServerConfig config) async {
   await _checkPortAvailability(config.host, config.port);
@@ -19,6 +20,9 @@ Future<void> bootstrapServer(ServerConfig config) async {
       '   → Context: ${config.contextParams.nCtx} (Batch: ${config.contextParams.nBatch})');
   print(
       '   → Architecture: ${config.concurrency} Workers / ${config.maxSlots} Slots per worker');
+  if (config.embeddingsEnabled) {
+    print('   → Mode: embeddings-only (chat completions disabled)');
+  }
 
   try {
     await EngineManager.instance.deploy(config);
@@ -37,7 +41,11 @@ Future<void> bootstrapServer(ServerConfig config) async {
   });
 
   // 2. Chat Completions
-  app.post('/v1/chat/completions', ChatHandler());
+  if (config.embeddingsEnabled) {
+    app.post('/v1/embeddings', EmbeddingsHandler());
+  } else {
+    app.post('/v1/chat/completions', ChatHandler());
+  }
 
   // 3. List Models (NEW)
   app.get('/v1/models', ModelsHandler());
