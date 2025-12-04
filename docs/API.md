@@ -26,9 +26,9 @@ OpenAI-compatible endpoints exposed by the Hugind server, plus unsupported ones 
 | --- | --- | --- | --- |
 | Prompt (`prompt`) | Required text/array | Yes | Yes |
 | Model (`model`) | Selects model id | Yes | Yes |
-| Max tokens (`max_tokens`) | Truncates output | Yes | Stub (ignored) |
-| Temperature/`top_p`/`top_k` | Sampling controls | Yes | Stub (ignored) |
-| Stop sequences (`stop`) | Halts on match | Yes | Stub (ignored) |
+| Max tokens (`max_tokens`) | Truncates output | Yes | No (sampler fixed at startup) |
+| Temperature/`top_p`/`top_k` | Sampling controls | Yes | No (set in config only) |
+| Stop sequences (`stop`) | Halts on match | Yes | No (set in config only) |
 | Logprobs (`logprobs`, `top_logprobs`) | Token probabilities | Yes | No |
 | `echo` | Returns prompt tokens | Yes | No |
 | `n` (multiple choices) | Generate N completions | Yes | Partial (non-stream only, sequential) |
@@ -43,7 +43,7 @@ OpenAI-compatible endpoints exposed by the Hugind server, plus unsupported ones 
 | --- | --- | --- |
 | Auth parity | Config field unused | Enforce `api_key` in handlers and document header format. |
 | Error/compat polish | Partial | Align response fields/codes with OpenAI spec across endpoints; add token usage accounting. |
-| Sampling parity | Partial | Wire `max_tokens`, `stop`, temperature/top_p/top_k into sampler params. |
+| Sampling parity | Partial | Per-request sampling is ignored today (llama.cpp sampler params set at startup). Either expose per-request overrides or document as config-only. |
 | Completions parity | Partial | Add `logprobs`, `echo`, proper `n` fan-out, and JSON mode if desired. |
 | Embeddings polish | Implemented | Document batching/limits and model selection; consider usage tokens. |
 
@@ -53,6 +53,7 @@ OpenAI-compatible endpoints exposed by the Hugind server, plus unsupported ones 
 - Sessions: Providing a stable `user` string reuses cached context across requests.
 - Streaming: `/v1/chat/completions` always streams SSE chunks; `/v1/completions` supports both streaming (`stream: true`) and buffered responses.
 - Embeddings: `/v1/embeddings` is available only when the server is started in embeddings-enabled mode (`server.embeddings: true` in config).
+- Vision: `/v1/chat/completions` supports image inputs when running a vision-capable model with mmproj. Use OpenAI-style content parts (`type: text` + `type: image_url` with a `data:` URL or local file path/`file://...`). Remote HTTP fetches are not supported by the server.
 
 ## Examples / Tests
 See integration-style examples in `test/api/*.dart`. They are marked `skip` by default; run with a live server using `--run-skipped`, e.g.:

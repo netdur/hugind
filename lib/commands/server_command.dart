@@ -21,6 +21,7 @@ class ServerCommand extends Command {
   ServerCommand() {
     addSubcommand(ServerListCommand());
     addSubcommand(ServerStartCommand());
+    addSubcommand(ServerStopCommand());
   }
 }
 
@@ -268,6 +269,78 @@ class ServerStartCommand extends Command {
     }
 
     return null;
+  }
+}
+
+// =============================================================================
+// 3. STOP (HELPER) COMMAND
+// =============================================================================
+class ServerStopCommand extends Command {
+  @override
+  final String name = 'stop';
+  @override
+  final String description =
+      'Print OS-specific commands to stop a running server for a config.';
+
+  @override
+  Future<void> run() async {
+    if (argResults!.rest.isEmpty) {
+      print('Usage: hugind server stop <config_name>');
+      return;
+    }
+
+    final configName = argResults!.rest.first;
+    final configPath = p.join(_configHome(), 'configs', '$configName.yml');
+
+    if (!File(configPath).existsSync()) {
+      print('❌ Config "$configName" not found at $configPath');
+      return;
+    }
+
+    // Load just enough to read host/port.
+    String host = '127.0.0.1';
+    int port = 8080;
+    try {
+      final content = await File(configPath).readAsString();
+      final yaml = loadYaml(content);
+      final serverConfig = yaml['server'] as Map?;
+      host = serverConfig?['host']?.toString() ?? host;
+      port = int.tryParse(serverConfig?['port']?.toString() ?? '') ?? port;
+    } catch (_) {
+      // ignore parse errors, keep defaults
+    }
+
+    print('ℹ️  Target: $configName on $host:$port');
+
+    final url = Uri.parse('http://$host:$port/health');
+    try {
+      final response =
+          await http.get(url).timeout(const Duration(milliseconds: 500));
+      if (response.statusCode == 200) {
+        print('🟢 Detected a running server on $host:$port');
+      } else {
+        print('⚠️ Health check returned ${response.statusCode}; server may not be running.');
+      }
+    } catch (_) {
+      print('⚪️ No response on $host:$port (may already be stopped).');
+    }
+
+    print('\nTo stop a process on port $port:');
+    if (Platform.isMacOS) {
+      print('  lsof -i :$port');
+      print('  kill <PID>');
+    } else if (Platform.isLinux) {
+      print('  lsof -i :$port');
+      print('  kill <PID>');
+      print('  # or: fuser -k $port/tcp');
+    } else if (Platform.isWindows) {
+      print('  netstat -ano | findstr :$port');
+      print('  taskkill /PID <PID> /F');
+    } else {
+      print('  (Unknown OS) Use a port/PID lister to find and kill the process.');
+    }
+
+    print('\nIf you started the server in this shell, Ctrl+C will stop it.');
   }
 }
 

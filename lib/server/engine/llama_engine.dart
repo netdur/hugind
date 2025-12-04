@@ -169,9 +169,7 @@ class LlamaEngine {
 
       final history = ChatHistory();
       for (var m in messages)
-        history.addMessage(role: m.role, content: m.content);
-
-      String prompt;
+        history.addMessage(role: m.role, content: m.content, images: m.images);
 
       if (isNewSession || restoredFromState) {
         if (history.messages.isEmpty ||
@@ -179,6 +177,18 @@ class LlamaEngine {
           history.messages.insert(
               0, Message(role: Role.system, content: config.systemPrompt));
         }
+      }
+
+      final hasImages = history.images.isNotEmpty;
+      String prompt;
+      List<LlamaInput>? mediaInputs;
+
+      if (hasImages) {
+        final exported =
+            history.exportWithMedia(format, leaveLastAssistantOpen: true);
+        prompt = exported.$1;
+        mediaInputs = exported.$2;
+      } else if (isNewSession || restoredFromState) {
         prompt = history.exportFormat(format, leaveLastAssistantOpen: true);
       } else {
         prompt = history.getLatestTurn(format);
@@ -193,7 +203,17 @@ class LlamaEngine {
       // 3. EXECUTE
       // ---------------------------------------------------------
       print('   🧠 Processing prompt for $userId (${prompt.length} chars)...');
-      final promptId = await scope.sendPrompt(prompt);
+
+      String promptId;
+      if (hasImages) {
+        final inputs = (mediaInputs ?? []).whereType<LlamaImage>().toList();
+        if (inputs.isEmpty) {
+          throw StateError('Missing image inputs for multimodal request.');
+        }
+        promptId = await scope.sendPromptWithImages(prompt, inputs);
+      } else {
+        promptId = await scope.sendPrompt(prompt);
+      }
 
       StreamSubscription? subText;
       StreamSubscription? subDone;
