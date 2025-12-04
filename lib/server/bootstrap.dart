@@ -11,6 +11,7 @@ import 'engine/engine_manager.dart';
 import 'api/chat_handler.dart';
 import 'api/models_handler.dart'; // <--- Import
 import 'api/embeddings_handler.dart';
+import 'api/completions_handler.dart';
 
 Future<void> bootstrapServer(ServerConfig config) async {
   await _checkPortAvailability(config.host, config.port);
@@ -45,6 +46,7 @@ Future<void> bootstrapServer(ServerConfig config) async {
     app.post('/v1/embeddings', EmbeddingsHandler());
   } else {
     app.post('/v1/chat/completions', ChatHandler());
+    app.post('/v1/completions', CompletionsHandler());
   }
 
   // 3. List Models (NEW)
