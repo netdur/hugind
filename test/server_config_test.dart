@@ -29,18 +29,16 @@ void main() {
       // Create config file
       final configContent = '''
 model:
-  model_path: ${modelFile.path}
+  path: ${modelFile.path}
   mmproj_path: ""
-
-device:
   gpu_layers: 33
-  mlock: false
-  no_mmap: false
+  use_mlock: false
+  use_mmap: true
 
 context:
-  ctx_size: 2048
+  size: 2048
   batch_size: 512
-  flash_attn: true
+  flash_attention: true
 
 sampling:
   temp: 0.7
@@ -52,8 +50,7 @@ server:
       final configFile = File(p.join(tempDir.path, 'test_config.yml'));
       await configFile.writeAsString(configContent);
 
-      final config =
-          await ConfigLoader.load('test_config', configDir: tempDir.path);
+      final config = await ConfigLoader.load(configFile.path);
 
       expect(config.name, equals('test_config'));
       expect(config.modelPath, equals(modelFile.path));
@@ -63,7 +60,7 @@ server:
           equals(LlamaFlashAttnType.enabled));
       expect(config.samplerParams.temp, equals(0.7));
       expect(config.samplerParams.topK, equals(50));
-      expect(config.serverParams.port, equals(9090));
+      expect(config.port, equals(9090));
     });
   });
 }

@@ -19,7 +19,12 @@ class ChatHandler {
         return Response(400, body: 'Missing messages');
 
       final rawMessages = json['messages'] as List;
-      final userId = json['user']?.toString() ?? 'default_session';
+
+      // Check for X-Session-ID header for stateful session management
+      String userId = request.headers['x-session-id'] ??
+          request.headers['X-Session-ID'] ??
+          json['user']?.toString() ??
+          'default_session';
 
       // VISUAL LOG: Incoming
       print(
@@ -157,8 +162,8 @@ class ChatHandler {
       }
       final base64Data = url.substring(commaIndex + 1);
       final bytes = base64.decode(base64Data);
-      final tmp =
-          File('${Directory.systemTemp.path}/hugind_img_${DateTime.now().microsecondsSinceEpoch}.bin');
+      final tmp = File(
+          '${Directory.systemTemp.path}/hugind_img_${DateTime.now().microsecondsSinceEpoch}.bin');
       tmp.writeAsBytesSync(bytes);
       tempFiles.add(tmp.path);
       return tmp.path;

@@ -124,7 +124,6 @@ class LlamaEngine {
     try {
       LlamaScope scope;
       bool isNewSession = false;
-      bool restoredFromState = false;
 
       // ---------------------------------------------------------
       // 1. RESOLVE SESSION (Tier 1 -> Tier 2 -> Tier 3 -> New)
@@ -142,14 +141,12 @@ class LlamaEngine {
         final stateData = _ramSessions[userId]!;
         await scope.loadState(stateData); // Restore memory
         _ramSessions.remove(userId);
-        restoredFromState = true;
       } else if (_diskSessionExists(userId)) {
         // [TIER 3] COLD HIT: User is on Disk, needs a VRAM slot
         print('   💾 [Tier 3] Disk Hit: $userId. Loading from file...');
         scope = await _allocateSlotWithEviction(userId);
 
         await scope.loadSession(_getDiskPath(userId));
-        restoredFromState = true;
       } else {
         // [NEW] No history found
         print('   ✨ [New] Creating fresh session: $userId');
@@ -175,7 +172,7 @@ class LlamaEngine {
       for (var m in messages)
         history.addMessage(role: m.role, content: m.content, images: m.images);
 
-      if (isNewSession || restoredFromState) {
+      if (isNewSession) {
         if (history.messages.isEmpty ||
             history.messages.first.role != Role.system) {
           history.messages.insert(
@@ -192,9 +189,10 @@ class LlamaEngine {
             history.exportWithMedia(format, leaveLastAssistantOpen: true);
         prompt = exported.$1;
         mediaInputs = exported.$2;
-      } else if (isNewSession || restoredFromState) {
+      } else if (isNewSession) {
         prompt = history.exportFormat(format, leaveLastAssistantOpen: true);
       } else {
+        // Active OR Restored session: Just append the latest turn
         prompt = history.getLatestTurn(format);
       }
 
