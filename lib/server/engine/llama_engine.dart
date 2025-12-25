@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
 import '../config/server_config.dart';
 import 'embedding_worker.dart';
+import '../../global_settings.dart';
 
 class LlamaEngine {
   final ServerConfig config;
@@ -25,6 +26,8 @@ class LlamaEngine {
   // Maintenance Timer for Tier 2 -> Tier 3 migration
   Timer? _maintenanceTimer;
   final Duration _ramTtl = Duration(minutes: 60);
+
+  late Directory _sessionsDir;
 
   LlamaEngine(this.config)
       : _embeddingsOnly = config.embeddingsEnabled,
@@ -55,9 +58,10 @@ class LlamaEngine {
     }
 
     // Ensure session directory exists
-    final dir = Directory('sessions');
-    if (!await dir.exists()) {
-      await dir.create();
+    final sessionsPath = await GlobalSettings.getSessionsPath();
+    _sessionsDir = Directory(sessionsPath);
+    if (!await _sessionsDir.exists()) {
+      await _sessionsDir.create(recursive: true);
     }
 
     // Start background maintenance loop (Every 1 minute)
@@ -324,7 +328,7 @@ class LlamaEngine {
 
   String _getDiskPath(String userId) {
     final safeId = userId.replaceAll(RegExp(r'[^\w\-]'), '_');
-    return p.join('sessions', '$safeId.bin');
+    return p.join(_sessionsDir.path, '$safeId.bin');
   }
 
   Future<void> dispose() async {

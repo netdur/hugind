@@ -49,4 +49,14 @@ class GlobalSettings {
     final data = await load();
     return data['hf_token']?.toString();
   }
+
+  static Future<String> getSessionsPath() async {
+    final data = await load();
+    if (data['sessions_path'] != null) {
+      return data['sessions_path'].toString();
+    }
+    final env = Platform.environment;
+    final home = env['HOME'] ?? env['USERPROFILE'] ?? '.';
+    return p.join(home, '.hugind', 'sessions');
+  }
 }
