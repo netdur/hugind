@@ -52,7 +52,46 @@ Future<void> bootstrapServer(ServerConfig config) async {
   // 3. List Models (NEW)
   app.get('/v1/models', ModelsHandler());
 
-  final handler = Pipeline().addMiddleware(logRequests()).addHandler(app.call);
+  var pipeline = Pipeline().addMiddleware(logRequests());
+
+  // Auth Middleware
+  if (config.apiKey != null && config.apiKey!.isNotEmpty) {
+    pipeline = pipeline.addMiddleware((innerHandler) {
+      return (request) {
+        // Skip auth for health
+        if (request.url.path == 'health') return innerHandler(request);
+
+        final auth = request.headers['Authorization'];
+        String? token;
+        if (auth != null && auth.startsWith('Bearer ')) {
+          token = auth.substring(7);
+        } else if (auth != null && auth.startsWith('Basic ')) {
+          // Some clients (like older OpenAI libs) might rely on Basic?
+          // Standard is Bearer for OpenAI. Let's support just key checks.
+          // Actually, some clients send API key as a username with empty password in Basic auth.
+          // Let's stick to Bearer for now, as that is the OpenAI standard key transport.
+        }
+
+        // Also check if provided as query param (unlikely for OpenAI but handy)
+        if (token == null && request.url.queryParameters.containsKey('key')) {
+          token = request.url.queryParameters['key'];
+        }
+
+        if (token != config.apiKey) {
+          return Response.forbidden(
+              jsonEncode({
+                'error': {'message': 'Invalid API Key', 'type': 'auth_error'}
+              }),
+              headers: {'content-type': 'application/json'});
+        }
+
+        return innerHandler(request);
+      };
+    });
+    print('   🔒 Auth Enabled: API Key required (Bearer <token>)');
+  }
+
+  final handler = pipeline.addHandler(app.call);
 
   final server = await shelf_io.serve(handler, config.host, config.port);
 

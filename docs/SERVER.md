@@ -27,20 +27,17 @@ Server configurations are stored in `~/.hugind/configs/*.yml` and follow the sta
 ```yaml
 # --- Core Model Settings ---
 model:
-  model_path: /path/to/model.gguf
+  path: /path/to/model.gguf
   mmproj_path: /path/to/mmproj-model-f16.gguf # Optional (Vision)
-
-# --- Hardware & Acceleration ---
-device:
   gpu_layers: 99        # Number of layers to offload to GPU
-  mlock: false
-  no_mmap: false
+  use_mlock: false
+  use_mmap: false
 
 # --- Context & Batching ---
 context:
-  ctx_size: 4096        # Max context length
+  size: 4096            # Max context length
   batch_size: 512       # Batch size for prompt processing
-  flash_attn: true      # Flash Attention
+  flash_attention: true # Flash Attention
 
 # --- Sampling Strategy ---
 sampling:
@@ -56,7 +53,7 @@ server:
   api_key: "secret-key"
 ```
 
-## Usage (Planned)
+## Usage
 
 Start the server with a specific configuration:
 
@@ -72,12 +69,6 @@ You can also override the port:
 hugind server start my-config --port 9090
 ```
 
-Or load all available configs automatically:
-
-```bash
-hugind server start --autoload
-```
-
 ### List Running Models
 
 To see which models are currently loaded on the server:
@@ -86,7 +77,7 @@ To see which models are currently loaded on the server:
 hugind server list
 ```
 
-## API Endpoints (Planned)
+## API Endpoints
 
 ### `POST /v1/chat/completions`
 

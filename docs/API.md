@@ -41,16 +41,16 @@ OpenAI-compatible endpoints exposed by the Hugind server, plus unsupported ones 
 ## Plan to Close Gap with vLLM
 | Item | Current State | Next Steps |
 | --- | --- | --- |
-| Auth parity | Config field unused | Enforce `api_key` in handlers and document header format. |
+| Auth parity | Implemented | Enforced when `server.api_key` is set in config. Supports Bearer token. |
 | Error/compat polish | Partial | Align response fields/codes with OpenAI spec across endpoints; add token usage accounting. |
 | Sampling parity | Partial | Per-request sampling is ignored today (llama.cpp sampler params set at startup). Either expose per-request overrides or document as config-only. |
 | Completions parity | Partial | Add `logprobs`, `echo`, proper `n` fan-out, and JSON mode if desired. |
 | Embeddings polish | Implemented | Document batching/limits and model selection; consider usage tokens. |
 
 ## Behavior Notes
-- Authentication: Config supports `server.api_key`, but current handlers do not enforce it; run behind your own auth/reverse proxy if needed.
+- Authentication: Config supports `server.api_key`. If set, requests must include `Authorization: Bearer <key>`.
 - Model id: The `model` field in requests should match the config name used at startup (e.g., `tiny-llama`).
-- Sessions: Providing a stable `user` string reuses cached context across requests.
+- Sessions: Providing an `X-Session-ID` header allows reusing cached context across requests (Stateful Mode).
 - Streaming: `/v1/chat/completions` always streams SSE chunks; `/v1/completions` supports both streaming (`stream: true`) and buffered responses.
 - Embeddings: `/v1/embeddings` is available only when the server is started in embeddings-enabled mode (`server.embeddings: true` in config).
 - Vision: `/v1/chat/completions` supports image inputs when running a vision-capable model with mmproj. Use OpenAI-style content parts (`type: text` + `type: image_url` with a `data:` URL or local file path/`file://...`). Remote HTTP fetches are not supported by the server.

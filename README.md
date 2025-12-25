@@ -55,16 +55,17 @@ hugind config defaults --hf-token hf_xxx               # for gated HF repos
 
 4. **Call the API** (OpenAI-compatible)  
    ```bash
+   ```bash
    curl http://localhost:8080/v1/chat/completions \
      -H "Content-Type: application/json" \
+     -H "X-Session-ID: my-chat-session-1" \
      -d '{
        "model": "my-chat-bot",
-       "user": "alice",
        "messages": [{"role": "user", "content": "Hello!"}],
        "stream": true
      }'
    ```
-   Use a stable `"user"` id to reuse the cached context without resending history.
+   Use the `X-Session-ID` header to reuse cached context without resending history.
 
 ## CLI Reference
 - `hugind model add <user/repo>` – interactive GGUF downloader from Hugging Face  
