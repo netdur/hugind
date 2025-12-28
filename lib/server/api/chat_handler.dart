@@ -10,6 +10,7 @@ import '../engine/engine_manager.dart';
 class ChatHandler {
   Future<Response> call(Request request) async {
     final tempFiles = <String>[];
+    Stream<List<int>>? outboundStream;
     try {
       final bodyString = await request.readAsString();
       if (bodyString.isEmpty) return Response(400, body: 'Missing body');
@@ -57,29 +58,35 @@ class ChatHandler {
 
       // Create the SSE byte stream with [DONE] signal
       Stream<List<int>> sseStream() async* {
-        await for (final token in tokenStream) {
-          final chunk = {
-            "id": "chatcmpl-${DateTime.now().millisecondsSinceEpoch}",
-            "object": "chat.completion.chunk",
-            "created": DateTime.now().millisecondsSinceEpoch ~/ 1000,
-            "model": engine.config.name,
-            "choices": [
-              {
-                "index": 0,
-                "delta": {"content": token},
-                "finish_reason": null
-              }
-            ]
-          };
-          yield utf8.encode('data: ${jsonEncode(chunk)}\n\n');
-        }
+        try {
+          await for (final token in tokenStream) {
+            final chunk = {
+              "id": "chatcmpl-${DateTime.now().millisecondsSinceEpoch}",
+              "object": "chat.completion.chunk",
+              "created": DateTime.now().millisecondsSinceEpoch ~/ 1000,
+              "model": engine.config.name,
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {"content": token},
+                  "finish_reason": null
+                }
+              ]
+            };
+            yield utf8.encode('data: ${jsonEncode(chunk)}\n\n');
+          }
 
-        // OpenAI Spec: Signal end of stream
-        yield utf8.encode('data: [DONE]\n\n');
+          // OpenAI Spec: Signal end of stream
+          yield utf8.encode('data: [DONE]\n\n');
+        } finally {
+          _cleanupTempFiles(tempFiles);
+        }
       }
 
+      outboundStream = sseStream();
+
       return Response.ok(
-        sseStream(),
+        outboundStream,
         context: {"shelf.io.buffer_output": false},
         headers: {
           'Content-Type': 'text/event-stream',
@@ -99,11 +106,30 @@ class ChatHandler {
       return Response.internalServerError(
           body: jsonEncode({'error': e.toString()}));
     } finally {
-      // Clean up any temp files created for data URLs.
-      for (final path in tempFiles) {
-        try {
+      // If we did NOT create a stream, we must clean up now.
+      // If we DID create a stream, the stream handles cleanup.
+      if (outboundStream == null) {
+        print('   ⚠️ outboundStream is null, forcing cleanup immediately.');
+        _cleanupTempFiles(tempFiles);
+      } else {
+        print('   ✅ outboundStream created, deferring cleanup.');
+      }
+    }
+  }
+
+  void _cleanupTempFiles(List<String> tempFiles) {
+    if (tempFiles.isEmpty) return;
+    print('   🧹 Cleaning up ${tempFiles.length} temp files...');
+    for (final path in tempFiles) {
+      try {
+        if (File(path).existsSync()) {
           File(path).deleteSync();
-        } catch (_) {}
+          print('      - Deleted $path');
+        } else {
+          print('      - File not found: $path');
+        }
+      } catch (e) {
+        print('      - Error deleting $path: $e');
       }
     }
   }
@@ -138,6 +164,7 @@ class ChatHandler {
             throw ArgumentError('Invalid image_url content');
           }
           final path = _materializeImage(url, tempFiles);
+          print('   📷 Processed Attachment: $path');
           addImagePath(path);
         }
       }
@@ -146,6 +173,7 @@ class ChatHandler {
     if (imagesField is List) {
       for (final img in imagesField) {
         final path = _materializeImage(img.toString(), tempFiles);
+        print('   📷 Processed Attachment (legacy): $path');
         addImagePath(path);
       }
     }

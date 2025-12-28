@@ -1,207 +1,164 @@
-# Hugind
+# Hugind 🦅
 
-Hugind is a native, stateful inference server for local LLMs. It wraps `llama.cpp` via `llama_cpp_dart`, manages your GGUF library, generates hardware-aware configs, and serves an OpenAI-compatible API with automatic session persistence across VRAM, RAM, and disk.
+> **Native, Stateful, High-Performance Inference Server for Local LLMs.**
 
-## Features
-- Native performance with Metal, CUDA, or CPU-only presets (Flash Attention, mmap/offload tuned per platform)
-- Stateful slots: per-user KV cache that hibernates to RAM/disk when VRAM is full, then resumes instantly
-- OpenAI-compatible `/v1/chat/completions` endpoint plus `/v1/models` and `/health`
-- Multi-tenant by design: configurable workers (`concurrency`) and per-worker slot limits (`max_slots`)
-- Guided setup: hardware probe, context-size calculator, chat-format templates, and interactive model download
+Hugind turns your local machine into a production-grade AI inference backend. It wraps `llama.cpp` with a smart management layer, providing an OpenAI-compatible API that features **automatic state persistence**, efficient **resource management**, and a **developer-friendly CLI**.
 
-## Installation
+Powered by [llama_cpp_dart](https://github.com/netdur/llama_cpp_dart).
+
+---
+
+## ⚡️ Key Features
+
+*   **🚀 Native Performance**: Optimized presets for **Apple Silicon (Metal)**, **CUDA**, and CPU-only environments. Tuned for maximum throughput and low latency.
+*   **🧠 Stateful Memory System**: A unique **3-tier architecture** (VRAM → RAM → Disk) that persists user sessions. 
+    *   **Hot**: Active slots stay in VRAM for instant access.
+    *   **Warm**: Idle sessions map to system RAM when VRAM is full.
+    *   **Cold**: Long-term storage hibernates to disk, surviving server restarts.
+*   **🛠️ "Smart" CLI**: No more 50-flag command lines. Use the **interactive wizard** to probe your hardware, calculate safe context limits, and generate clean YAML configs.
+*   **🔌 OpenAI Compatible**: Drop-in replacement for your existing apps. Supports `/v1/chat/completions` (with streaming) and `/v1/models`.
+*   **👥 True Multi-Tenancy**: Designed to handle 100+ concurrent user sessions efficiently using time-slicing and LRU eviction.
+
+---
+
+## 📦 Installation
+
+### Option 1: Homebrew (macOS)
+The easiest way to get started on macOS.
 ```bash
 brew install hugind
 ```
 
-Or build locally (requires Dart):
+### Option 2: Build from Source
+Requires the Dart SDK (3.0+).
 ```bash
-git clone https://github.com/your-username/hugind.git
+git clone https://github.com/netdur/hugind.git
 cd hugind
 bash build.sh
 export PATH="$PATH:$(pwd)/bin"
 ```
 
-One-time defaults (library path and optional Hugging Face token):
+### ⚙️ One-Time Setup
+Hugind needs to know where your `libllama` shared library is.
 ```bash
-hugind config defaults --lib /path/to/libllama.dylib   # macOS
-# or
-hugind config defaults --lib /path/to/libllama.so      # Linux
-hugind config defaults --hf-token hf_xxx               # for gated HF repos
+# macOS
+hugind config defaults --lib /path/to/libllama.dylib
+
+# Linux
+hugind config defaults --lib /path/to/libllama.so
+
+# Optional: Set token for gated Hugging Face models
+hugind config defaults --hf-token hf_your_token_here
 ```
 
-## Quickstart
-1. **Download a model**  
-   ```bash
-   hugind model add TheBloke/Mistral-7B-Instruct-v0.2-GGUF
-   ```
-   Models live in `~/.hugind/<user>/<repo>/*.gguf`.
+---
 
-2. **Generate a config** (hardware probe + wizard)  
-   ```bash
-   hugind config init my-chat-bot
-   ```
-   - Picks a preset (`metal_unified`, `cuda_dedicated`, `cpu_only`) and suggests context length based on RAM and model size  
-   - Finds sibling vision projectors (`mmproj`) and detects chat format (`auto/chatml/gemma/alpaca/harmony`)  
-   - Saves to `~/.hugind/configs/my-chat-bot.yml`
+## 🚀 Quick Start
 
-3. **Start the server**  
-   ```bash
-   hugind server start my-chat-bot
-   # optional: override port or lib path
-   # hugind server start my-chat-bot --port 9090 --lib /custom/libllama.dylib
-   ```
-   Outputs URLs for `/health`, `/v1/chat/completions`, and `/v1/models`.
-
-4. **Call the API** (OpenAI-compatible)  
-   ```bash
-   ```bash
-   curl http://localhost:8080/v1/chat/completions \
-     -H "Content-Type: application/json" \
-     -H "X-Session-ID: my-chat-session-1" \
-     -d '{
-       "model": "my-chat-bot",
-       "messages": [{"role": "user", "content": "Hello!"}],
-       "stream": true
-     }'
-   ```
-   Use the `X-Session-ID` header to reuse cached context without resending history.
-
-## CLI Reference
-- `hugind model add <user/repo>` – interactive GGUF downloader from Hugging Face  
-- `hugind model list` / `show <user/repo>` / `remove <user/repo>` – manage local weights
-- `hugind config info` – probe hardware and recommend a preset
-- `hugind config init <name>` – create a YAML config via wizard (stores in `~/.hugind/configs/`)
-- `hugind config list` / `remove <name>` – manage saved configs
-- `hugind config defaults --lib … --hf-token …` – global defaults in `~/.hugind/settings.yml`
-- `hugind server list` – show configs and whether their ports are live
-- `hugind server start <config>` – run the OpenAI-compatible server
-
-## Architecture Highlights
-- **Slots & eviction:** LRU slots in VRAM; inactive sessions spill to RAM, then archive to `sessions/*.bin` on disk with a background sweeper. Returning users reload instantly.  
-- **Time-slicing:** Prioritizes single-user latency over continuous batching; each active user gets full compute during their turn.  
-- **Config-driven:** YAML maps directly to `llama.cpp` parameters (model path, GPU offload, context, sampling, server host/port/API key).
-
-## Directory Layout
-- Configs: `~/.hugind/configs/*.yml`
-- Global defaults: `~/.hugind/settings.yml`
-- Models: `~/.hugind/<user>/<repo>/*.gguf`
-- Vision/draft helpers: auto-detected next to the selected model when present
-
-## Documentation
-- `docs/USER.md` – overview and workflow
-- `docs/MODEL.md` – model management commands and storage layout
-- `docs/CONFIG.md` – config wizard, presets, and templates
-- `docs/SERVER.md` – server architecture and API surface
-- `docs/SLOT.md` – slot-based memory system and eviction strategy
-- `docs/DEV.md` – notes for contributors
-
-
-## Demo
-
+### 1. Download a Model
+Use the interactive downloader to fetch GGUF files directly from Hugging Face.
 ```bash
-(base) adel@192 homebrew-hugind % brew install hugind 
-✔︎ JSON API formula.jws.json                                                                                                                                                          [Downloaded   31.7MB/ 31.7MB]
-✔︎ JSON API cask.jws.json                                                                                                                                                             [Downloaded   15.0MB/ 15.0MB]
-==> Fetching downloads for: hugind
-✔︎ Formula hugind (0.1.2)                                                                                                                                                             [Verifying     4.8MB/  4.8MB]
-==> Installing hugind from netdur/hugind
-🍺  /opt/homebrew/Cellar/hugind/0.1.2: 16 files, 12.4MB, built in 1 second
-==> Running `brew cleanup hugind`...
-Disable this behaviour by setting `HOMEBREW_NO_INSTALL_CLEANUP=1`.
-Hide these hints with `HOMEBREW_NO_ENV_HINTS=1` (see `man brew`).
-(base) adel@192 homebrew-hugind % hugind --version
-hugind version 0.1.2
-(base) adel@192 homebrew-hugind % hugind config info
-System Information
-------------------
-OS: macos Version 26.1 (Build 25B78)
-Arch: arm64
-CPU: Apple M1 Max
-Cores: 10 physical / 10 logical
-Memory: 32.0 GB
-Disk: 1858.2 GB total / 1017.2 GB free
-GPUs:
-  - Apple M1 Max (Unknown VRAM)
+hugind model add google/gemma-2-9b-it-GGUF
+# Follow the prompts to select quantization (e.g., Q4_K_M)
+```
 
-Recommendation: metal_unified
-(base) adel@192 homebrew-hugind % hugind model list 
-No models found. Run "hugind model add <hf_repo>" to download one.
-(base) adel@192 homebrew-hugind % hugind model add llmware/tiny-llama-chat-gguf
-Fetched file list🔍                                                                                                                                                                                               
-✔ Select files to download (Space to select, Enter to confirm): · tiny-llama-chat.gguf                                                                                                                            
+### 2. Create a Config
+Run the hardware probe wizard. It detects your GPU/RAM and recommends settings to prevent OOM crashes.
+```bash
+hugind config init my-assistant
+# 1. Select Preset (e.g., metal_unified)
+# 2. Select Model (e.g., gemma-2-9b)
+# 3. Select Chat Format (e.g., gemma)
+# 4. Confirm Context Size (auto-calculated)
+```
 
-Starting download for 1 file(s)...
-
-Done.
-^C
-(base) adel@192 homebrew-hugind % hugind model list                            
-
-Downloaded Repositories:
-----------------------------------------
-llmware/tiny-llama-chat-gguf
-
-(base) adel@192 homebrew-hugind % hugind config init tiny-llama
-Probing hardware... (this may take a moment)
-System probe complete:
-  CPU: Apple M1 Max (10c/10t)
-  Memory: 32.0 GB
-  GPUs: Apple M1 Max
-Recommended preset: metal_unified
-✔ Choose a hardware preset to apply · metal_unified                                                                                                                                                               
-✔ Select a Model Repository · llmware/tiny-llama-chat-gguf                                                                                                                                                        
-✔ Select the Model File · tiny-llama-chat.gguf                                                                                                                                                                    
-✔ Select Chat Format Template · harmony                                                                                                                                                                           
-
-🧠 Memory Analysis:
-  System RAM: 32.0 GB
-  Model Size: 0.6 GB
-  Est. Max Context: ~30083 tokens
-✔ Select Context Size (Ctx) · 16384 (Recommended)                                                                                                                                                                 
-
-✔ Config written to /Users/adel/.hugind/configs/tiny-llama.yml
-  • Preset: metal_unified
-  • Model: ~/.hugind/llmware/tiny-llama-chat-gguf/tiny-llama-chat.gguf
-  • Library: /opt/homebrew/Cellar/hugind/0.1.2/libexec/libmtmd.dylib
-  • Context: 16384
-(base) adel@192 homebrew-hugind % hugind config list           
-Saved Configs:
-- tiny-llama
-(base) adel@192 homebrew-hugind % hugind server start tiny-llama
-🚀 Initializing Hugind Server (tiny-llama)...
-⚠️  Warning: Vision projector not found at . Vision will be disabled.
-   → Model: /Users/adel/.hugind/llmware/tiny-llama-chat-gguf/tiny-llama-chat.gguf
-   → Context: 16384 (Batch: 2048)
-   → Architecture: 1 Workers / 4 Slots per worker
-   → Deploying 1 engine instance(s)...
-     ✓ Instance #1 ready
-
+### 3. Start the Server
+Launch your inference engine.
+```bash
+hugind server start my-assistant
+```
+You'll see:
+```text
 ✅ Server listening at http://0.0.0.0:8080
    Local Health: http://127.0.0.1:8080/health
    OpenAI URL:   http://127.0.0.1:8080/v1
-   Press Ctrl+C to stop.
 ```
 
-on another terminal
+---
+
+## 💬 Usage
+
+### OpenAI-Compatible API
+Interact with Hugind using `curl`, Python `openai` lib, or any standard tool.
 
 ```bash
-(base) adel@192 hugind % curl -X POST http://127.0.0.1:8080/v1/chat/completions \
+curl http://localhost:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "tiny-llama",
-    "messages": [{"role": "user", "content": "say hello"}]    
+    "model": "my-assistant",
+    "messages": [
+      {"role": "user", "content": "Hello, world!"}
+    ],
+    "stream": true
   }'
-data: {"id":"chatcmpl-1764031008709","object":"chat.completion.chunk","created":1764031008,"model":"tiny-llama","choices":[{"index":0,"delta":{"content":"Ex"},"finish_reason":null}]}
-
-data: {"id":"chatcmpl-1764031008716","object":"chat.completion.chunk","created":1764031008,"model":"tiny-llama","choices":[{"index":0,"delta":{"content":"pert"},"finish_reason":null}]}
-
-data: {"id":"chatcmpl-1764031008721","object":"chat.completion.chunk","created":1764031008,"model":"tiny-llama","choices":[{"index":0,"delta":{"content":"|"},"finish_reason":null}]}
-
-data: {"id":"chatcmpl-1764031008727","object":"chat.completion.chunk","created":1764031008,"model":"tiny-llama","choices":[{"index":0,"delta":{"content":"user"},"finish_reason":null}]}
-
-data: {"id":"chatcmpl-1764031008732","object":"chat.completion.chunk","created":1764031008,"model":"tiny-llama","choices":[{"index":0,"delta":{"content":"|"},"finish_reason":null}]}
-
-data: {"id":"chatcmpl-1764031008739","object":"chat.completion.chunk","created":1764031008,"model":"tiny-llama","choices":[{"index":0,"delta":{"content":"me"},"finish_reason":null}]}
-
-data: [DONE]
 ```
+
+### ✨ The "Stateful" Advantage
+Unlike standard servers, Hugind can **remember** context without you re-sending it. Use the `X-Session-ID` header to resume a conversation instantly.
+
+**Request 1 (Session A):** "My name is Adel."
+```bash
+curl -H "X-Session-ID: session-a" ... -d '{"messages": [{"role": "user", "content": "My name is Adel."}]}'
+```
+
+**Request 2 (Session A):** "What is my name?"
+```bash
+# No need to send previous messages!
+curl -H "X-Session-ID: session-a" ... -d '{"messages": [{"role": "user", "content": "What is my name?"}]}'
+```
+**Result:** "Your name is Adel."
+
+*(Even if Session A was evicted from VRAM to make room for others, Hugind restores it for Request 2 silently.)*
+
+---
+
+## 🎛️ Configuration
+
+Configs live in `~/.hugind/configs/*.yml`. They are clean, readable, and hardware-aware.
+
+```yaml
+model:
+  path: /Models/gemma-2-9b.gguf
+  gpu_layers: 99        # Full GPU offload
+  use_mmap: true
+
+context:
+  size: 8192            # Context window
+  flash_attention: true # Optimized kernels
+
+server:
+  host: 0.0.0.0
+  port: 8080
+  api_key: "my-secret"  # Optional protection
+```
+
+---
+
+## 📚 Documentation
+
+Detailed guides for every part of the system:
+*   [**User Guide**](docs/USER.md): In-depth workflow and concepts.
+*   [**Server Architecture**](docs/SERVER.md): Deep dive into the engine and API.
+*   [**API Reference**](docs/API.md): Full endpoint compatibility table.
+*   [**Config Guide**](docs/CONFIG.md): Presets, templates, and parameters.
+*   [**Model Management**](docs/MODEL.md): Directory layout and CLI tools.
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please check [docs/DEV.md](docs/DEV.md) for build instructions and architecture notes.
+
+## 📄 License
+
+MIT

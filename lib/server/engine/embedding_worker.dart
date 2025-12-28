@@ -202,7 +202,7 @@ void _embeddingIsolate(Map<String, Object?> payload) async {
       final id = message['id'] as int;
       final input = message['input'] as String;
       try {
-        final embeddings = llama!.getEmbeddings(input);
+        final embeddings = llama.getEmbeddings(input);
         replyPort.send({'type': 'result', 'id': id, 'embedding': embeddings});
       } catch (e, stack) {
         replyPort.send({
@@ -216,7 +216,7 @@ void _embeddingIsolate(Map<String, Object?> payload) async {
     }
   }
 
-  llama?.dispose();
+  llama.dispose();
   requestPort.close();
   Isolate.exit();
 }

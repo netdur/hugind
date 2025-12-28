@@ -143,7 +143,8 @@ class LlamaEngine {
         _ramSessions.remove(userId);
       } else if (_diskSessionExists(userId)) {
         // [TIER 3] COLD HIT: User is on Disk, needs a VRAM slot
-        print('   💾 [Tier 3] Disk Hit: $userId. Loading from file...');
+        final path = _getDiskPath(userId);
+        print('   💾 [Tier 3] Disk Hit: $userId. Loading from file: $path');
         scope = await _allocateSlotWithEviction(userId);
 
         await scope.loadSession(_getDiskPath(userId));
@@ -307,7 +308,8 @@ class LlamaEngine {
     }
 
     for (var userId in toArchive) {
-      print('   📦 Archiving inactive user $userId from RAM to Disk...');
+      final path = _getDiskPath(userId);
+      print('   📦 Archiving inactive user $userId from RAM to Disk: $path');
       try {
         final data = _ramSessions[userId]!;
         final file = File(_getDiskPath(userId));
