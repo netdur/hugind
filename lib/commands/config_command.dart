@@ -144,7 +144,14 @@ class InitCommand extends Command {
     }
 
     // --- F. Chat Format ---
-    final chatFormats = ['auto', 'chatml', 'gemma', 'alpaca', 'harmony'];
+    final chatFormats = [
+      'auto',
+      'chatml',
+      'qwen3',
+      'gemma',
+      'alpaca',
+      'harmony'
+    ];
     String detectedFormat = 'auto';
     final mLower = p.basename(modelPath).toLowerCase();
     if (mLower.contains('gemma'))
@@ -243,6 +250,10 @@ class InitCommand extends Command {
     // 4. Chat & Context
     finalContent = _replaceValue(finalContent, 'format', chosenChatFormat);
     finalContent = _replaceValue(finalContent, 'size', finalCtx.toString());
+
+    if (mmprojPath.isNotEmpty) {
+      finalContent = _replaceValue(finalContent, 'batch_size', '8192');
+    }
 
     // 5. Threads
     int threads = (chosenPresetName == 'cuda_dedicated')

@@ -69,9 +69,16 @@ class ConfigLoader {
       ..vocabOnly = model['vocab_only'] ?? false;
 
     final context = yaml['context'] ?? {};
+    int batchSize = context['batch_size'] ?? (mmprojPath != null ? 8192 : 2048);
+    if (mmprojPath != null && batchSize < 8192) {
+      print(
+          "⚠️  Vision model detected with low batch size ($batchSize). Auto-increasing to 8192 to prevent 'Image chunk > batch' errors.");
+      batchSize = 8192;
+    }
+
     final contextParams = ContextParams()
       ..nCtx = context['size'] ?? 4096
-      ..nBatch = context['batch_size'] ?? 2048
+      ..nBatch = batchSize
       ..nUbatch = context['ubatch_size'] ?? 512
       ..nThreads = context['threads'] ?? 8
       ..nThreadsBatch = context['threads_batch'] ?? 8

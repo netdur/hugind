@@ -46,7 +46,7 @@ model:
 # B. Context & Performance (ContextParams)
 context:
   size: 4096                         # Context window (n_ctx). 0 = Model Default
-  batch_size: 2048                   # Logical batch size
+  batch_size: 2048                   # Logical batch size (use 8192 for Vision models)
   ubatch_size: 512                   # Physical batch size (hardware limit)
   
   threads: 8                         # CPU threads for generation
