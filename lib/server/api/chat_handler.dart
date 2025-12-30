@@ -6,11 +6,13 @@ import 'package:shelf/shelf.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
 
 import '../engine/engine_manager.dart';
+import '../engine/llama_engine.dart';
 
 class ChatHandler {
   Future<Response> call(Request request) async {
     final tempFiles = <String>[];
     Stream<List<int>>? outboundStream;
+    String userId = 'unknown';
     try {
       final bodyString = await request.readAsString();
       if (bodyString.isEmpty) return Response(400, body: 'Missing body');
@@ -22,7 +24,7 @@ class ChatHandler {
       final rawMessages = json['messages'] as List;
 
       // Check for X-Session-ID header for stateful session management
-      String userId = request.headers['x-session-id'] ??
+      userId = request.headers['x-session-id'] ??
           request.headers['X-Session-ID'] ??
           json['user']?.toString() ??
           'default_session';
@@ -54,7 +56,16 @@ class ChatHandler {
           headers: {'content-type': 'application/json'},
         );
       }
-      final tokenStream = engine.generateStream(userId, messages);
+
+      // Check for session continuity hint.
+      // If 'false', the client asserts that it relies on previous context.
+      // If the server cannot find it, it will abort instead of creating a fresh empty session.
+      final isFreshSession =
+          (request.headers['x-fresh-session'] ?? 'true').toLowerCase() ==
+              'true';
+
+      final tokenStream = engine.generateStream(userId, messages,
+          isFreshSession: isFreshSession);
 
       // Create the SSE byte stream with [DONE] signal
       Stream<List<int>> sseStream() async* {
@@ -100,6 +111,19 @@ class ChatHandler {
         return Response(
           400,
           body: jsonEncode({'error': e.toString()}),
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      if (e is ContextLostException) {
+        print('   ⚠️ Context Lost for user $userId. Requesting refresh.');
+        return Response(
+          409, // Conflict
+          body: jsonEncode({
+            'error': 'Context lost',
+            'code': 'context_lost',
+            'message':
+                'The server restart caused a loss of state. Please resend full history.'
+          }),
           headers: {'content-type': 'application/json'},
         );
       }

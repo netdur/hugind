@@ -86,7 +86,8 @@ class LlamaEngine {
     return _parent!.getEmbeddings(prompt);
   }
 
-  Stream<String> generateStream(String userId, List<Message> messages) {
+  Stream<String> generateStream(String userId, List<Message> messages,
+      {bool isFreshSession = true}) {
     if (_embeddingsOnly) {
       throw StateError('Text generation is disabled in embeddings-only mode.');
     }
@@ -105,7 +106,8 @@ class LlamaEngine {
       },
     );
 
-    _executeGeneration(userId, messages, controller, scopeCompleter);
+    _executeGeneration(
+        userId, messages, controller, scopeCompleter, isFreshSession);
     return controller.stream;
   }
 
@@ -114,6 +116,7 @@ class LlamaEngine {
     List<Message> messages,
     StreamController<String> controller,
     Completer<LlamaScope> scopeCompleter,
+    bool isFreshSession,
   ) async {
     if (_parent == null) {
       controller.addError(
@@ -126,14 +129,27 @@ class LlamaEngine {
       bool isNewSession = false;
 
       // ---------------------------------------------------------
+      // 0. HANDLE FORCED RESET
+      // ---------------------------------------------------------
+      if (isFreshSession) {
+        if (_activeSessions.containsKey(userId)) {
+          print('   🔄 [Reset] Clearing active session for $userId');
+          await _activeSessions[userId]!.dispose();
+          _activeSessions.remove(userId);
+        }
+        _ramSessions.remove(userId);
+        // Note: We don't delete the disk file here, but we ignore it below.
+      }
+
+      // ---------------------------------------------------------
       // 1. RESOLVE SESSION (Tier 1 -> Tier 2 -> Tier 3 -> New)
       // ---------------------------------------------------------
 
-      if (_activeSessions.containsKey(userId)) {
+      if (!isFreshSession && _activeSessions.containsKey(userId)) {
         // [TIER 1] HOT HIT: User is already in VRAM
         scope = _activeSessions[userId]!;
         print('   🔥 [Tier 1] VRAM Hit: $userId (Slot: ${scope.id})');
-      } else if (_ramSessions.containsKey(userId)) {
+      } else if (!isFreshSession && _ramSessions.containsKey(userId)) {
         // [TIER 2] WARM HIT: User is in RAM, needs a VRAM slot
         print('   🧊 [Tier 2] RAM Hit: $userId. Restoring...');
         scope = await _allocateSlotWithEviction(userId);
@@ -141,7 +157,7 @@ class LlamaEngine {
         final stateData = _ramSessions[userId]!;
         await scope.loadState(stateData); // Restore memory
         _ramSessions.remove(userId);
-      } else if (_diskSessionExists(userId)) {
+      } else if (!isFreshSession && _diskSessionExists(userId)) {
         // [TIER 3] COLD HIT: User is on Disk, needs a VRAM slot
         final path = _getDiskPath(userId);
         print('   💾 [Tier 3] Disk Hit: $userId. Loading from file: $path');
@@ -149,7 +165,11 @@ class LlamaEngine {
 
         await scope.loadSession(_getDiskPath(userId));
       } else {
-        // [NEW] No history found
+        // [NEW] No history found (or Forced Fresh)
+        if (!isFreshSession) {
+          throw ContextLostException();
+        }
+
         print('   ✨ [New] Creating fresh session: $userId');
         scope = await _allocateSlotWithEviction(userId);
         isNewSession = true;
@@ -349,4 +369,10 @@ class LlamaEngine {
     if (p.contains('llama-3') || p.contains('alpaca')) return ChatFormat.alpaca;
     return ChatFormat.chatml;
   }
+}
+
+class ContextLostException implements Exception {
+  final String message = "Context lost. Full history required.";
+  @override
+  String toString() => "ContextLostException: $message";
 }
