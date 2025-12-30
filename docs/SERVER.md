@@ -12,11 +12,15 @@ The server is built with a layered architecture:
 
 2.  **Engine Layer (`lib/server/engine/`)**:
     *   **`LlamaEngine`**: Wraps a `LlamaParent` isolate. Manages a pool of `LlamaScope` instances (slots) and handles the mapping between User Session IDs and internal slots. Implements LRU eviction for efficient resource usage.
-    *   **`EngineManager`** (Planned): A singleton orchestrator that manages multiple model deployments and handles load balancing between concurrent engine instances.
+    *   **`EngineManager`**: A singleton orchestrator that manages multiple model deployments and handles load balancing between concurrent engine instances.
+    *   **`EmbeddingWorker`**: Dedicated isolate for processing embedding requests efficiently.
 
-3.  **API Layer (`lib/server/api/`)** (Planned):
+3.  **API Layer (`lib/server/api/`)**:
     *   **`HttpServer`**: A `shelf`-based HTTP server.
-    *   **`ChatHandler`**: Handles `POST /v1/chat/completions` requests, converting them into `LlamaEngine` calls and streaming the response via Server-Sent Events (SSE).
+    *   **`ChatHandler`**: Handles `POST /v1/chat/completions` requests.
+    *   **`CompletionsHandler`**: Handles `POST /v1/completions` (Legacy).
+    *   **`EmbeddingsHandler`**: Handles `POST /v1/embeddings`.
+    *   **`ModelsHandler`**: Handles `GET /v1/models`.
 
 ## Configuration
 
@@ -77,6 +81,15 @@ To see which models are currently loaded on the server:
 hugind server list
 ```
 
+
+### Stop a Server
+
+To check how to stop the server for a specific config:
+
+```bash
+hugind server stop my-config
+```
+(This will check the port configured for `my-config` and show commands to kill the process.)
 ## API Endpoints
 
 ### `POST /v1/chat/completions`
@@ -99,3 +112,11 @@ Compatible with OpenAI Chat Completions API.
 ### `GET /v1/models`
 
 Returns the list of currently deployed models.
+
+### `POST /v1/completions`
+
+Legacy completion endpoint.
+
+### `POST /v1/embeddings`
+
+Generate embeddings for text (only if server started with embeddings enabled).

@@ -162,7 +162,7 @@ curl http://localhost:8080/v1/chat/completions \
 ```
 
 #### 2. The "Stateful" Magic (Context Swapping)
-Hugind supports **Stateful Context**. If you provide a consistent `user` ID, the server remembers the conversation. You **do not** need to re-send the history.
+Hugind supports **Stateful Context**. If you provide a consistent `user` ID (or use the `X-Session-ID` header), the server remembers the conversation. You **do not** need to re-send the history.
 
 **Turn 1:**
 ```json

@@ -13,13 +13,13 @@ This guide covers how to build, tag, and publish a new version of Hugind for mac
 Update the version number in `pubspec.yaml`.
 
 ```yaml
-version: 0.1.1  # <--- Change this
+version: 0.3.1  # <--- Change this
 ```
 
 Commit the change:
 ```bash
 git add pubspec.yaml
-git commit -m "Bump version to 0.1.1"
+git commit -m "Bump version to 0.3.1"
 ```
 
 ---
@@ -41,16 +41,16 @@ At the end of the script, copy the **SHA256 Checksum**. You will need this for H
 Create a git tag matching the version and push it.
 
 ```bash
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.3.1
+git push origin v0.3.1
 ```
 
 ---
 
 ## Step 4: Create GitHub Release
 1. Go to: [https://github.com/netdur/hugind/releases/new](https://github.com/netdur/hugind/releases/new)
-2. **Choose Tag:** Select `v0.1.1`.
-3. **Title:** `v0.1.1`.
+2. **Choose Tag:** Select `v0.3.1`.
+3. **Title:** `v0.3.1`.
 4. **Attach Binaries (CRITICAL):**
    - Click "Upload assets".
    - Select the file: `dist/hugind-macos-arm64.tar.gz`.
@@ -73,13 +73,13 @@ class Hugind < Formula
   # ...
   
   # 1. Update the URL Version
-  url "https://github.com/netdur/hugind/releases/download/v0.1.1/hugind-macos-arm64.tar.gz"
+  url "https://github.com/netdur/hugind/releases/download/v0.3.1/hugind-macos-arm64.tar.gz"
   
   # 2. Paste the SHA256 from Step 2
   sha256 "PASTE_THE_NEW_HASH_HERE"
   
   # 3. Update the Version string
-  version "0.1.1"
+  version "0.3.1"
 
   # ...
 end
@@ -89,7 +89,7 @@ Commit and push the formula:
 
 ```bash
 git add hugind.rb
-git commit -m "Update hugind to v0.1.1"
+git commit -m "Update hugind to v0.3.1"
 git push origin main
 ```
 
