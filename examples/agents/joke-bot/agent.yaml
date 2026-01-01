@@ -1,0 +1,5 @@
+name: "JokeBot"
+version: "0.1.0"
+description: "A friendly bot that tells jokes."
+backend: "gemma-4b"
+entry_point: "main.drt"

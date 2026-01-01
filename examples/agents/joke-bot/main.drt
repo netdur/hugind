@@ -1,0 +1,14 @@
+dynamic main(Map<String, dynamic> context) async {
+  var sys = context['capabilities']['sys'];
+  var llm = context['capabilities']['llm'];
+
+  sys.print("🤖 Beep Boop. I am JokeBot.");
+
+  if (await sys.confirm("Do you want to hear a joke?")) {
+    sys.print("Thinking...");
+    var joke = await llm.chat("Tell me a short, clean programming joke.");
+    sys.print("\n" + joke + "\n");
+  } else {
+    sys.print("Okay, maybe next time!");
+  }
+}
