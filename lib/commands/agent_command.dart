@@ -15,6 +15,54 @@ class AgentCommand extends Command {
 
   AgentCommand() {
     addSubcommand(AgentRunCommand());
+    addSubcommand(AgentListCommand());
+  }
+}
+
+class AgentListCommand extends Command {
+  @override
+  final String name = 'list';
+  @override
+  final String description = 'List available agents.';
+
+  @override
+  Future<void> run() async {
+    final agentsDir = Directory(p.join(_configHome(), 'agents'));
+
+    if (!agentsDir.existsSync()) {
+      print('No agents found (directory does not exist: ${agentsDir.path})');
+      return;
+    }
+
+    final entities = agentsDir.listSync();
+    if (entities.isEmpty) {
+      print('No agents installed.');
+      return;
+    }
+
+    print('Available Agents:');
+    print('-----------------');
+
+    for (var entity in entities) {
+      if (entity is Directory) {
+        final name = p.basename(entity.path);
+        final manifest = File(p.join(entity.path, 'agent.yaml'));
+        String info = '';
+
+        if (manifest.existsSync()) {
+          try {
+            final yaml = loadYaml(manifest.readAsStringSync());
+            final version = yaml['version'];
+            final desc = yaml['description'];
+            if (version != null) info += ' (v$version)';
+            if (desc != null) info += ' - $desc';
+          } catch (_) {}
+        }
+
+        print('• $name$info');
+      }
+    }
+    print('');
   }
 }
 
@@ -35,12 +83,29 @@ class AgentRunCommand extends Command {
     final args = argResults!.rest.skip(1).toList();
 
     // 1. Locate Agent
+    Directory agentDir;
     final agentsDir = p.join(_configHome(), 'agents');
-    final agentDir = Directory(p.join(agentsDir, agentName));
 
-    if (!agentDir.existsSync()) {
-      print('❌ Agent "$agentName" not found in $agentsDir');
-      return;
+    if (agentName.contains(p.separator) || agentName.startsWith('.')) {
+      // Treat as direct path
+      agentDir = Directory(agentName);
+      if (!agentDir.existsSync()) {
+        print('❌ Agent path not found: "${agentDir.path}"');
+        return;
+      }
+      // Resolve full path for clarity in logs
+      if (!agentDir.isAbsolute) {
+        agentDir = Directory(p.normalize(p.absolute(agentDir.path)));
+      }
+    } else {
+      // Treat as installed agent name
+      agentDir = Directory(p.join(agentsDir, agentName));
+      if (!agentDir.existsSync()) {
+        print('❌ Agent "$agentName" not found in $agentsDir');
+        print(
+            '   (To run a local agent, use path: hugind agent run ./$agentName)');
+        return;
+      }
     }
 
     final manifestFile = File(p.join(agentDir.path, 'agent.yaml'));
