@@ -1,0 +1,46 @@
+dynamic main(Map<String, dynamic> context) async {
+  SysCapability sys = context['capabilities']['sys'];
+  LlmCapability llm = context['capabilities']['llm'];
+  List<String> args =
+      ((context['args'] as List?) ?? []).map((e) => e.toString()).toList();
+
+  if (args.isEmpty) {
+    sys.print(
+        'Usage: hugind agent run examples/agents/git-commiter <path-to-repo>');
+    return;
+  }
+
+  var repoPath = args[0];
+  sys.print('🔍 Analyzing git changes in $repoPath');
+
+  var status = await sys.run('git', ['status', '--short'], workDir: repoPath);
+  var diffStat = await sys.run('git', ['diff', '--stat'], workDir: repoPath);
+  var diff = await sys.run('git', ['diff'], workDir: repoPath);
+  var recentLog =
+      await sys.run('git', ['log', '-5', '--oneline'], workDir: repoPath);
+
+  var prompt = '''
+You are a git commit message assistant. Given the working tree state, propose a high-quality commit message.
+
+Repo: $repoPath
+Recent commits:
+$recentLog
+
+Status:
+$status
+
+Diff summary:
+$diffStat
+
+Diff details:
+$diff
+
+Produce:
+Title: a concise subject line (imperative mood, <=72 chars)
+Changelog:
+- bullet items describing changes (2-5 bullets)
+''';
+
+  var suggestion = await llm.chat(prompt);
+  sys.print('✅ Suggested commit message:\n$suggestion');
+}

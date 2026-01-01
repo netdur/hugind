@@ -1,0 +1,5 @@
+name: "git-commiter"
+version: "0.1.0"
+description: "Generate commit titles and changelog bullets from local git changes."
+backend: "gemma-4b"
+entry_point: "main.drt"

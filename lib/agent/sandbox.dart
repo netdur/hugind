@@ -143,9 +143,9 @@ class AgentSandbox {
       }
       
       // Public Context Builder
-      Map<String, dynamic> _buildContext() {
+      Map<String, dynamic> _buildContext(List<dynamic> hostArgs) {
          return {
-           'args': <String>[], 
+           'args': hostArgs, 
            'capabilities': {
              'sys': SysCapability(),
              'llm': LlmCapability()
@@ -210,8 +210,9 @@ class AgentSandbox {
       });
 
       // --- Execute ---
-      final contextResult =
-          runtime.executeLib('package:agent/main.dart', '_buildContext', []);
+      final boxedArgs = args.map((a) => $String(a)).toList();
+      final contextResult = runtime
+          .executeLib('package:agent/main.dart', '_buildContext', [boxedArgs]);
 
       if (contextResult is! $Value) {
         // Fallback for simulation/mock if something goes wrong

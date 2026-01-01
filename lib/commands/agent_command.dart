@@ -173,9 +173,20 @@ class AgentRunCommand extends Command {
     print('✅ Server is reachable.');
 
     // 5. Setup Capabilities
-    // Need to parse permissions from agent.yaml to set allowedPaths.
-    // Allow current directory.
-    final sys = SysCapability(allowedPaths: [Directory.current.path]);
+    final allowedPaths = <String>{
+      Directory.current.path,
+      agentDir.path,
+    };
+
+    // If the first arg looks like a directory, allow it for workDir usage.
+    if (args.isNotEmpty) {
+      final candidateDir = Directory(args.first);
+      if (candidateDir.existsSync()) {
+        allowedPaths.add(candidateDir.absolute.path);
+      }
+    }
+
+    final sys = SysCapability(allowedPaths: allowedPaths.toList());
     final llm = LlmCapability(baseUrl);
 
     final sandbox = AgentSandbox(sys, llm);
