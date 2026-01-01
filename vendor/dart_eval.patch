@@ -1,0 +1,49 @@
+diff --git a/lib/src/eval/compiler/offset_tracker.dart b/lib/src/eval/compiler/offset_tracker.dart
+index 6ca033a..0000000 100644
+--- a/lib/src/eval/compiler/offset_tracker.dart
++++ b/lib/src/eval/compiler/offset_tracker.dart
+@@
+-      if (op is Call) {
+-        int resolvedOffset;
++      if (op is Call) {
++        int? resolvedOffset;
+@@
+-        if (offset.methodType == 2) {
+-          resolvedOffset = context.instanceDeclarationPositions[offset.file!]![
+-              offset.className!]![2]![offset.name!]!;
+-        } else {
+-          resolvedOffset = context
+-              .topLevelDeclarationPositions[offset.file!]![offset.name!]!;
+-        }
++        if (offset.methodType == 2) {
++          resolvedOffset = context
++              .instanceDeclarationPositions[offset.file!]
++              ?[offset.className!]
++              ?[2]
++              ?[offset.name!];
++        } else {
++          resolvedOffset = context
++              .topLevelDeclarationPositions[offset.file!]
++              ?[offset.name!];
++        }
++
++        if (resolvedOffset == null) {
++          throw StateError(
++              'OffsetTracker could not resolve ${offset.name} (class ${offset.className}, file ${offset.file}, methodType ${offset.methodType})');
++        }
+         final newOp = Call.make(resolvedOffset);
+         source[pos] = newOp;
+       } else if (op is PushObjectPropertyImpl) {
+diff --git a/lib/src/eval/runtime/ops/bridge.dart b/lib/src/eval/runtime/ops/bridge.dart
+index 3c5a3b1..0000000 100644
+--- a/lib/src/eval/runtime/ops/bridge.dart
++++ b/lib/src/eval/runtime/ops/bridge.dart
+@@
+     final argsLen = args.length;
+ 
+     final mappedArgs = List<$Value?>.filled(argsLen, null);
+     for (var i = 0; i < argsLen; i++) {
+-      mappedArgs[i] = (args[i] as $Value?);
++      final arg = args[i];
++      mappedArgs[i] = arg is $Value ? arg : runtime.wrap(arg);
+     }

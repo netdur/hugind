@@ -18,6 +18,7 @@ Powered by [llama_cpp_dart](https://github.com/netdur/llama_cpp_dart).
 *   **🛠️ "Smart" CLI**: No more 50-flag command lines. Use the **interactive wizard** to probe your hardware, calculate safe context limits, and generate clean YAML configs.
 *   **🔌 OpenAI Compatible**: Drop-in replacement for your existing apps. Supports `/v1/chat/completions` (with streaming) and `/v1/models`.
 *   **👥 True Multi-Tenancy**: Designed to handle 100+ concurrent user sessions efficiently using time-slicing and LRU eviction.
+*   **🤖 Secure Agent Sandbox**: Run autonomous Dart agents that can interact with your system and LLMs safely. Features a permission-based capabilities system and full isolation.
 
 ---
 
@@ -82,7 +83,14 @@ You'll see:
 ✅ Server listening at http://0.0.0.0:8080
    Local Health: http://127.0.0.1:8080/health
    OpenAI URL:   http://127.0.0.1:8080/v1
+
+### 4. Run an Agent
+Experience autonomous interaction.
+```bash
+hugind agent run joke-bot
+# Interact with the JokeBot directly in your terminal.
 ```
+
 
 ---
 
@@ -151,7 +159,8 @@ Detailed guides for every part of the system:
 *   [**Server Architecture**](docs/SERVER.md): Deep dive into the engine and API.
 *   [**API Reference**](docs/API.md): Full endpoint compatibility table.
 *   [**Config Guide**](docs/CONFIG.md): Presets, templates, and parameters.
-*   [**Model Management**](docs/MODEL.md): Directory layout and CLI tools.
+*   **[Agent Guide](docs/AGENT.md)**: Architecture and capabilities of the Agent system.
+*   **[Agent Development](docs/AGENT_DEV.md)**: How to write and deploy your own agents.
 
 ---
 

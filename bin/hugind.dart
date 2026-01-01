@@ -3,6 +3,7 @@ import 'package:args/command_runner.dart';
 import 'package:hugind/commands/model_command.dart';
 import 'package:hugind/commands/config_command.dart';
 import 'package:hugind/commands/server_command.dart';
+import 'package:hugind/commands/agent_command.dart';
 
 void main(List<String> arguments) async {
   if (arguments.contains('--version')) {
@@ -14,7 +15,8 @@ void main(List<String> arguments) async {
   final runner = CommandRunner('hugind', 'A simple command-line application.')
     ..addCommand(ModelCommand())
     ..addCommand(ConfigCommand())
-    ..addCommand(ServerCommand());
+    ..addCommand(ServerCommand())
+    ..addCommand(AgentCommand());
 
   try {
     await runner.run(arguments);
