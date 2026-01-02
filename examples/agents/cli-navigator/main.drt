@@ -20,14 +20,17 @@ dynamic main(Map<String, dynamic> context) async {
       sys.print('Thought: Turn the request into a safe single command.');
 
       // Simplified prompt
-      var prompt = 'You translate plain English tasks into a single safe shell command to run on the current machine.\n' +
-                   '- Output format: either "COMMAND: <command>" or "NO_COMMAND: <short reason>".\n' +
-                   '- Prefer non-destructive commands. If the request is destructive (rm/mv/chmod/chown/reboot/shutdown), reply with NO_COMMAND and a reason.\n' +
-                   '- Use POSIX tools by default; only use Windows-specific tools if explicitly needed.\n' +
-                   '- No extra text besides the format above.\n\n' +
-                   'User request: $sInput';
+    var prompt = 'You translate plain English tasks into a single safe shell command to run on the current machine.\n' +
+                 '- Output format: \n' +
+                 '  * "SAFE_COMMAND: <command>" for read-only operations (ls, cat, grep, echo, find, etc.)\n' +
+                 '  * "DANGEROUS_COMMAND: <command>" for state-changing operations (touch, rm, mv, mkdir, chmod, installing, etc.)\n' +
+                 '  * "NO_COMMAND: <short reason>" if you cannot fulfill the request.\n' +
+                 '- Use POSIX tools by default; only use Windows-specific tools if explicitly needed.\n' +
+                 '- No extra text besides the format above.\n\n' +
+                 'User request: $sInput';
 
       var plan = await llm.chat(prompt);
+      // sys.print('DEBUG: Plan: $plan');
       var parsed = _parse(plan);
 
       if (parsed == null) {
@@ -36,9 +39,17 @@ dynamic main(Map<String, dynamic> context) async {
         sys.print('Observation: ${parsed['reason']}');
       } else {
         var command = parsed['command']!;
+        var isSafe = parsed['isSafe'] == 'true'; // dynamic string comparison safe in eval
+        
         sys.print('Action: $command');
+        
+        var approved = true;
+        if (!isSafe) {
+           approved = await sys.confirm('⚠️  Dangerous command "$command". Execute?');
+        } else {
+           // sys.print('Auto-approving safe command.');
+        }
 
-        var approved = await sys.confirm('Execute command "$command"?');
         if (approved) {
            try {
              var output =
@@ -62,15 +73,26 @@ dynamic main(Map<String, dynamic> context) async {
 Map<String, String?>? _parse(String response) {
   for (var line in response.split('\n')) {
     var trimmed = line.trim();
+    if (trimmed.toUpperCase().startsWith('SAFE_COMMAND:')) {
+      var cmd = trimmed.substring(13).trim();
+      if (cmd.isNotEmpty) return {'command': cmd, 'reason': null, 'isSafe': 'true'};
+    }
+    if (trimmed.toUpperCase().startsWith('DANGEROUS_COMMAND:')) {
+      var cmd = trimmed.substring(18).trim();
+      if (cmd.isNotEmpty) return {'command': cmd, 'reason': null, 'isSafe': 'false'};
+    }
+    // Fallback for old format or mistakes
     if (trimmed.toUpperCase().startsWith('COMMAND:')) {
       var cmd = trimmed.substring(8).trim();
-      if (cmd.isNotEmpty) return {'command': cmd, 'reason': null};
+      // Assume dangerous by default if unspecified
+      if (cmd.isNotEmpty) return {'command': cmd, 'reason': null, 'isSafe': 'false'};
     }
     if (trimmed.toUpperCase().startsWith('NO_COMMAND:')) {
       var reason = trimmed.substring(11).trim();
       return {
         'command': null,
-        'reason': reason.isEmpty ? 'No reason given.' : reason
+        'reason': reason.isEmpty ? 'No reason given.' : reason,
+         'isSafe': 'true'
       };
     }
   }
