@@ -182,12 +182,7 @@ class LlamaEngine {
       // ---------------------------------------------------------
       // 2. PREPARE PROMPT
       // ---------------------------------------------------------
-      ChatFormat format;
-      if (config.chatFormat != null) {
-        format = config.chatFormat!;
-      } else {
-        format = _detectFormat(config.modelPath);
-      }
+      final format = config.chatFormat ?? ChatFormat.chatml;
 
       final history = ChatHistory();
       for (var m in messages)
@@ -357,17 +352,14 @@ class LlamaEngine {
     if (_embeddingsOnly) {
       await _embeddingsWorker?.dispose();
     } else {
-      await _parent?.dispose();
+      try {
+        await _parent?.dispose().timeout(Duration(seconds: 5));
+      } catch (e) {
+        print('   ⚠️  Warning during engine disposal: $e');
+      }
     }
     _activeSessions.clear();
     _ramSessions.clear();
-  }
-
-  ChatFormat _detectFormat(String path) {
-    final p = path.toLowerCase();
-    if (p.contains('gemma') || p.contains('smol')) return ChatFormat.gemma;
-    if (p.contains('llama-3') || p.contains('alpaca')) return ChatFormat.alpaca;
-    return ChatFormat.chatml;
   }
 }
 
