@@ -610,6 +610,7 @@ class BoxBool implements EvcOp {
   @override
   void run(Runtime runtime) {
     final reg = _reg;
+    if (runtime.frame[reg] is $bool) return;
     runtime.frame[reg] = $bool(runtime.frame[reg] as bool);
   }
 

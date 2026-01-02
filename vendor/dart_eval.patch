@@ -1,79 +1,12 @@
-diff --git a/vendor/dart_eval/lib/src/eval/runtime/continuation.dart b/vendor/dart_eval/lib/src/eval/runtime/continuation.dart
-index 9740cb7..7697439 100644
---- a/vendor/dart_eval/lib/src/eval/runtime/continuation.dart
-+++ b/vendor/dart_eval/lib/src/eval/runtime/continuation.dart
-@@ -4,10 +4,12 @@ class Continuation {
-       {required this.programOffset,
-       required this.frameOffset,
-       required this.frame,
-+      required this.catchStack,
-       required this.args});
- 
-   final int programOffset;
-   final int frameOffset;
-   final List<Object?> frame;
-+  final List<int> catchStack;
-   final List<Object?> args;
- }
-diff --git a/vendor/dart_eval/lib/src/eval/runtime/ops/bridge.dart b/vendor/dart_eval/lib/src/eval/runtime/ops/bridge.dart
-index 8186982..1032b97 100644
---- a/vendor/dart_eval/lib/src/eval/runtime/ops/bridge.dart
-+++ b/vendor/dart_eval/lib/src/eval/runtime/ops/bridge.dart
-@@ -136,10 +136,12 @@ class Await implements EvcOp {
- 
-     // Create a continuation that holds the current program state, allowing us to resume this function after we've
-     // finished awaiting the future
-+    // finished awaiting the future
-     final continuation = Continuation(
-         programOffset: runtime._prOffset,
-         frame: runtime.frame,
-         frameOffset: runtime.frameOffset,
-+        catchStack: List.of(runtime.catchStack.last),
-         args: []);
- 
-     var future = runtime.frame[_futureOffset] as $Future;
-@@ -167,12 +169,11 @@ class Await implements EvcOp {
-     try {
-       final result = await future.$value;
-       runtime.returnValue = result;
--      runtime.frameOffset = continuation.frameOffset;
--      runtime.frame = continuation.frame;
-+      runtime.catchStack.add(continuation.catchStack);
-       runtime.stack.add(continuation.frame);
-       runtime.scopeNameStack.add('<asynchronous gap>');
- 
--      runtime.bridgeCall(continuation.programOffset);
-+      runtime.bridgeCall(continuation.programOffset, continuation.catchStack);
-     } catch (e) {
-       // temporary fix: this isn't correct, we need to reenter the eval loop
-       completer.completeError(e);
 diff --git a/vendor/dart_eval/lib/src/eval/runtime/ops/primitives.dart b/vendor/dart_eval/lib/src/eval/runtime/ops/primitives.dart
-index b3a091e..b45c487 100644
+index b45c487..8332f0e 100644
 --- a/vendor/dart_eval/lib/src/eval/runtime/ops/primitives.dart
 +++ b/vendor/dart_eval/lib/src/eval/runtime/ops/primitives.dart
-@@ -235,6 +235,7 @@ class BoxString implements EvcOp {
+@@ -610,6 +610,7 @@ class BoxBool implements EvcOp {
    @override
    void run(Runtime runtime) {
      final reg = _reg;
-+    if (runtime.frame[reg] is $String) return;
-     runtime.frame[reg] = $String(runtime.frame[reg] as String);
++    if (runtime.frame[reg] is $bool) return;
+     runtime.frame[reg] = $bool(runtime.frame[reg] as bool);
    }
  
-diff --git a/vendor/dart_eval/lib/src/eval/runtime/runtime.dart b/vendor/dart_eval/lib/src/eval/runtime/runtime.dart
-index c3be440..8caf0d3 100644
---- a/vendor/dart_eval/lib/src/eval/runtime/runtime.dart
-+++ b/vendor/dart_eval/lib/src/eval/runtime/runtime.dart
-@@ -820,11 +820,11 @@ class Runtime {
- 
-   /// Run the VM in a 'sub-state' of a parent invocation of the VM. Used for bridge calls.
-   /// For performance reasons, avoid making excessive use of this pattern, despite its convenience
--  void bridgeCall(int $offset) {
-+  void bridgeCall(int $offset, [List<int>? restoreCatchStack]) {
-     final savedOffset = _prOffset;
-     _prOffset = $offset;
-     callStack.add(-1);
--    catchStack.add([]);
-+    catchStack.add(restoreCatchStack ?? []);
-     try {
-       while (true) {
-         final op = pr[_prOffset++];

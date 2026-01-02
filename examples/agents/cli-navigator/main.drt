@@ -38,16 +38,21 @@ dynamic main(Map<String, dynamic> context) async {
         var command = parsed['command']!;
         sys.print('Action: $command');
 
-        try {
-          var output =
-              await sys.run('sh', ['-c', command]);
-          if (output.trim().isEmpty) {
-            sys.print('Observation: command produced no output.');
-          } else {
-            sys.print('Observation:\n$output');
-          }
-        } catch (e) {
-          sys.print('Observation: command failed ($e)');
+        var approved = await sys.confirm('Execute command "$command"?');
+        if (approved) {
+           try {
+             var output =
+                 await sys.run('sh', ['-c', command]);
+             if (output.trim().isEmpty) {
+               sys.print('Observation: command produced no output.');
+             } else {
+               sys.print('Observation:\n$output');
+             }
+           } catch (e) {
+             sys.print('Observation: command failed ($e)');
+           }
+        } else {
+           sys.print('Observation: User rejected the command.');
         }
       }
     }
