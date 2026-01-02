@@ -14,8 +14,7 @@ class SysCapability {
       {String? workDir}) async {
     if (workDir != null) {
       if (!_isAllowed(workDir)) {
-        throw Exception(
-            'Access denied to path: $workDir. Allowed: $allowedPaths');
+        return 'Access denied to path: $workDir. Allowed: $allowedPaths';
       }
     }
 
@@ -23,12 +22,11 @@ class SysCapability {
       final result =
           await Process.run(executable, args, workingDirectory: workDir);
       if (result.exitCode != 0) {
-        throw Exception(
-            'Command failed (exit ${result.exitCode}): ${result.stderr}');
+        return 'Command failed (exit ${result.exitCode}): ${result.stderr}';
       }
       return result.stdout.toString().trim();
     } catch (e) {
-      throw Exception('Execution failed: $e');
+      return 'Execution failed: $e';
     }
   }
 
