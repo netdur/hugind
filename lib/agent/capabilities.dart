@@ -40,6 +40,11 @@ class SysCapability {
     print(message);
   }
 
+  String readInput(String prompt) {
+    stdout.write(prompt);
+    return stdin.readLineSync() ?? '';
+  }
+
   bool _isAllowed(String path) {
     // Normalize and check against permitted paths
     final absPath = p.normalize(p.absolute(path));

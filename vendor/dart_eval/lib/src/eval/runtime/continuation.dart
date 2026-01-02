@@ -4,10 +4,12 @@ class Continuation {
       {required this.programOffset,
       required this.frameOffset,
       required this.frame,
+      required this.catchStack,
       required this.args});
 
   final int programOffset;
   final int frameOffset;
   final List<Object?> frame;
+  final List<int> catchStack;
   final List<Object?> args;
 }

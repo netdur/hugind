@@ -136,10 +136,12 @@ class Await implements EvcOp {
 
     // Create a continuation that holds the current program state, allowing us to resume this function after we've
     // finished awaiting the future
+    // finished awaiting the future
     final continuation = Continuation(
         programOffset: runtime._prOffset,
         frame: runtime.frame,
         frameOffset: runtime.frameOffset,
+        catchStack: List.of(runtime.catchStack.last),
         args: []);
 
     var future = runtime.frame[_futureOffset] as $Future;
@@ -167,12 +169,11 @@ class Await implements EvcOp {
     try {
       final result = await future.$value;
       runtime.returnValue = result;
-      runtime.frameOffset = continuation.frameOffset;
-      runtime.frame = continuation.frame;
+      runtime.catchStack.add(continuation.catchStack);
       runtime.stack.add(continuation.frame);
       runtime.scopeNameStack.add('<asynchronous gap>');
 
-      runtime.bridgeCall(continuation.programOffset);
+      runtime.bridgeCall(continuation.programOffset, continuation.catchStack);
     } catch (e) {
       // temporary fix: this isn't correct, we need to reenter the eval loop
       completer.completeError(e);

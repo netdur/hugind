@@ -77,6 +77,19 @@ class AgentSandbox {
                   ],
                   namedParams: []),
               isStatic: true),
+          'sysReadInput': BridgeMethodDef(
+              BridgeFunctionDef(
+                  returns:
+                      BridgeTypeAnnotation(BridgeTypeRef(CoreTypes.string, [])),
+                  params: [
+                    BridgeParameter(
+                        'prompt',
+                        BridgeTypeAnnotation(
+                            BridgeTypeRef(CoreTypes.string, [])),
+                        false)
+                  ],
+                  namedParams: []),
+              isStatic: true),
           'sysPrint': BridgeMethodDef(
               BridgeFunctionDef(
                   returns: BridgeTypeAnnotation(
@@ -113,18 +126,22 @@ class AgentSandbox {
       class Bridge {
          external static Future<String> sysRun(String executable, List<String> args, String? workDir);
          external static Future<bool> sysConfirm(String message);
+         external static dynamic sysReadInput(String prompt);
          external static void sysPrint(String message);
          external static Future<String> llmChat(String prompt);
       }
       
       class SysCapability {
-        Future<String> run(String executable, List<String> args, {String? workDir}) async {
-           var res = await Bridge.sysRun(executable, args, workDir);
-           return res.toString();
+        Future<String> run(String executable, List<String> args, {String? workDir}) {
+           return Bridge.sysRun(executable, args, workDir);
         }
         
-        Future<bool> confirm(String message) async {
-           return await Bridge.sysConfirm(message);
+        Future<bool> confirm(String message) {
+           return Bridge.sysConfirm(message);
+        }
+
+        dynamic readInput(String prompt) {
+           return Bridge.sysReadInput(prompt);
         }
         
         void print(String? msg) {
@@ -136,9 +153,8 @@ class AgentSandbox {
       }
 
       class LlmCapability {
-        Future<String> chat(String prompt) async {
-           var res = await Bridge.llmChat(prompt);
-           return res.toString();
+        Future<String> chat(String prompt) {
+           return Bridge.llmChat(prompt);
         }
       }
       
@@ -169,6 +185,7 @@ class AgentSandbox {
       // Bridge each capability call directly to the host
       runtime.registerBridgeFunc('package:agent/main.dart', 'Bridge.sysRun',
           (rt, target, args) {
+        print('HOST: Bridge.sysRun called');
         final executable = args[0] is $Value
             ? (args[0] as $Value).$value as String
             : args[0] as String;
@@ -179,7 +196,9 @@ class AgentSandbox {
             ? (args[2] as $Value).$value as String?
             : args[2] as String?;
         final future = sys.run(executable, runArgs, workDir: workDir);
-        return $Future.wrap(future.then((s) => $String(s)));
+        final wrapped = $Future.wrap(future.then((s) => $String(s)));
+        print('HOST: Bridge.sysRun returning wrapped future: \$wrapped');
+        return wrapped;
       });
 
       runtime.registerBridgeFunc('package:agent/main.dart', 'Bridge.sysConfirm',
@@ -189,6 +208,14 @@ class AgentSandbox {
             : args[0] as String;
         final future = sys.confirm(message);
         return $Future.wrap(future.then((v) => $bool(v)));
+      });
+
+      runtime.registerBridgeFunc(
+          'package:agent/main.dart', 'Bridge.sysReadInput', (rt, target, args) {
+        final prompt = args[0] is $Value
+            ? (args[0] as $Value).$value as String
+            : args[0] as String;
+        return $String(sys.readInput(prompt));
       });
 
       runtime.registerBridgeFunc('package:agent/main.dart', 'Bridge.sysPrint',

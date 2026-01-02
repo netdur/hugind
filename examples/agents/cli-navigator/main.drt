@@ -1,0 +1,73 @@
+dynamic main(Map<String, dynamic> context) async {
+  SysCapability sys = context['capabilities']['sys'];
+  LlmCapability llm = context['capabilities']['llm'];
+
+  sys.print('CLI Navigator ready. Describe what you want, or type "exit" to quit.');
+
+  while (true) {
+    var input = sys.readInput('> ');
+    
+    if (input == null) break;
+    // Treating input as dynamic/String
+    var sInput = input.toString().trim();
+
+    if (sInput == 'exit' || sInput == 'quit') {
+      sys.print('Goodbye.');
+      break;
+    } else if (sInput.isEmpty) {
+       // reprompt by doing nothing and looping
+    } else {
+      sys.print('Thought: Turn the request into a safe single command.');
+
+      // Simplified prompt
+      var prompt = 'You translate plain English tasks into a single safe shell command to run on the current machine.\n' +
+                   '- Output format: either "COMMAND: <command>" or "NO_COMMAND: <short reason>".\n' +
+                   '- Prefer non-destructive commands. If the request is destructive (rm/mv/chmod/chown/reboot/shutdown), reply with NO_COMMAND and a reason.\n' +
+                   '- Use POSIX tools by default; only use Windows-specific tools if explicitly needed.\n' +
+                   '- No extra text besides the format above.\n\n' +
+                   'User request: $sInput';
+
+      var plan = await llm.chat(prompt);
+      var parsed = _parse(plan);
+
+      if (parsed == null) {
+        sys.print('Observation: could not understand model response:\n$plan');
+      } else if (parsed['reason'] != null) {
+        sys.print('Observation: ${parsed['reason']}');
+      } else {
+        var command = parsed['command']!;
+        sys.print('Action: $command');
+
+        try {
+          var output =
+              await sys.run('sh', ['-c', command]);
+          if (output.trim().isEmpty) {
+            sys.print('Observation: command produced no output.');
+          } else {
+            sys.print('Observation:\n$output');
+          }
+        } catch (e) {
+          sys.print('Observation: command failed ($e)');
+        }
+      }
+    }
+  }
+}
+
+Map<String, String?>? _parse(String response) {
+  for (var line in response.split('\n')) {
+    var trimmed = line.trim();
+    if (trimmed.toUpperCase().startsWith('COMMAND:')) {
+      var cmd = trimmed.substring(8).trim();
+      if (cmd.isNotEmpty) return {'command': cmd, 'reason': null};
+    }
+    if (trimmed.toUpperCase().startsWith('NO_COMMAND:')) {
+      var reason = trimmed.substring(11).trim();
+      return {
+        'command': null,
+        'reason': reason.isEmpty ? 'No reason given.' : reason
+      };
+    }
+  }
+  return null;
+}

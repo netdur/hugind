@@ -820,11 +820,11 @@ class Runtime {
 
   /// Run the VM in a 'sub-state' of a parent invocation of the VM. Used for bridge calls.
   /// For performance reasons, avoid making excessive use of this pattern, despite its convenience
-  void bridgeCall(int $offset) {
+  void bridgeCall(int $offset, [List<int>? restoreCatchStack]) {
     final savedOffset = _prOffset;
     _prOffset = $offset;
     callStack.add(-1);
-    catchStack.add([]);
+    catchStack.add(restoreCatchStack ?? []);
     try {
       while (true) {
         final op = pr[_prOffset++];

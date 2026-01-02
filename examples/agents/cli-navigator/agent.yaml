@@ -1,0 +1,5 @@
+name: "cli-navigator"
+version: "0.1.0"
+description: "Turns plain-English requests into shell commands and executes them interactively."
+backend: "gemma-4b"
+entry_point: "main.drt"

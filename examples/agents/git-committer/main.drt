@@ -6,7 +6,7 @@ dynamic main(Map<String, dynamic> context) async {
 
   if (args.isEmpty) {
     sys.print(
-        'Usage: hugind agent run examples/agents/git-commiter <path-to-repo>');
+        'Usage: hugind agent run examples/agents/git-committer <path-to-repo>');
     return;
   }
 

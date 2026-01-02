@@ -1,4 +1,4 @@
-name: "git-commiter"
+name: "git-committer"
 version: "0.1.0"
 description: "Generate commit titles and changelog bullets from local git changes."
 backend: "gemma-4b"
