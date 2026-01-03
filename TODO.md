@@ -18,10 +18,7 @@ Based on the comparison between `README.md` claims and the current codebase stat
 
 ## 🟡 Code Quality & Enhancements
 
-### 1. Agent "Hot" Reload
-**Status**: ⚠️ Partial
-**Description**: Agents run as one-off scripts.
-**Action**: Implement a watcher or persistent runner to allow long-running agents that verify changes (e.g., for `stock-analyst` monitoring).
+
 
 ### 2. Multi-Tenancy Tests
 **Status**: ⚠️ Unverified in Tests
