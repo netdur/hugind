@@ -81,7 +81,9 @@ You'll see:
 
 ## 🤖 The Agent Runtime (Sandboxed)
 
-Hugind features a secure, interpreted runtime for AI Agents. Unlike other frameworks that run arbitrary Python code, Hugind Agents are **sandboxed scripts** (`.dart`) that can only access resources explicitly granted in their manifest.
+Hugind features a secure, **interpreted runtime** for AI Agents. 
+
+Unlike other frameworks that might require compilation or external dependencies, Hugind Agents are pure **Dart source files** (`.dart`) that run directly. The Hugind binary ships with a **custom-patched version of the `dart_eval` runtime**, allowing it to dynamically consume and execute these scripts in a sandboxed environment.
 
 ### Installing an Agent
 Agents are installed like plugins. Hugind analyzes the `agent.yaml` and warns you about permissions.
