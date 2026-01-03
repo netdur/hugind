@@ -39,14 +39,16 @@ bash build.sh
 export PATH="$PATH:$(pwd)/bin"
 ```
 
-### ⚙️ One-Time Setup
-Link your native `llama.cpp` library:
+### ⚙️ One-Time Setup (Optional)
+**Note:** Hugind ships with a bundled `llama.cpp` runtime. You only need to configure this if you are a **power user** running a custom build of the library.
+
+Link your custom `llama.cpp` library:
 ```bash
 # macOS
-hugind config defaults --lib /path/to/libllama.dylib
+hugind config defaults --lib /path/to/custom/libllama.dylib
 
 # Linux
-hugind config defaults --lib /path/to/libllama.so
+hugind config defaults --lib /path/to/custom/libllama.so
 ```
 
 ---
