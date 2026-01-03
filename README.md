@@ -130,6 +130,46 @@ curl -H "X-Session-ID: session-a" ... -d '{"messages": [{"role": "user", "conten
 
 ---
 
+
+
+## 🤖 Autonomous Agents
+
+Hugind runs pure Dart agents in a secure, sandboxed environment. Agents can reason, plan, and interact with the host system via capabilities (like `sys.run`, `sys.readInput`) while adhering to strict permission boundaries.
+
+### Example: CLI Navigator
+The `cli-navigator` agent converts natural language into shell commands. It features **Smart Safety Checks**: safe commands (read-only) run automatically, while dangerous ones (state-changing) require user confirmation.
+
+`bin/hugind agent run examples/agents/cli-navigator`
+
+```text
+ℹ️  Agent "examples/agents/cli-navigator" connecting to http://0.0.0.0:8080 (gemma-4b)...
+🚀 Running Agent...
+CLI Navigator ready. Describe what you want, or type "exit" to quit.
+
+> list file in folder and sort by largest 
+Thought: Turn the request into a safe single command.
+Action: ls -S
+Observation:
+hugind-macos-arm64.tar.gz
+pubspec.lock
+README.md
+...
+
+> what is my adb version 
+Thought: Turn the request into a safe single command.
+Action: adb --version
+Observation:
+Android Debug Bridge version 1.0.41
+Version 36.0.0-13206524
+...
+
+> exit
+Goodbye.
+✅ Agent finished.
+```
+
+---
+
 ## 🎛️ Configuration
 
 Configs live in `~/.hugind/configs/*.yml`. They are clean, readable, and hardware-aware.
