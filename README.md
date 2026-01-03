@@ -195,13 +195,19 @@ curl http://localhost:8080/v1/chat/completions ... -d '{
 ### 🧠 The "Stateful" Advantage (Context Caching)
 Hugind persists context across requests. Use the `X-Session-ID` header to resume a conversation instantly, even if the server has handled other users in between.
 
+**Request 1 (Session A):** "My name is Adel."
 ```bash
-# Request 1 (Context is processed and cached)
-curl -H "X-Session-ID: session-a" ... -d '...'
-
-# Request 2 (Zero prompt processing time)
-curl -H "X-Session-ID: session-a" ... -d '...'
+curl -H "X-Session-ID: session-a" ... -d '{"messages": [{"role": "user", "content": "My name is Adel."}]}'
 ```
+
+**Request 2 (Session A):** "What is my name?"
+```bash
+# No need to send previous messages!
+curl -H "X-Session-ID: session-a" ... -d '{"messages": [{"role": "user", "content": "What is my name?"}]}'
+```
+**Result:** "Your name is Adel."
+
+*(Even if Session A was evicted from VRAM to make room for others, Hugind restores it for Request 2 silently.)*
 
 ---
 
