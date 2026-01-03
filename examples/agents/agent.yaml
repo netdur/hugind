@@ -1,0 +1,76 @@
+# ------------------------------------------------------------------
+# 🆔 IDENTITY & METADATA
+# ------------------------------------------------------------------
+name: "stock-analyst"
+version: "1.0.0"
+description: "Fetches live stock data and generates a PDF report."
+author: "netdur"
+license: "MIT"
+url: "https://github.com/netdur/hugind-agents"
+
+# ------------------------------------------------------------------
+# ⚙️ RUNTIME CONFIGURATION
+# ------------------------------------------------------------------
+entry_point: "main.dart"  # The script to run
+backend:                  # Default model requirements
+  recommended: "gemma-2-9b" 
+
+# ------------------------------------------------------------------
+# 🛡️ PERMISSIONS (The Security Boundary)
+# ------------------------------------------------------------------
+permissions:
+  
+  # 🌐 NETWORK ACCESS
+  # If missing, no network access is allowed.
+  network:
+    # Whitelist specific domains (subdomains included automatically)
+    allowed_domains:
+      - "api.stockdata.org"
+      - "finance.yahoo.com"
+      - "googleapis.com"
+
+  # 📂 FILESYSTEM ACCESS
+  # Defines where the agent can Read or Write.
+  filesystem:
+    # Specific capabilities
+    read: true
+    write: true
+    
+    # If scope is "system", you must explicitly whitelist paths
+    # allowed_paths:
+    #   - "/Users/me/Documents/Reports"
+
+  # 💻 SHELL / PROCESS EXECUTION
+  # Ability to run system commands (ls, python, docker, etc.)
+  shell:
+    allow: false          # Default is false
+    # If true, you can whitelist specific binaries for safety
+    allowed_commands: []  # e.g. ["ls", "grep"] or ["*"] for all
+
+  # 🧠 MEMORY / STATE
+  # Does this agent need to persist data between runs?
+  persistence:
+    store: true  # Allows key-value storage (sys.store.put)
+
+# ------------------------------------------------------------------
+# 🔌 DEPENDENCIES & MCP
+# ------------------------------------------------------------------
+dependencies:
+  
+  # List the MCP tools this agent expects the Host to provide.
+  # Hugind will check if these servers are configured in the user's setup.
+  mcp:
+    - name: "filesystem"
+      required: true
+    - name: "github"
+      required: false
+      min_version: "1.0"
+
+# ------------------------------------------------------------------
+# 🔧 ENVIRONMENT VARIABLES
+# ------------------------------------------------------------------
+# Prompts the user to input these values upon installation
+env:
+  - name: "STOCK_API_KEY"
+    description: "API Key for stockdata.org"
+    required: true
