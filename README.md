@@ -171,16 +171,6 @@ Hugind acts as an **MCP Client**. This allows your agents to use standard tools 
 
 ## 💬 API Usage
 
-### OpenAI-Compatible Chat
-```bash
-curl http://localhost:8080/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "my-assistant",
-    "messages": [
-      {"role": "user", "content": "Hello!"}
-    ]
-  }'
 ```
 
 ### 👁️ Vision (Multimodal)
