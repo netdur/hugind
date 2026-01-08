@@ -11,10 +11,10 @@ Powered by [llama_cpp_dart](https://github.com/netdur/llama_cpp_dart).
 ## ⚡️ Key Features
 
 *   **🚀 Native Performance**: Optimized presets for **Apple Silicon (Metal)**, **CUDA**, and CPU-only environments.
-*   **🧠 Stateful Memory (3-Tier Architecture)**: A unique system that persists user sessions to manage context limits:
+*   **🧠 Stateful Memory (3-Tier Architecture)**: Powered by `llama_cpp_dart`'s `LlamaService`, Hugind intelligently manages user sessions:
     *   **Hot**: Active slots stay in VRAM for instant access.
     *   **Warm**: Idle sessions map to system RAM when VRAM is full.
-    *   **Cold**: Long-term storage hibernates to disk, surviving server restarts.
+    *   **Cold**: Long-term storage hibernates to disk (`./sessions/`), surviving server restarts.
 *   **🛡️ Secure Agent Runtime**: Run community agents safely. Hugind treats agents like **browser extensions**—sandboxed scripts with strict, manifest-based permissions (`agent.yaml`).
 *   **🔌 MCP Client**: Native support for the **Model Context Protocol**. Connect agents to external tools (GitHub, Databases, Filesystem) via standard MCP servers.
 *   **👁️ Multimodal Vision**: Native support for image inputs. Run models like `Llava` or `Moondream` via the OpenAI Vision API.
@@ -121,36 +121,48 @@ Every agent must have a manifest. This defines the **Security Boundary**.
 ```yaml
 name: "stock-analyst"
 version: "1.0.0"
+description: "Fetches live stock data and generates a PDF report."
 entry_point: "main.dart"
+author: "netdur"
+
+# ⚙️ RUNTIME
+backend:
+  recommended: "gemma-2-9b" 
 
 # 🛡️ PERMISSIONS
 permissions:
-  # 🌐 Network: Whitelist specific domains only
+  # 🌐 Network
   network:
     allowed_domains:
       - "api.stockdata.org"
       - "finance.yahoo.com"
 
-  # 📂 Filesystem: Define read/write scope
+  # 📂 Filesystem
   filesystem:
     read: true
     write: true
-    # If allowed_paths is empty, access is restricted to the Agent's Workspace only.
+    # If allowed_paths is empty, access is restricted to the Agent's Workspace.
     allowed_paths: [] 
 
-  # 💻 Shell: Blocked by default
+  # 💻 Shell (Default: false)
   shell:
     allow: false 
+  
+  # 🧠 Persistence
+  persistence:
+    store: true
 
-# 🔌 DEPENDENCIES (Model Context Protocol)
+# 🔌 DEPENDENCIES (MCP)
 dependencies:
   mcp:
-    - name: "filesystem" # Requires a local MCP server
+    - name: "filesystem"
       required: true
+      min_version: "1.0"
 
 # 🔧 CONFIGURATION
 env:
   - name: "STOCK_API_KEY"
+    description: "API Key for stockdata.org"
     required: true
 ```
 
@@ -235,7 +247,7 @@ server:
 
 *   [**User Guide**](docs/USER.md): In-depth workflow and concepts.
 *   [**Agent Development**](docs/AGENT_DEV.md): How to write secure scripts and manifests.
-*   [**Server Architecture**](docs/SERVER.md): Deep dive into the 3-Tier memory system.
+*   **Server Architecture**: Deep dive into the Isolate-based engine and memory system.
 *   [**API Reference**](docs/API.md): Full endpoint compatibility table.
 
 ## 🤝 Contributing
