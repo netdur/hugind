@@ -172,7 +172,7 @@ class ServiceChild {
     }
   }
 
-  void _handlePrompt(LlamaPrompt cmd) {
+  Future<void> _handlePrompt(LlamaPrompt cmd) async {
     if (_service == null) {
       parentSendPort
           .send(LlamaResponse.error("Service not initialized", cmd.promptId));
@@ -189,6 +189,41 @@ class ServiceChild {
       status: LlamaStatus.generating,
       promptId: promptId,
     ));
+
+    // Auto-create session if it's new (required by LlamaService)
+    // We treat 'stateless-' sessions as ephemeral.
+    final isStateless = sessionId.startsWith('stateless-');
+
+    // Attempt creation. LlamaService usually ignores if already exists or handles it.
+    // However, for stateless, we definitely want a new slot.
+    // We cannot easily check existence without try-catch on create,
+    // or assuming we must call it.
+    // Based on error "Call createSession first", we MUST call it.
+    try {
+      // We might need to check if it exists? LlamaService.createSession might throw if exists?
+      // Or we just try.
+      // Given we don't have visibility into LlamaService source,
+      // we'll try to create it. If it fails because it exists, we catch and proceed
+      // (assuming it's reusable).
+      // BUT for stateless, we expect it to NOT exist.
+      if (isStateless) {
+        // Dynamic cast to bypass analyzer if definition is stale
+        await (_service as dynamic).createSession(sessionId);
+      } else {
+        // For stateful sessions, we also might need to create it if it's the first time.
+        // We can't know for sure.
+        // Ideally we should always try createSession -> catch "already exists".
+        try {
+          await (_service as dynamic).createSession(sessionId);
+        } catch (_) {
+          // Ignore "already exists" error
+        }
+      }
+    } catch (e) {
+      parentSendPort.send(LlamaResponse.error(
+          "Session creation failed for $sessionId: $e", promptId));
+      return;
+    }
 
     Stream<String> stream;
     try {
@@ -219,10 +254,24 @@ class ServiceChild {
             status: LlamaStatus.ready,
             promptId: promptId,
           ));
+
+          if (isStateless) {
+            try {
+              (_service as dynamic).deleteSession(sessionId);
+            } catch (e) {
+              // log error?
+            }
+          }
         },
         onError: (e) {
           _subscriptions.remove(promptId);
           parentSendPort.send(LlamaResponse.error(e.toString(), promptId));
+
+          if (isStateless) {
+            try {
+              (_service as dynamic).deleteSession(sessionId);
+            } catch (_) {}
+          }
         },
       );
 
