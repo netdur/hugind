@@ -4,6 +4,7 @@ import 'package:hugind/commands/model_command.dart';
 import 'package:hugind/commands/config_command.dart';
 import 'package:hugind/commands/server_command.dart';
 import 'package:hugind/commands/agent_command.dart';
+import 'package:hugind/commands/chat_command.dart';
 
 void main(List<String> arguments) async {
   if (arguments.contains('--version')) {
@@ -16,7 +17,8 @@ void main(List<String> arguments) async {
     ..addCommand(ModelCommand())
     ..addCommand(ConfigCommand())
     ..addCommand(ServerCommand())
-    ..addCommand(AgentCommand());
+    ..addCommand(AgentCommand())
+    ..addCommand(ChatCommand());
 
   try {
     await runner.run(arguments);

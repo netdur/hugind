@@ -45,6 +45,17 @@ class EngineManager {
     return engine;
   }
 
+  /// Force hibernate a user session across all engines
+  Future<bool> hibernateSession(String userId) async {
+    bool hibernated = false;
+    for (final engine in _engines) {
+      if (await engine.hibernateSession(userId)) {
+        hibernated = true;
+      }
+    }
+    return hibernated;
+  }
+
   Future<void> dispose() async {
     print('   → Shutting down engines...');
     for (final e in _engines) {
