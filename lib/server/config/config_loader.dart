@@ -80,6 +80,8 @@ class ConfigLoader {
       ..nCtx = context['size'] ?? 4096
       ..nBatch = batchSize
       ..nUbatch = context['ubatch_size'] ?? 512
+      // CRITICAL: Set nSeqMax to max_slots to allow concurrency!
+      ..nSeqMax = server['max_slots'] ?? 4
       ..nThreads = context['threads'] ?? 8
       ..nThreadsBatch = context['threads_batch'] ?? 8
       ..flashAttention = _parseFlashAttn(context['flash_attention'])
