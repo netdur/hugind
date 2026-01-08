@@ -25,7 +25,7 @@ class ChatHandler {
       final rawMessages = json['messages'] as List;
 
       // Check for X-Session-ID header for stateful session management
-      request.headers['X-Session-ID'] ??
+      userId = request.headers['X-Session-ID'] ??
           json['user']?.toString() ??
           'stateless-${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(99999)}';
 
