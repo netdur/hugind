@@ -202,38 +202,37 @@ class ServiceChild {
     ));
 
     // Auto-create session if it's new (required by LlamaService)
-    // We treat 'stateless-' sessions as ephemeral.
     final isStateless = sessionId.startsWith('stateless-');
 
-    // Attempt creation. LlamaService usually ignores if already exists or handles it.
-    // However, for stateless, we definitely want a new slot.
-    // We cannot easily check existence without try-catch on create,
-    // or assuming we must call it.
-    // Based on error "Call createSession first", we MUST call it.
-    try {
-      // We might need to check if it exists? LlamaService.createSession might throw if exists?
-      // Or we just try.
-      // Given we don't have visibility into LlamaService source,
-      // we'll try to create it. If it fails because it exists, we catch and proceed
-      // (assuming it's reusable).
-      // BUT for stateless, we expect it to NOT exist.
-      if (isStateless) {
-        // Dynamic cast to bypass analyzer if definition is stale
-        await (_service as dynamic).createSession(sessionId);
-      } else {
-        // For stateful sessions, we also might need to create it if it's the first time.
-        // We can't know for sure.
-        // Ideally we should always try createSession -> catch "already exists".
-        try {
+    // Attempt creation with RETRY logic
+    // LlamaService can be finicky with slot allocation races, even if serialized.
+    int retries = 0;
+    const maxRetries = 3;
+    bool created = false;
+
+    while (!created && retries < maxRetries) {
+      try {
+        if (isStateless) {
           await (_service as dynamic).createSession(sessionId);
-        } catch (_) {
-          // Ignore "already exists" error
+        } else {
+          // Stateful handling (try create, ignore exists)
+          try {
+            await (_service as dynamic).createSession(sessionId);
+          } catch (_) {}
         }
+        created = true;
+      } catch (e) {
+        retries++;
+        if (retries >= maxRetries) {
+          // If it failed 3 times, we can't proceed.
+          parentSendPort.send(LlamaResponse.error(
+              "Session creation failed for $sessionId after $maxRetries retries: $e",
+              promptId));
+          return;
+        }
+        // Wait a bit before retrying to let slots free up
+        await Future.delayed(Duration(milliseconds: 100 * retries));
       }
-    } catch (e) {
-      parentSendPort.send(LlamaResponse.error(
-          "Session creation failed for $sessionId: $e", promptId));
-      return;
     }
 
     Stream<String> stream;
@@ -266,23 +265,13 @@ class ServiceChild {
             promptId: promptId,
           ));
 
-          if (isStateless) {
-            try {
-              (_service as dynamic).deleteSession(sessionId);
-            } catch (e) {
-              // log error?
-            }
-          }
+          // REMOVED deleteSession to prevent race conditions or state corruption.
+          // Let LlamaService manage eviction naturally for now.
         },
         onError: (e) {
           _subscriptions.remove(promptId);
           parentSendPort.send(LlamaResponse.error(e.toString(), promptId));
-
-          if (isStateless) {
-            try {
-              (_service as dynamic).deleteSession(sessionId);
-            } catch (_) {}
-          }
+          // REMOVED deleteSession
         },
       );
 
