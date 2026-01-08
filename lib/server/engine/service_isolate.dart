@@ -61,9 +61,20 @@ void _entryPoint(SendPort parentSendPort) {
 
   final child = ServiceChild(parentSendPort);
 
+  // Serialize command processing to prevent race conditions during session creation/allocation
+  Future<void> processingChain = Future.value();
+
   receivePort.listen((message) {
     if (message is LlamaCommand) {
-      child.handle(message);
+      // Chain the task
+      processingChain = processingChain.then((_) async {
+        await child.handle(message);
+      }).catchError((e) {
+        // Log error but keep chain alive.
+        // Child.handle catches most internal errors, this is a fallback.
+        // Assuming we can't easily log to file, we just suppress or send to parent.
+        // parentSendPort.send(LlamaResponse.error("Isolate loop error: $e"));
+      });
     }
   });
 }
@@ -77,26 +88,26 @@ class ServiceChild {
 
   ServiceChild(this.parentSendPort);
 
-  void handle(LlamaCommand command) {
+  Future<void> handle(LlamaCommand command) async {
     try {
       if (command is LlamaInit) {
         _handleInit(command);
       } else if (command is LlamaLoad) {
         _handleLoad(command);
       } else if (command is LlamaPrompt) {
-        _handlePrompt(command);
+        await _handlePrompt(command);
       } else if (command is LlamaStop) {
         _handleStop(command);
       } else if (command is LlamaDispose) {
-        _handleDispose();
+        await _handleDispose();
       } else if (command is LlamaSaveState) {
-        _handleSaveState(command);
+        await _handleSaveState(command);
       } else if (command is LlamaLoadState) {
         // Not supported by LlamaService (Memory persistence not implemented via this command yet)
         parentSendPort.send(
             LlamaResponse.error("LoadState not supported", command.slotId));
       } else if (command is LlamaLoadSession) {
-        _handleLoadSession(command);
+        await _handleLoadSession(command);
       }
     } catch (e) {
       parentSendPort.send(LlamaResponse.error("Uncaught isolate error: $e"));
