@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:shelf/shelf.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
@@ -24,10 +25,9 @@ class ChatHandler {
       final rawMessages = json['messages'] as List;
 
       // Check for X-Session-ID header for stateful session management
-      userId = request.headers['x-session-id'] ??
-          request.headers['X-Session-ID'] ??
+      request.headers['X-Session-ID'] ??
           json['user']?.toString() ??
-          'default_session';
+          'stateless-${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(99999)}';
 
       // VISUAL LOG: Incoming
       print(
