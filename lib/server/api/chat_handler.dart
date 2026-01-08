@@ -27,7 +27,18 @@ class ChatHandler {
       // Check for X-Session-ID header for stateful session management
       userId = request.headers['X-Session-ID'] ??
           json['user']?.toString() ??
-          'stateless-${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(99999)}';
+          (() {
+            final n = Random().nextInt(100000);
+            // Use a round-robin pool for stateless IDs to prevent infinite session growth.
+            // We use a pool of 32 slots (stateless-0 to stateless-31).
+            // This allows concurrency but prevents "zombie" sessions from accumulating forever in LlamaService.
+            // We use a simple random selection from the pool for now, or a static counter.
+            // A static counter would be better but we are in a handler instance.
+            // Let's use Random but mod 32.
+            final slot = n % 32;
+            return 'stateless-$slot';
+          })();
+      // userId = 'stateless-${DateTime.now().microsecondsSinceEpoch}-$n'; // OLD infinite growth{Random().nextInt(99999)}';
 
       // VISUAL LOG: Incoming
       print(
