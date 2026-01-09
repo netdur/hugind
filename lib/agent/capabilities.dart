@@ -69,9 +69,13 @@ class SysCapability {
 
       // 2. Resolve the target path
       String realTargetPath;
-      final entity = File(path);
-      if (entity.existsSync() || Directory(path).existsSync()) {
-        realTargetPath = entity.resolveSymbolicLinksSync();
+      final f = File(path);
+      final d = Directory(path);
+
+      if (d.existsSync()) {
+        realTargetPath = d.resolveSymbolicLinksSync();
+      } else if (f.existsSync()) {
+        realTargetPath = f.resolveSymbolicLinksSync();
       } else {
         // For non-existent files (e.g. creating output.txt), resolve the parent
         final parent = Directory(p.dirname(path));
@@ -79,7 +83,7 @@ class SysCapability {
           realTargetPath =
               p.join(parent.resolveSymbolicLinksSync(), p.basename(path));
         } else {
-          // Fallback to absolute string if parent missing (likely blocked unless root is higher)
+          // Fallback to absolute string if parent missing
           realTargetPath = p.normalize(p.absolute(path));
         }
       }
