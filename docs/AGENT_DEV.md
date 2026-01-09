@@ -76,14 +76,28 @@ Interact with the system and user.
     *   Asks the user a Yes/No question. Returns `true` for Yes.
 *   **`Future<String> run(String executable, List<String> args, {String? workDir})`**
     *   Runs a shell command.
-    *   **Security:** By default, agents can only access the current working directory.
-    *   *Example:* `await sys.run('git', ['status']);`
+    *   **Security:** Only allowed if `shell: allow: true` is set in `agent.yaml`.
+*   **`List<String> listContents(String path)`**
+    *   Lists files in a directory (subject to filesystem permissions).
 
 ### `LlmCapability` (`context['capabilities']['llm']`)
 Interact with the local Inference Server.
 
 *   **`Future<String> chat(String prompt)`**
     *   Sends a user message to the configured model and returns the response text.
+
+### `NetworkCapability` (`context['capabilities']['net']`)
+Make external HTTP requests.
+
+*   **`Future<String> get(String url)`**
+*   **`Future<String> post(String url, Map<String, String> headers, String body)`**
+    *   **Security:** Only domains listed in `agent.yaml` under `permissions.network.allowed_domains` are accessible.
+
+### `McpCapability` (`context['capabilities']['mcp']`)
+Interact with MCP Servers.
+
+*   **`Future<List<dynamic>> listTools()`**
+*   **`Future<dynamic> callTool(String name, Map<String, dynamic> args)`**
 
 ---
 

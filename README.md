@@ -19,6 +19,7 @@ Powered by [llama_cpp_dart](https://github.com/netdur/llama_cpp_dart).
 *   **🔌 MCP Client**: Native support for the **Model Context Protocol**. Connect agents to external tools (GitHub, Databases, Filesystem) via standard MCP servers.
 *   **👁️ Multimodal Vision**: Native support for image inputs. Run models like `Llava` or `Moondream` via the OpenAI Vision API.
 *   **🛠️ "Smart" CLI**: An interactive hardware probe that calculates safe context limits and generates OOM-proof configs.
+*   **💬 Interactive Chat**: Built-in terminal workspace to chat with your models natively, featuring persistent sessions and slash commands.
 
 ---
 
@@ -78,6 +79,28 @@ You'll see:
    Local Health: http://127.0.0.1:8080/health
    OpenAI URL:   http://127.0.0.1:8080/v1
 ```
+
+---
+
+## 💬 Interactive Chat
+
+Hugind includes a built-in terminal client that supports state persistence.
+
+```bash
+# Start a new chat (wizard)
+hugind chat
+
+# Start a specific chat session
+hugind chat start my-assistant
+
+# Resume a previous session
+hugind chat resume <session-id>
+```
+
+inside the chat:
+*   **Encrypted State**: Sessions are saved to disk automatically.
+*   **Hibernation**: When you exit (Ctrl+C), the session hibernates. Resuming is instant.
+*   **Slash Commands**: Use `/exit`, `/history`, or other commands.
 
 ---
 

@@ -9,7 +9,7 @@ OpenAI-compatible endpoints exposed by the Hugind server, plus unsupported ones 
 | `GET /v1/models` | List model ids | Yes | Yes |
 | `POST /v1/chat/completions` | Chat generation | Yes | Yes |
 | `POST /v1/completions` | Legacy completion API | Yes | Yes |
-| `POST /v1/embeddings` | Vector embeddings | Yes* | Yes |
+| `POST /v1/embeddings` | Vector embeddings | Yes | Yes |
 | `POST /v1/audio/transcriptions` | Speech-to-text | No | No |
 | `POST /v1/audio/translations` | Speech translation | No | No |
 | `POST /v1/images/generations` | Image generation | No | No |
@@ -45,14 +45,14 @@ OpenAI-compatible endpoints exposed by the Hugind server, plus unsupported ones 
 | Error/compat polish | Partial | Align response fields/codes with OpenAI spec across endpoints; add token usage accounting. |
 | Sampling parity | Partial | Per-request sampling is ignored today (llama.cpp sampler params set at startup). Either expose per-request overrides or document as config-only. |
 | Completions parity | Partial | Add `logprobs`, `echo`, proper `n` fan-out, and JSON mode if desired. |
-| Embeddings polish | Implemented | Document batching/limits and model selection; consider usage tokens. |
+| Embeddings polish | Implemented | Documented batching limits. |
 
 ## Behavior Notes
 - Authentication: Config supports `server.api_key`. If set, requests must include `Authorization: Bearer <key>`.
 - Model id: The `model` field in requests should match the config name used at startup (e.g., `tiny-llama`).
 - Sessions: Providing an `X-Session-ID` header allows reusing cached context across requests (Stateful Mode).
 - Streaming: `/v1/chat/completions` always streams SSE chunks; `/v1/completions` supports both streaming (`stream: true`) and buffered responses.
-- Embeddings: `/v1/embeddings` is available only when the server is started in embeddings-enabled mode (`server.embeddings: true` in config).
+- Embeddings: `/v1/embeddings` is available. Requires a model that supports embeddings or a dedicated embedding model.
 - Vision: `/v1/chat/completions` supports image inputs when running a vision-capable model with mmproj. Use OpenAI-style content parts (`type: text` + `type: image_url` with a `data:` URL or local file path/`file://...`). Remote HTTP fetches are not supported by the server.
 
 ## Examples / Tests

@@ -140,7 +140,21 @@ hugind server list
 
 ---
 
-## 6. API Usage (OpenAI Compatible)
+---
+
+## 6. Interactive Chat workspace
+
+Hugind provides a built-in terminal UI for chatting with your models.
+
+For full details, see [**Chat Documentation**](CHAT.md).
+
+```bash
+hugind chat
+```
+
+---
+
+## 7. API Usage (OpenAI Compatible)
 
 Hugind provides an OpenAI-compatible API. You can use standard libraries (Python `openai`, JS `langchain`) by changing the `base_url`.
 
