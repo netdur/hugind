@@ -120,6 +120,27 @@ class NetworkCapability {
           'Permission denied: Network access to ${uri.host} is not allowed.');
     }
 
+    // SSRF Protection: Resolve and check for private/loopback IPs
+    try {
+      final ips = await InternetAddress.lookup(uri.host);
+      for (final ip in ips) {
+        if (_isPrivate(ip)) {
+          // Exception: Allow if host is explicitly 'localhost' or the literal IP
+          // This prevents DNS rebinding attacks (external domain -> internal IP)
+          if (uri.host == 'localhost' || uri.host == ip.address) {
+            continue;
+          }
+          throw Exception(
+              'Security Error: Access to private/loopback IP ${ip.address} denied (SSRF Protection).');
+        }
+      }
+    } catch (e) {
+      if (e.toString().contains('SSRF')) rethrow;
+      // If lookup fails, http.get will likely fail too, but we let it proceed or fail safely?
+      // Better to fail if we can't verify IP.
+      throw Exception('DNS resolution failed or blocked: $e');
+    }
+
     try {
       final response = await http.get(uri).timeout(const Duration(seconds: 30));
       return response.body;
@@ -134,6 +155,22 @@ class NetworkCapability {
         return true;
       }
     }
+    return false;
+  }
+
+  bool _isPrivate(InternetAddress ip) {
+    if (ip.isLoopback || ip.isLinkLocal) return true;
+
+    // Manual check for IPv4 private ranges
+    // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+    if (ip.type == InternetAddressType.IPv4) {
+      final bytes = ip.rawAddress;
+      if (bytes[0] == 10) return true;
+      if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) return true;
+      if (bytes[0] == 192 && bytes[1] == 168) return true;
+    }
+    // IPv6 Unique Local Addresses (fc00::/7) ?
+    // For now, focusing on standard private ranges.
     return false;
   }
 }
