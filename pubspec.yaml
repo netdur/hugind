@@ -1,5 +1,5 @@
 name: hugind
-description: A simple command-line application.
+description: ai and agent operations server
 version: 0.4.0
 environment:
   sdk: '>=3.0.0 <4.0.0'
