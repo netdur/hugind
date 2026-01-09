@@ -42,8 +42,8 @@ class SysCapability {
     try {
       return Confirm(prompt: message, defaultValue: true).interact();
     } catch (_) {
-      // Fallback if not interactive (e.g. tests)
-      return true;
+      // Fallback if not interactive (fail closed)
+      return false;
     }
   }
 
