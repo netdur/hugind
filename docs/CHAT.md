@@ -1,57 +1,40 @@
-# Interactive Chat (Workspace)
+# Chat Workspace
 
-Hugind ships with a powerful terminal-based chat client that leverages the server's stateful capabilities. It is designed to be a persistent workspace rather than just a simple REPL.
+The chat command provides an interactive terminal client with persistent sessions stored on disk.
 
-## Quick Start
+## Commands
 
-```bash
-# Open the Interactive Wizard
-hugind chat
-```
+### `hugind chat`
+Launches the chat wizard:
+- Start a new chat by config name
+- Resume an existing session
 
-This command checks for existing sessions. If none exist, it prompts you to start a new one using your saved configurations.
+If you pass an argument, Hugind treats it as either a session ID (if it exists) or a config name (if it does not) and starts a chat.
 
-## Subcommands
+### `hugind chat start <config>`
+Creates a new session using the specified config name and enters chat.
 
-### 1. `hugind chat start <config_name>`
-Bypasses the wizard and immediately starts a new session using the specified model configuration.
+### `hugind chat resume <session-id>`
+Loads an existing session and enters chat.
 
-```bash
-hugind chat start my-coding-assistant
-```
+### `hugind chat list`
+Lists session IDs and last active time.
 
-### 2. `hugind chat resume <session_id>`
-Resumes a specific session by its ID. You can find IDs using the `list` command.
+## Session Storage
 
-```bash
-hugind chat resume 550e8400-e29b
-```
+Sessions are stored as JSON under `<home>/chats/` and include:
+- `model` (the config name)
+- `messages` (chat history)
+- `last_active` timestamp
 
-### 3. `hugind chat list`
-Displays all stored sessions, their last active time, and the model used.
+## Slash Commands
 
-```bash
-hugind chat list
-```
+- `/exit` or `/quit` ends the session loop.
 
-**Output:**
-```text
-ID              LAST ACTIVE   TITLE
-550e8400-e29b   5m ago        my-coding-assistant (gemma-2b)
-a1b2c3d4-e5f6   2d ago        roleplay-bot (llama-3-8b)
-```
+On Ctrl+C, Hugind sends a hibernate request so server state can persist.
 
-## Features
+## Best Practices
 
-### 🧠 Persistent State
-Unlike standard `curl` requests where you must manage history yourself, `hugind chat` automatically maintains a local session file.
-*   **Auto-Save:** Every message exchange is appended to the local history.
-*   **Hibernation:** When you close the chat (Ctrl+C), the server "hibernates" your slot. The next time you run `resume`, the server reloads your context instantly.
-
-### ⚡️ Slash Commands
-Inside the chat loop, you can use special commands:
-*   `/exit` or `/quit`: Saves and closes the session.
-*   More commands are in development (e.g., `/clear`, `/system`).
-
-### 🛡️ Crash Recovery
-If the server crashes or restarts, your client history is safe on disk. When you reconnect, the client re-sends the necessary history to the server to restore the state transparently.
+- Keep session IDs if you want to resume long-running conversations.
+- If you see a context error, restart the chat to rehydrate history.
+- Use `hugind server start <config>` before chatting if the server is not running.

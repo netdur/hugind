@@ -1,88 +1,50 @@
-# Hugind Model Management
+# Model Management
 
-The `hugind` CLI provides a simple way to download and organize GGUF models directly from Hugging Face. Models are stored in your home directory structure.
-
-## Usage
-
-```bash
-hugind model <subcommand> [arguments]
-```
-
-## Storage Structure
-Models are stored in: `~/.hugind/<user>/<repo>/<filename>.gguf`
-
-*Example:*
-`~/.hugind/TheBloke/Llama-2-7B-Chat-GGUF/llama-2-7b-chat.Q4_K_M.gguf`
+Hugind manages GGUF model files downloaded from Hugging Face. Models are stored under the Hugind home directory in `~/.hugind/<user>/<repo>/`.
 
 ## Commands
 
-### 1. `add` (Download)
-Interactively select and download files from a Hugging Face repository.
+### `hugind model list`
+Lists all locally downloaded model repositories.
 
-```bash
-hugind model add <user/repo>
+### `hugind model add <user/repo>`
+Interactive download of `.gguf` files from Hugging Face.
+
+What it does:
+- Fetches the repo metadata via the Hugging Face API.
+- Filters for `.gguf` files.
+- Presents a multi-select UI.
+- Downloads each selected file with progress reporting.
+
+Example:
+```
+hugind model add TheBloke/Llama-2-7B-Chat-GGUF
 ```
 
-**Example:**
-```bash
-hugind model add TheBloke/Mistral-7B-Instruct-v0.2-GGUF
+### `hugind model show <user/repo>`
+Lists local `.gguf` files and their sizes within a repo.
+
+### `hugind model remove <user/repo>`
+Interactive deletion of files or entire repositories.
+
+Behavior:
+- If the repo is empty, it offers to delete the folder.
+- If files exist, it lets you delete individual files or the whole repo.
+- Cleans up empty directories afterward.
+
+## Hugging Face Authentication
+
+If a repo is gated or private, set a token:
+
+```
+hugind config defaults --hf-token <hf_token>
 ```
 
-**Process:**
-1.  Scans the remote repository for `.gguf` files.
-2.  Displays a list where you can select one or multiple files (using Spacebar).
-3.  Downloads the selected files with a progress bar.
+This stores the token in `~/.hugind/settings.yml` and is used for downloads.
 
----
+## Best Practices
 
-### 2. `list`
-Displays all model repositories (folders) currently downloaded on your machine.
-
-```bash
-hugind model list
-```
-
-**Output:**
-```text
-Downloaded Repositories:
-----------------------------------------
-TheBloke/Mistral-7B-Instruct-v0.2-GGUF
-google/gemma-2b-it-GGUF
-```
-
----
-
-### 3. `show`
-Lists the specific files available inside a local repository.
-
-```bash
-hugind model show <user/repo>
-```
-
-**Example:**
-```bash
-hugind model show google/gemma-2b-it-GGUF
-```
-
-**Output:**
-```text
-Files in google/gemma-2b-it-GGUF:
-----------------------------------------
-gemma-2b-it.Q4_K_M.gguf  (1500.23 MB)
-gemma-2b-it.Q8_0.gguf    (2800.50 MB)
-```
-
----
-
-### 4. `remove`
-Delete specific files or entire repositories to free up disk space.
-
-```bash
-hugind model remove <user/repo>
-```
-
-**Process:**
-1.  Lists the files currently in that repository.
-2.  Includes a special option `[DELETE ENTIRE REPO]` at the top.
-3.  Allows multi-selection to delete specific quantizations.
-4.  If the folder becomes empty, it asks to clean up the folder automatically.
+- Prefer `.gguf` builds that match your hardware (Metal/CUDA/CPU) and desired quantization.
+- Keep disk headroom: a single 7B model can be multiple GBs.
+- Use `hugind model show` before deleting to avoid removing the wrong file.
+- For multi-model testing, name configs after the repo+quant to keep them distinct.

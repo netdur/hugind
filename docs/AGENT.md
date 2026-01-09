@@ -1,117 +1,74 @@
-# Hugind Agent Architecture
+# Agent Runtime
 
-The **Agent Submodule** transforms `hugind` into a platform for autonomous local tasks. It enables you to run secured, sandboxed Dart scripts that can interact with your local LLM server and your operating system.
+Agents are sandboxed Dart scripts executed by Hugind with explicit, manifest-based permissions.
 
-## 1. Core Philosophy
+## Commands
 
-*   **Architecture:** Client-Server. The Agent is a lightweight client that consumes the existing Hugind Inference Server.
-*   **Extension Model:** Agents are discoverable, self-contained packages (like browser extensions) stored in `~/.hugind/agents/`.
-*   **Security:** Logic runs in a **Dart Eval Sandbox**. No raw shell access is granted unless explicitly bridged by the Host.
-*   **Zero-Overhead Discovery:** Agents find the model by reading your existing `~/.hugind/configs/*.yml` files.
+### `hugind agent install <path>`
+Installs an agent from a local directory containing `agent.yaml`.
 
----
+Behavior:
+- Validates `agent.yaml` and agent name.
+- Shows requested permissions (network, filesystem, MCP).
+- Prompts for confirmation before installation.
+- Installs to `<home>/agents/<agent_name>/`.
 
-## 2. Directory Structure
+### `hugind agent list`
+Lists installed agents with version and description (if present in `agent.yaml`).
 
-Agents reside in `~/.hugind/agents/`. Each agent is a folder containing its configuration, entry point, and assets.
+### `hugind agent run <agent_name> [args...]`
+Runs an installed agent.
 
-```text
-~/.hugind/
-├── configs/                  # Server configurations
-│   └── gemma-4b.yml          # Defines port: 8080
-├── agents/                   # Installed Agent Packages
-│   └── git-committer/
-│       ├── agent.yaml        # Manifest & Permissions
-│       ├── system.md         # Personality / System Prompt
-│       └── main.dart         # Sandboxed Logic Script
-```
+Notes:
+- You can also run a local agent by path: `hugind agent run ./my-agent`.
+- The agent connects to a server config (default `metal_unified`) unless overridden in `agent.yaml`.
+- If the first argument looks like a directory, it is added to the allowed paths for `workDir`.
 
----
+## Manifest (`agent.yaml`)
 
-## 3. The Agent Manifest (`agent.yaml`)
+Required fields:
 
-Every agent must have a manifest. This defines the **Security Boundary** and runtime requirements.
+- `name` (alphanumeric, dash, underscore)
+- `entry_point` (defaults to `main.dart`)
+- `backend` (config name; defaults to `metal_unified`)
+
+Permissions are optional but recommended:
 
 ```yaml
-name: "GitCommitter"
+name: "example-agent"
 version: "1.0.0"
-description: "Scans a folder and generates commits using AI."
+description: "Demo agent"
+entry_point: "main.dart"
+backend: "metal_unified"
 
-# CONNECTION
-# Maps to ~/.hugind/configs/gemma-4b.yml
-# The CLI reads that file to find the port (e.g., 8080).
-backend: "gemma-4b" 
-
-# ENTRY POINT
-# The Dart source file to execute.
-entry_point: main.dart
-
-# PERMISSIONS (The Sandbox Boundaries)
 permissions:
-  # 📂 Filesystem
   filesystem:
-    # If allowed_paths is empty or omitted, access is restricted to the Agent's own directory.
-    # You can add arbitrary paths here, but usually agents work on CWD or passed args.
-    allowed_paths: [] 
-
-  # 🌐 Network
+    allowed_paths:
+      - "/Users/me/projects"
   network:
     allowed_domains:
-      - "api.github.com"
-      - "localhost"
-
-  # 💻 Shell (Default: false)
-  # Allows executing arbitrary system commands. USE WITH CAUTION.
+      - "api.example.com"
   shell:
-    allow: false 
+    allow: false
 
-# 🔌 DEPENDENCIES (MCP)
 dependencies:
   mcp:
     - name: "filesystem"
-    - name: "github"
 ```
 
----
+## Capabilities Available to Agents
 
-## 4. The Sandbox & Bridge
+At runtime, the agent can request access to capabilities based on the manifest:
 
-The Agent Logic (`main.dart`) runs in a Virtual Machine (`dart_eval`). It cannot touch the OS directly. The `hugind` binary acts as the **Host**, injecting specific capabilities (The Bridge).
+- `sys.run(...)` executes shell commands (only if `permissions.shell.allow` is true)
+- `sys.confirm(...)` and `sys.readInput(...)` for user interaction
+- `llm.chat(...)` calls the local inference server
+- `net.fetch(...)` makes HTTP requests to allowed domains
+- MCP tools are exposed via `sys.tools.list()` and `sys.tools.call(...)`
 
-### 4.1 The Bridge Capabilities
-The Host injects a `context` map into the script with these tools:
+## Best Practices
 
-1.  **`capabilities['llm']`**: An HTTP client pre-configured to talk to the `backend` defined in YAML. It handles the JSON payload for OpenAI-compatible chat.
-2.  **`capabilities['sys']`**: A safe wrapper around `Process.run` and Console I/O. It enforces `permissions.filesystem` and `permissions.shell`.
-3.  **`capabilities['net']`**: A restricted HTTP client for external API calls. Enforces `permissions.network`.
-4.  **`capabilities['mcp']`**: Access to Model Context Protocol tools.
-5.  **`args`**: List of arguments passed from the CLI.
-
-### 4.2 The Script Logic (`main.dart`)
-```dart
-dynamic main(Map<String, dynamic> context) async {
-  // 1. Setup
-  var args = context['args'];
-  var sys = context['capabilities']['sys'];
-  var llm = context['capabilities']['llm'];
-
-  // 2. Interaction
-  sys.print("Hello! I am an agent.");
-  
-  if (await sys.confirm("Shall I proceed?")) {
-     var response = await llm.chat("Hello there!");
-     sys.print(response);
-  }
-}
-```
-
----
-
-## 5. Execution Flow
-
-1.  **User Trigger:** `hugind agent run git-committer ./my-project`
-2.  **Manifest Parse:** CLI reads `agent.yaml`.
-3.  **Backend Resolution:** CLI finds `backend: gemma-4b`, looks up `configs/gemma-4b.yml`, and resolves `localhost:8080`.
-4.  **Security Check:** CLI builds the Sandbox with only the allowed permissions (Network domains, Filesystem paths).
-5.  **Injection:** The Bridge capabilities are injected into the `dart_eval` runtime.
-6.  **Run:** The `main.dart` script executes within the secure bounds.
+- Use least privilege: only allow the exact domains and paths required.
+- Keep agent code self-contained within its directory.
+- Prefer MCP tools for filesystem/database access instead of shelling out.
+- Verify the server is running before calling `hugind agent run`.

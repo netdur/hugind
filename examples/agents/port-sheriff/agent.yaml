@@ -1,0 +1,5 @@
+name: "port-sheriff"
+version: "0.1.0"
+description: "Finds and terminates the process bound to a port using available CLI tools."
+backend: "gemma-4b"
+entry_point: "main.drt"

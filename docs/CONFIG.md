@@ -1,103 +1,97 @@
-# Hugind Configuration Guide
+# Configuration
 
-The `hugind config` command is your toolkit for managing hardware profiles and server settings. It generates optimized configuration files used by the `hugind server` command.
+Hugind configurations are YAML files stored under `<home>/configs/*.yml`. Each config controls server settings, model paths, context size, and sampling defaults.
 
 ## Commands
 
-### 1. `hugind config info`
-**"What does Hugind see?"**
+### `hugind config info`
+Prints detected system hardware details and a recommended preset.
 
-Runs a system probe to detect your hardware (CPU, RAM, GPUs). Use this to verify if Hugind correctly identifies your hardware capabilities.
+### `hugind config init <name>`
+Interactive wizard that:
+- Probes hardware
+- Applies a preset (`metal_unified`, `cuda_dedicated`, `cpu_only`)
+- Lets you select a model file
+- Detects vision projectors (`mmproj`) when present
+- Suggests a safe context size
+- Writes the resulting config to `<home>/configs/<name>.yml`
 
-**Example Output:**
-```text
-System Information
-------------------
-OS: macos Version 14.4
-CPU: Apple M3 Max (16c/16t)
-Memory: 64.0 GB
-GPUs: Apple M3 Max (Unified)
-Recommendation: metal_unified
-```
+Options:
+- `-m, --model <path>` skip the model picker and use a specific file
 
-### 2. `hugind config init <name>`
-**"Create a new configuration."**
+### `hugind config list`
+Lists saved configs by name.
 
-Runs an interactive wizard to generate a `config.yml` file optimized for your specific machine and model.
+### `hugind config remove <name>`
+Deletes a saved config after confirmation.
 
-**The Wizard Steps:**
-1.  **Hardware Probe**: Detects system resources.
-2.  **Preset Selection**: Applies a hardware profile:
-    *   `metal_unified`: Apple Silicon (M1/M2/M3). Enables Flash Attention and mmap.
-    *   `cuda_dedicated`: NVIDIA GPUs. Enables layer offloading and tensor splitting.
-    *   `cpu_only`: Fallback. Enables aggressive quantization (`q8_0` KV cache) to save RAM.
-3.  **Model Selection**: Selects a `.gguf` file from your library (managed via `hugind model`).
-    *   *Auto-Detection*: Detects and links vision projectors (`mmproj`) and draft models automatically.
-4.  **Context Calculation**:
-    *   Formula: `System RAM - Model Size - 2GB (OS Buffer)`.
-    *   Suggests the maximum safe context size (e.g., 8192, 32768) to prevent crashes.
+### `hugind config defaults [--lib <path>] [--hf-token <token>]`
+Sets global defaults in `~/.hugind/settings.yml`.
 
-**Example:**
-```bash
-hugind config init my_chat_bot
-```
+- `--lib` sets the default `libllama` library path.
+- `--hf-token` sets the Hugging Face token used by `hugind model add`.
 
-### 3. `hugind config list`
-Lists all saved configurations found in `~/.hugind/configs/`.
+If no options are provided, it prints the current defaults.
 
-### 4. `hugind config remove <name>`
-Deletes a configuration file.
+## Config File Layout
 
----
+Below is a minimal example that mirrors the fields consumed by the server.
 
-## Configuration File Structure
-
-Hugind generates clean, structured YAML files. You can edit these manually after generation.
-
-**Location:** `~/.hugind/configs/<name>.yml`
-
-### Structure Overview
 ```yaml
-# 1. Server Settings (Port, API Keys, Concurrency)
 server:
   host: "0.0.0.0"
   port: 8080
-  concurrency: 1      # Number of model instances
-  max_slots: 4        # Max concurrent users per instance
+  api_key: ""
+  embeddings: false
+  concurrency: 1
+  max_slots: 4
+  timeout_seconds: 600
+  system_prompt_file: "prompts/coding_assistant.txt"
+  library_path: ""
 
-# 2. Model Settings (Paths, GPU Offload)
 model:
-  path: "models/llama-3-8b.gguf"
+  path: "~/Models/llama-3-8b.gguf"
+  mmproj_path: ""
   gpu_layers: 99
-  split_mode: layer   # layer, row, or none
+  split_mode: layer
+  main_gpu: 0
+  use_mmap: true
+  use_mlock: false
+  vocab_only: false
 
-# 3. Context & Performance (Memory usage)
 context:
-  size: 8192
+  size: 4096
   batch_size: 2048
-  flash_attention: enabled
-  cache_type_k: q8_0  # Quantized Cache (Saves VRAM)
-  cache_type_v: q8_0
+  ubatch_size: 512
+  threads: 8
+  threads_batch: 8
+  flash_attention: false
+  cache_type_k: f16
+  cache_type_v: f16
+  offload_kqv: true
 
-# 4. Sampling Defaults (Creativity)
+chat:
+  format: auto
+
 sampling:
   temp: 0.7
   top_k: 40
+  top_p: 0.95
+  min_p: 0.05
+  dry_multiplier: 0.0
 ```
 
----
+### Notes on Key Fields
 
-## Advanced: Customizing Templates
+- `server.library_path` can be omitted if Hugind can auto-detect the shared library.
+- `model.path` is required; Hugind resolves `~` and relative paths.
+- `context.nSeqMax` is derived from `server.max_slots` in code.
+- `chat.format` supports `auto`, `chatml`, `qwen3`, `gemma`, `alpaca`, `harmony`.
+- `embeddings: true` enables only `/v1/embeddings` and disables chat/completions.
 
-Hugind generates configs based on template files located in your system's share directory. You can edit these templates to change the defaults for all future `init` commands.
+## Best Practices
 
-**Template Locations:**
-*   **macOS (Homebrew):** `/opt/homebrew/share/hugind/config/`
-*   **Linux:** `/usr/local/share/hugind/config/` or `~/.local/share/hugind/config/`
-*   **Developer Mode:** `./bin/config/` (relative to executable)
-
-**Available Templates:**
-*   `config.yml`: The base structure.
-*   `metal_unified.yml`: Overrides for Apple Silicon.
-*   `cuda_dedicated.yml`: Overrides for NVIDIA.
-*   `cpu_only.yml`: Overrides for CPU inference.
+- Run `hugind config info` before `init` if you want a quick read of CPU/GPU/RAM.
+- Use the wizard to keep context sizes safe; manual oversizing can cause OOM.
+- For vision models, keep `batch_size` at `8192` or higher.
+- If you use a custom `libllama`, set it once in defaults and omit it from configs.
