@@ -43,6 +43,22 @@ class McpClient {
 
     // Notify initialized
     notify('notifications/initialized', {});
+    // Monitor exit
+    _process!.exitCode.then((code) {
+      if (code != 0) {
+        print('⚠️ MCP Server ($command) exited with code $code');
+      }
+      _cleanup(code);
+    });
+  }
+
+  void _cleanup(int code) {
+    // Reject all pending requests so the Agent doesn't hang
+    for (var id in _pendingRequests.keys) {
+      _pendingRequests[id]!
+          .completeError('MCP Server exited unexpectedly (Code $code)');
+    }
+    _pendingRequests.clear();
   }
 
   Future<dynamic> request(String method, [Map<String, dynamic>? params]) async {

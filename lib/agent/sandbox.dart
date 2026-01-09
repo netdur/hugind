@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:dart_eval/dart_eval.dart';
 import 'package:dart_eval/dart_eval_bridge.dart';
 import 'package:dart_eval/stdlib/core.dart';
@@ -133,28 +134,15 @@ class AgentSandbox {
               isStatic: true),
           'mcpListTools': BridgeMethodDef(
               BridgeFunctionDef(
-                  returns:
-                      BridgeTypeAnnotation(BridgeTypeRef(CoreTypes.future, [
-                    BridgeTypeAnnotation(BridgeTypeRef(CoreTypes.list, [
-                      BridgeTypeAnnotation(BridgeTypeRef(CoreTypes.map, [
-                        BridgeTypeAnnotation(
-                            BridgeTypeRef(CoreTypes.string, [])),
-                        BridgeTypeAnnotation(
-                            BridgeTypeRef(CoreTypes.object, []),
-                            nullable: true)
-                      ]))
-                    ]))
-                  ])),
+                  returns: BridgeTypeAnnotation(BridgeTypeRef(CoreTypes.future,
+                      [BridgeTypeAnnotation(BridgeTypeRef(CoreTypes.string))])),
                   params: [],
                   namedParams: []),
               isStatic: true),
           'mcpCallTool': BridgeMethodDef(
               BridgeFunctionDef(
-                  returns: BridgeTypeAnnotation(BridgeTypeRef(
-                      CoreTypes.future, [
-                    BridgeTypeAnnotation(BridgeTypeRef(CoreTypes.object, []),
-                        nullable: true)
-                  ])),
+                  returns: BridgeTypeAnnotation(BridgeTypeRef(CoreTypes.future,
+                      [BridgeTypeAnnotation(BridgeTypeRef(CoreTypes.string))])),
                   params: [
                     BridgeParameter(
                         'name',
@@ -180,6 +168,7 @@ class AgentSandbox {
     // Prelude: Bridge methods map directly to host capabilities
     final prelude = '''
       import 'dart:async';
+      import 'dart:convert';
       
       class Bridge {
          external static Future<String> sysRun(String executable, List<String> args, String? workDir);
@@ -188,17 +177,20 @@ class AgentSandbox {
          external static void sysPrint(String message);
          external static Future<String> llmChat(String prompt);
          external static Future<String> netFetch(String url);
-         external static Future<List<Map<String, dynamic>>> mcpListTools();
-         external static Future<dynamic> mcpCallTool(String name, Map<String, dynamic> args);
+         external static Future<String> mcpListTools();
+         external static Future<String> mcpCallTool(String name, Map<String, dynamic> args);
       }
       
       class AgentToolsCapability {
-        Future<List<Map<String, dynamic>>> list() {
-           return Bridge.mcpListTools();
+        Future<List<Map<String, dynamic>>> list() async {
+           final jsonStr = await Bridge.mcpListTools();
+           final decoded = jsonDecode(jsonStr);
+           return (decoded as List).cast<Map<String, dynamic>>();
         }
         
-        Future<dynamic> call(String name, Map<String, dynamic> args) {
-           return Bridge.mcpCallTool(name, args);
+        Future<dynamic> call(String name, Map<String, dynamic> args) async {
+           final jsonStr = await Bridge.mcpCallTool(name, args);
+           return jsonDecode(jsonStr);
         }
       }
 
@@ -327,7 +319,7 @@ class AgentSandbox {
         final future = mcp.listTools();
         // Convert List<Map> to $List
         return $Future.wrap(future.then((list) {
-          return $List.wrap(list.map((tool) => $Map.wrap(tool)).toList());
+          return $String(jsonEncode(list));
         }));
       });
 
@@ -349,15 +341,7 @@ class AgentSandbox {
         // But we return dynamic.
 
         return $Future.wrap(future.then((val) {
-          // We can't easily auto-wrap arbritrary deep dynamic.
-          // simple strings/ints/bools are fine.
-          if (val is String) return $String(val);
-          // ...
-          // For now, assume String or simple Map/List.
-          // If complex, we might fail or return just string representation if unsupported.
-          // Let's assume the result is JSON-compatible.
-          return $String(val
-              .toString()); // HACK: Converting result to string to avoid wrapping headache for now
+          return $String(jsonEncode(val));
         }));
       });
 

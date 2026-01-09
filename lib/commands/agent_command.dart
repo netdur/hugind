@@ -230,23 +230,26 @@ class AgentRunCommand extends Command {
     }
 
     // 2. Parse Manifest
-    String? backendName;
-    String entryPoint = 'main.drt';
+    var backendName = 'metal_unified';
+    var entryPoint = 'main.dart';
+    YamlMap? agentYaml;
 
     try {
       final content = await manifestFile.readAsString();
-      final yaml = loadYaml(content);
-      backendName = yaml['backend'] as String?;
-      entryPoint = yaml['entry_point'] ?? 'main.drt';
+      final loaded = loadYaml(content);
+      if (loaded is YamlMap) {
+        agentYaml = loaded;
+        backendName = agentYaml['backend'] as String? ?? backendName;
+        entryPoint = agentYaml['entry_point'] as String? ?? entryPoint;
+      }
     } catch (e) {
       print('❌ Failed to parse agent.yaml: $e');
       return;
     }
 
-    if (backendName == null) {
-      print('❌ Agent manifest must specify a "backend" (server config name).');
-      return;
-    }
+    print('🚀 Launching agent: $agentName');
+    print('   • Backend: $backendName');
+    print('   • Entry: $entryPoint');
 
     // 3. Resolve Backend
     final configPath = p.join(_configHome(), 'configs', '$backendName.yml');
@@ -298,18 +301,9 @@ class AgentRunCommand extends Command {
     var allowedDomains = <String>[];
     var requiredMcp = <String>[];
 
-    try {
-      // Re-read yaml to be safe/clean access (or I could cache it above,
-      // but for now I'll just re-use the file reading logic or better, reuse the 'yaml' var if it was higher scope)
-      // Wait, 'yaml' variable from step 2 is local to that try block.
-      // I should probably move 'yaml' to outer scope or re-read.
-      // To minimize diff, I'll re-read or just assume I can access it if I refactor.
-      // Let's re-read for simplicity of this partial replacement.
-      final content = await manifestFile.readAsString();
-      final yaml = loadYaml(content);
-
+    if (agentYaml != null) {
       // Filesystem extras
-      final fsConfig = yaml['permissions']?['filesystem'] as Map?;
+      final fsConfig = agentYaml['permissions']?['filesystem'] as Map?;
       if (fsConfig != null) {
         final extras = fsConfig['allowed_paths'] as List?;
         if (extras != null) {
@@ -318,7 +312,7 @@ class AgentRunCommand extends Command {
       }
 
       // Network
-      final netConfig = yaml['permissions']?['network'] as Map?;
+      final netConfig = agentYaml['permissions']?['network'] as Map?;
       if (netConfig != null) {
         final domains = netConfig['allowed_domains'] as List?;
         if (domains != null) {
@@ -327,21 +321,19 @@ class AgentRunCommand extends Command {
       }
 
       // Shell
-      final shellConfig = yaml['permissions']?['shell'] as Map?;
+      final shellConfig = agentYaml['permissions']?['shell'] as Map?;
       if (shellConfig != null) {
         shellAllowed = shellConfig['allow'] == true;
       }
 
       // MCP Dependencies
-      final mcpDeps = yaml['dependencies']?['mcp'] as List?;
+      final mcpDeps = agentYaml['dependencies']?['mcp'] as List?;
       if (mcpDeps != null) {
         for (var dep in mcpDeps) {
           final name = dep['name'] as String?;
           if (name != null) requiredMcp.add(name);
         }
       }
-    } catch (e) {
-      print('⚠️  Failed to parse permissions from agent.yaml: $e');
     }
 
     // If the first arg looks like a directory, allow it for workDir usage.

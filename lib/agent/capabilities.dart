@@ -57,16 +57,45 @@ class SysCapability {
   }
 
   bool _isAllowed(String path) {
-    // Normalize and check against permitted paths
-    final absPath = p.normalize(p.absolute(path));
-    // Also resolve symlinks if possible, but for now simple string check
+    try {
+      // 1. Resolve the allowed paths (roots) to their true physical paths
+      final realAllowedPaths = allowedPaths
+          .map((p) {
+            final dir = Directory(p);
+            return dir.existsSync() ? dir.resolveSymbolicLinksSync() : null;
+          })
+          .whereType<String>()
+          .toList();
 
-    for (var allowed in allowedPaths) {
-      // expand allowed path if it's relative
-      final absAllowed = p.normalize(p.absolute(allowed));
-      if (absPath.startsWith(absAllowed)) return true;
+      // 2. Resolve the target path
+      // If the file exists, get its true path.
+      // If it's a new file (write mode), resolve its parent directory.
+      String realTargetPath;
+      final entity = File(path);
+      if (entity.existsSync() || Directory(path).existsSync()) {
+        realTargetPath = entity.resolveSymbolicLinksSync();
+      } else {
+        // For non-existent files (e.g. creating output.txt), resolve the parent
+        final parent = Directory(p.dirname(path));
+        if (parent.existsSync()) {
+          realTargetPath =
+              p.join(parent.resolveSymbolicLinksSync(), p.basename(path));
+        } else {
+          // If parent doesn't exist, we fallback to absolute string,
+          // effectively blocking it unless a recursive create permission exists (out of scope)
+          realTargetPath = p.normalize(p.absolute(path));
+        }
+      }
+
+      // 3. Check against roots
+      for (var root in realAllowedPaths) {
+        if (realTargetPath.startsWith(root)) return true;
+      }
+      return false;
+    } catch (e) {
+      print('Security check error for path $path: $e');
+      return false; // Fail closed
     }
-    return false;
   }
 }
 
