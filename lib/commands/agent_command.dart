@@ -251,9 +251,11 @@ class AgentRunCommand extends Command {
       }
 
       // Sanitize Entrypoint
-      if (p.isAbsolute(entryPoint) || entryPoint.contains('..')) {
+      final resolvedEntry =
+          p.normalize(p.join(agentDir.absolute.path, entryPoint));
+      if (!p.isWithin(agentDir.absolute.path, resolvedEntry)) {
         print(
-            '❌ Invalid entry_point "$entryPoint". Must be a relative path without ".."');
+            '❌ Invalid entry_point "$entryPoint". Must be within the agent directory.');
         return;
       }
     } catch (e) {
