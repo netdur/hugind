@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 
 import 'package:shelf/shelf.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
@@ -10,6 +9,8 @@ import '../engine/engine_manager.dart';
 import '../engine/llama_engine.dart';
 
 class ChatHandler {
+  static int _statelessCounter = 0;
+
   Future<Response> call(Request request) async {
     final tempFiles = <String>[];
     Stream<List<int>>? outboundStream;
@@ -46,7 +47,11 @@ class ChatHandler {
       } else {
         // CASE 2: Stateless / Anonymous (No ID provided).
         // Use a round-robin pool for stateless IDs.
-        final n = Random().nextInt(100000);
+        // CASE 2: Stateless / Anonymous (No ID provided).
+        // Use a round-robin pool for stateless IDs.
+        // FIX: Use sequential counter instead of Random to prevent collisions
+        // under high concurrency (e.g. 2 requests picking same random slot).
+        final n = _statelessCounter++;
         final slot = n % 32;
         userId = 'stateless-$slot';
 
