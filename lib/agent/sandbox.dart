@@ -13,8 +13,10 @@ import 'capabilities.dart';
 class AgentSandbox {
   final SysCapability sys;
   final LlmCapability llm;
+  final NetworkCapability net;
+  final McpCapability mcp;
 
-  AgentSandbox(this.sys, this.llm);
+  AgentSandbox(this.sys, this.llm, this.net, this.mcp);
 
   Future<void> run(String sourceCode, List<String> args) async {
     final compiler = Compiler();
@@ -116,6 +118,62 @@ class AgentSandbox {
                   ],
                   namedParams: []),
               isStatic: true),
+          'netFetch': BridgeMethodDef(
+              BridgeFunctionDef(
+                  returns: BridgeTypeAnnotation(BridgeTypeRef(CoreTypes.future,
+                      [BridgeTypeAnnotation(BridgeTypeRef(CoreTypes.string))])),
+                  params: [
+                    BridgeParameter(
+                        'url',
+                        BridgeTypeAnnotation(
+                            BridgeTypeRef(CoreTypes.string, [])),
+                        false)
+                  ],
+                  namedParams: []),
+              isStatic: true),
+          'mcpListTools': BridgeMethodDef(
+              BridgeFunctionDef(
+                  returns:
+                      BridgeTypeAnnotation(BridgeTypeRef(CoreTypes.future, [
+                    BridgeTypeAnnotation(BridgeTypeRef(CoreTypes.list, [
+                      BridgeTypeAnnotation(BridgeTypeRef(CoreTypes.map, [
+                        BridgeTypeAnnotation(
+                            BridgeTypeRef(CoreTypes.string, [])),
+                        BridgeTypeAnnotation(
+                            BridgeTypeRef(CoreTypes.object, []),
+                            nullable: true)
+                      ]))
+                    ]))
+                  ])),
+                  params: [],
+                  namedParams: []),
+              isStatic: true),
+          'mcpCallTool': BridgeMethodDef(
+              BridgeFunctionDef(
+                  returns: BridgeTypeAnnotation(BridgeTypeRef(
+                      CoreTypes.future, [
+                    BridgeTypeAnnotation(BridgeTypeRef(CoreTypes.object, []),
+                        nullable: true)
+                  ])),
+                  params: [
+                    BridgeParameter(
+                        'name',
+                        BridgeTypeAnnotation(
+                            BridgeTypeRef(CoreTypes.string, [])),
+                        false),
+                    BridgeParameter(
+                        'args',
+                        BridgeTypeAnnotation(BridgeTypeRef(CoreTypes.map, [
+                          BridgeTypeAnnotation(
+                              BridgeTypeRef(CoreTypes.string, [])),
+                          BridgeTypeAnnotation(
+                              BridgeTypeRef(CoreTypes.object, []),
+                              nullable: true)
+                        ])),
+                        false)
+                  ],
+                  namedParams: []),
+              isStatic: true),
         },
         bridge: true));
 
@@ -129,9 +187,24 @@ class AgentSandbox {
          external static dynamic sysReadInput(String prompt);
          external static void sysPrint(String message);
          external static Future<String> llmChat(String prompt);
+         external static Future<String> netFetch(String url);
+         external static Future<List<Map<String, dynamic>>> mcpListTools();
+         external static Future<dynamic> mcpCallTool(String name, Map<String, dynamic> args);
       }
       
+      class AgentToolsCapability {
+        Future<List<Map<String, dynamic>>> list() {
+           return Bridge.mcpListTools();
+        }
+        
+        Future<dynamic> call(String name, Map<String, dynamic> args) {
+           return Bridge.mcpCallTool(name, args);
+        }
+      }
+
       class SysCapability {
+        final tools = AgentToolsCapability();
+
         Future<String> run(String executable, List<String> args, {String? workDir}) {
            return Bridge.sysRun(executable, args, workDir);
         }
@@ -145,16 +218,19 @@ class AgentSandbox {
         }
         
         void print(String? msg) {
-          Bridge.sysPrint(msg ?? 'null');
+           Bridge.sysPrint(msg ?? 'null');
         }
-        
-        // Allowed paths logic typically happens on Host for security, 
-        // avoiding putting security logic in the Sandbox itself.
       }
 
       class LlmCapability {
         Future<String> chat(String prompt) {
            return Bridge.llmChat(prompt);
+        }
+      }
+
+      class NetworkCapability {
+        Future<String> fetch(String url) {
+           return Bridge.netFetch(url);
         }
       }
       
@@ -164,7 +240,8 @@ class AgentSandbox {
            'args': hostArgs, 
            'capabilities': {
              'sys': SysCapability(),
-             'llm': LlmCapability()
+             'llm': LlmCapability(),
+             'net': NetworkCapability()
            }
          };
       }
@@ -236,6 +313,54 @@ class AgentSandbox {
         return $Future.wrap(future.then((s) => $String(s)));
       });
 
+      runtime.registerBridgeFunc('package:agent/main.dart', 'Bridge.netFetch',
+          (rt, target, args) {
+        final url = args[0] is $Value
+            ? (args[0] as $Value).$value as String
+            : args[0] as String;
+        final future = net.fetch(url);
+        return $Future.wrap(future.then((s) => $String(s)));
+      });
+
+      runtime.registerBridgeFunc(
+          'package:agent/main.dart', 'Bridge.mcpListTools', (rt, target, args) {
+        final future = mcp.listTools();
+        // Convert List<Map> to $List
+        return $Future.wrap(future.then((list) {
+          return $List.wrap(list.map((tool) => $Map.wrap(tool)).toList());
+        }));
+      });
+
+      runtime.registerBridgeFunc(
+          'package:agent/main.dart', 'Bridge.mcpCallTool', (rt, target, args) {
+        final name = args[0] is $Value
+            ? (args[0] as $Value).$value as String
+            : args[0] as String;
+        final toolArgs = args[1] is $Value
+            ? (args[1] as $Value).$reified as Map
+            : args[1] as Map;
+
+        final future = mcp.callTool(name, toolArgs.cast<String, dynamic>());
+        // We're returning dynamic, so we might need to wrap it recursively if complex object
+        // For simplicity, assuming JSON primitives or standard collections
+        // dart_eval needs better wrapping for complex maps, but $Value.encode logic or similar might be needed.
+        // But for now let's hope standard wrapping works for primitives.
+        // Actually dart_eval helpers are better manually invoked for deep structure.
+        // But we return dynamic.
+
+        return $Future.wrap(future.then((val) {
+          // We can't easily auto-wrap arbritrary deep dynamic.
+          // simple strings/ints/bools are fine.
+          if (val is String) return $String(val);
+          // ...
+          // For now, assume String or simple Map/List.
+          // If complex, we might fail or return just string representation if unsupported.
+          // Let's assume the result is JSON-compatible.
+          return $String(val
+              .toString()); // HACK: Converting result to string to avoid wrapping headache for now
+        }));
+      });
+
       // --- Execute ---
       final boxedArgs = args.map((a) => $String(a)).toList();
       final contextResult = runtime
@@ -254,6 +379,8 @@ class AgentSandbox {
       }
     } catch (e, st) {
       throw Exception("Sandbox Error: $e\n$st");
+    } finally {
+      await mcp.stopAll();
     }
   }
 }

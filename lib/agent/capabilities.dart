@@ -4,14 +4,22 @@ import 'package:interact/interact.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:path/path.dart' as p;
+import 'mcp_client.dart';
 
 class SysCapability {
   final List<String> allowedPaths;
+  final bool shellAllowed;
 
-  SysCapability({this.allowedPaths = const []});
+  SysCapability({this.allowedPaths = const [], this.shellAllowed = false});
 
   Future<String> run(String executable, List<String> args,
       {String? workDir}) async {
+    if (!shellAllowed) {
+      // Check if this specific command is whitelisted?
+      // For now, simpler boolean check as per initial plan
+      return 'Permission denied: Shell execution is disabled for this agent.';
+    }
+
     if (workDir != null) {
       if (!_isAllowed(workDir)) {
         return 'Access denied to path: $workDir. Allowed: $allowedPaths';
@@ -31,7 +39,12 @@ class SysCapability {
   }
 
   Future<bool> confirm(String message) async {
-    return Confirm(prompt: message, defaultValue: true).interact();
+    try {
+      return Confirm(prompt: message, defaultValue: true).interact();
+    } catch (_) {
+      // Fallback if not interactive (e.g. tests)
+      return true;
+    }
   }
 
   void printMsg(String message) {
@@ -54,6 +67,149 @@ class SysCapability {
       if (absPath.startsWith(absAllowed)) return true;
     }
     return false;
+  }
+}
+
+class NetworkCapability {
+  final List<String> allowedDomains;
+
+  NetworkCapability({this.allowedDomains = const []});
+
+  Future<String> fetch(String url) async {
+    final uri = Uri.parse(url);
+    if (!_isAllowed(uri.host)) {
+      throw Exception(
+          'Permission denied: Network access to ${uri.host} is not allowed.');
+    }
+
+    try {
+      final response = await http.get(uri);
+      return response.body;
+    } catch (e) {
+      throw Exception('Network request failed: $e');
+    }
+  }
+
+  bool _isAllowed(String host) {
+    for (var domain in allowedDomains) {
+      if (host == domain || host.endsWith('.$domain')) {
+        return true;
+      }
+    }
+    return false;
+  }
+}
+
+class McpCapability {
+  final Map<String, dynamic> serverConfigs;
+  final List<String> requiredServers;
+  final Map<String, McpClient> _clients = {};
+
+  McpCapability(
+      {this.serverConfigs = const {}, this.requiredServers = const []});
+
+  Future<void> _ensureServer(String name) async {
+    if (_clients.containsKey(name)) return;
+
+    final config = serverConfigs[name];
+    if (config == null) {
+      throw Exception(
+          'MCP Server "$name" is not configured in Global Settings.');
+    }
+
+    final cmd = config['command'] as String?;
+    final args = (config['args'] as List?)?.cast<String>() ?? [];
+
+    if (cmd == null) {
+      throw Exception(
+          'MCP Server "$name" is missing "command" in configuration.');
+    }
+
+    final client = McpClient(cmd, args);
+    await client.start();
+    _clients[name] = client;
+  }
+
+  Future<List<Map<String, dynamic>>> listTools() async {
+    final allTools = <Map<String, dynamic>>[];
+
+    // For now, we only connect to servers explicitly listed in dependencies
+    // or we could iterate all configured servers.
+    // Let's iterate required servers.
+    for (var name in requiredServers) {
+      try {
+        await _ensureServer(name);
+        final client = _clients[name]!;
+
+        final result = await client.request('tools/list', {});
+        final tools = (result['tools'] as List?) ?? [];
+
+        for (var tool in tools) {
+          // Tag tool with server name for routing
+          tool['__server'] = name;
+          allTools.add(Map<String, dynamic>.from(tool));
+        }
+      } catch (e) {
+        print('⚠️ MCP Error ($name): $e');
+      }
+    }
+    return allTools;
+  }
+
+  Future<dynamic> callTool(String name, Map<String, dynamic> args) async {
+    // We need to find which server owns this tool.
+    // Ideally, the caller passes the server name or we search.
+    // The "tool call" protocol usually implies unique tool names or namespaced.
+    // For now, we search all active clients.
+
+    // Better strategy: iterate all required servers, ensure connected,
+    // ask for tool execution. If failed (MethodNotFound), try next?
+    // JSON-RPC requests usually throw if method not found, but 'tools/call' is the method.
+    // The param 'name' specifies the tool.
+
+    // Let's cache tool definitions on first listTools or initialization?
+    // Or just try all of them sequentially until one works?
+
+    for (var serverName in requiredServers) {
+      await _ensureServer(serverName);
+      final client = _clients[serverName]!;
+
+      try {
+        // We can check if this server has the tool if we kept the list.
+        // Let's assume we do "tools/call" and it returns result.
+        final result = await client
+            .request('tools/call', {'name': name, 'arguments': args});
+        return result;
+      } catch (e) {
+        // If error is "Tool not found", continue.
+        // But JSON-RPC error codes are integers.
+        // Let's just try matching the name against our known tool list if we had one.
+
+        // To make this robust:
+        // 1. Fetch tool list from this server.
+        // 2. Check if name exists.
+        // 3. If yes, call it.
+
+        // This adds latency. Ideally we cache tool->server map.
+        final list = await client.request('tools/list', {});
+        final tools = (list['tools'] as List?) ?? [];
+        final hasTool = tools.any((t) => t['name'] == name);
+
+        if (hasTool) {
+          final res = await client
+              .request('tools/call', {'name': name, 'arguments': args});
+          return res['content']; // MCP returns {content: [...], isError: bool}
+        }
+      }
+    }
+    throw Exception('Tool "$name" not found on any configured MCP server.');
+  }
+
+  Future<void> stopAll() async {
+    for (var c in _clients.values) {
+      await c.stop();
+    }
+    _clients.clear();
   }
 }
 

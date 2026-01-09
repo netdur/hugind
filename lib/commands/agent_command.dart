@@ -6,6 +6,7 @@ import 'package:yaml/yaml.dart';
 
 import '../agent/sandbox.dart';
 import '../agent/capabilities.dart';
+import '../global_settings.dart';
 
 class AgentCommand extends Command {
   @override
@@ -16,6 +17,120 @@ class AgentCommand extends Command {
   AgentCommand() {
     addSubcommand(AgentRunCommand());
     addSubcommand(AgentListCommand());
+    addSubcommand(AgentInstallCommand());
+  }
+}
+
+class AgentInstallCommand extends Command {
+  @override
+  final String name = 'install';
+  @override
+  final String description = 'Install an agent from a local directory or URL.';
+
+  @override
+  Future<void> run() async {
+    if (argResults!.rest.isEmpty) {
+      print('Usage: hugind agent install <path_to_agent_source>');
+      return;
+    }
+
+    final sourcePath = argResults!.rest.first;
+    final sourceDir = Directory(sourcePath);
+
+    if (!sourceDir.existsSync()) {
+      print('❌ Source directory not found: $sourcePath');
+      // TODO: Support git URLs in the future
+      return;
+    }
+
+    final manifestFile = File(p.join(sourceDir.path, 'agent.yaml'));
+    if (!manifestFile.existsSync()) {
+      print('❌ No agent.yaml found in $sourcePath');
+      return;
+    }
+
+    try {
+      final manifestContent = await manifestFile.readAsString();
+      final yaml = loadYaml(manifestContent);
+
+      final agentName = yaml['name'] as String?;
+      if (agentName == null) {
+        print('❌ Invalid manifest: "name" is required.');
+        return;
+      }
+
+      print('📦 Installing \'$agentName\'...');
+
+      // Parse permissions for display
+      final permissions = yaml['permissions'] as Map?;
+      if (permissions != null) {
+        print('⚠️  PERMISSIONS REQUESTED:');
+
+        final network = permissions['network'] as Map?;
+        if (network != null) {
+          final domains =
+              (network['allowed_domains'] as List?)?.join(', ') ?? 'None';
+          print('   • 🌐 Network: $domains');
+        }
+
+        final fs = permissions['filesystem'] as Map?;
+        if (fs != null) {
+          final read = fs['read'] == true;
+          final write = fs['write'] == true;
+          print(
+              '   • 📂 Filesystem: Read=${read ? '✅' : '❌'}, Write=${write ? '✅' : '❌'}');
+        }
+
+        final mcp = yaml['dependencies']?['mcp'] as List?;
+        if (mcp != null && mcp.isNotEmpty) {
+          final names = mcp.map((e) => e['name']).join(', ');
+          print('   • 🔌 MCP: Requires $names');
+        }
+      }
+
+      // Confirmation
+      // Note: We use the Interact package if available, or simple stdin
+      stdout.write('\nDo you accept? [y/N] ');
+      final input = stdin.readLineSync()?.toLowerCase();
+      if (input != 'y' && input != 'yes') {
+        print('❌ Installation cancelled.');
+        return;
+      }
+
+      // Install
+      final installDir = Directory(p.join(_configHome(), 'agents', agentName));
+      if (installDir.existsSync()) {
+        stdout.write('⚠️  Agent already exists. Overwrite? [y/N] ');
+        final overwrite = stdin.readLineSync()?.toLowerCase();
+        if (overwrite != 'y' && overwrite != 'yes') {
+          print('❌ Installation cancelled.');
+          return;
+        }
+        installDir.deleteSync(recursive: true);
+      }
+
+      installDir.createSync(recursive: true);
+
+      // Copy files
+      // Simple recursive copy
+      await _copyDir(sourceDir, installDir);
+
+      print('✅ Agent \'$agentName\' installed successfully!');
+    } catch (e) {
+      print('❌ Failed to install agent: $e');
+    }
+  }
+
+  Future<void> _copyDir(Directory source, Directory dest) async {
+    await for (final entity in source.list(recursive: false)) {
+      final newPath = p.join(dest.path, p.basename(entity.path));
+      if (entity is Directory) {
+        await Directory(newPath).create();
+        await _copyDir(entity, Directory(newPath));
+      } else if (entity is File) {
+        await entity.copy(newPath);
+      }
+    }
   }
 }
 
@@ -178,6 +293,57 @@ class AgentRunCommand extends Command {
       agentDir.path,
     };
 
+    // Parse Permissions
+    var shellAllowed = false;
+    var allowedDomains = <String>[];
+    var requiredMcp = <String>[];
+
+    try {
+      // Re-read yaml to be safe/clean access (or I could cache it above,
+      // but for now I'll just re-use the file reading logic or better, reuse the 'yaml' var if it was higher scope)
+      // Wait, 'yaml' variable from step 2 is local to that try block.
+      // I should probably move 'yaml' to outer scope or re-read.
+      // To minimize diff, I'll re-read or just assume I can access it if I refactor.
+      // Let's re-read for simplicity of this partial replacement.
+      final content = await manifestFile.readAsString();
+      final yaml = loadYaml(content);
+
+      // Filesystem extras
+      final fsConfig = yaml['permissions']?['filesystem'] as Map?;
+      if (fsConfig != null) {
+        final extras = fsConfig['allowed_paths'] as List?;
+        if (extras != null) {
+          allowedPaths.addAll(extras.cast<String>());
+        }
+      }
+
+      // Network
+      final netConfig = yaml['permissions']?['network'] as Map?;
+      if (netConfig != null) {
+        final domains = netConfig['allowed_domains'] as List?;
+        if (domains != null) {
+          allowedDomains.addAll(domains.cast<String>());
+        }
+      }
+
+      // Shell
+      final shellConfig = yaml['permissions']?['shell'] as Map?;
+      if (shellConfig != null) {
+        shellAllowed = shellConfig['allow'] == true;
+      }
+
+      // MCP Dependencies
+      final mcpDeps = yaml['dependencies']?['mcp'] as List?;
+      if (mcpDeps != null) {
+        for (var dep in mcpDeps) {
+          final name = dep['name'] as String?;
+          if (name != null) requiredMcp.add(name);
+        }
+      }
+    } catch (e) {
+      print('⚠️  Failed to parse permissions from agent.yaml: $e');
+    }
+
     // If the first arg looks like a directory, allow it for workDir usage.
     if (args.isNotEmpty) {
       final candidateDir = Directory(args.first);
@@ -186,10 +352,19 @@ class AgentRunCommand extends Command {
       }
     }
 
-    final sys = SysCapability(allowedPaths: allowedPaths.toList());
-    final llm = LlmCapability(baseUrl);
+    // Load MCP Settings
+    final settings = await GlobalSettings.load();
+    final mcpServers = (settings['mcp_servers'] as Map?) ?? {};
 
-    final sandbox = AgentSandbox(sys, llm);
+    final sys = SysCapability(
+        allowedPaths: allowedPaths.toList(), shellAllowed: shellAllowed);
+    final llm = LlmCapability(baseUrl);
+    final net = NetworkCapability(allowedDomains: allowedDomains);
+    final mcp = McpCapability(
+        serverConfigs: mcpServers.cast<String, dynamic>(),
+        requiredServers: requiredMcp);
+
+    final sandbox = AgentSandbox(sys, llm, net, mcp);
 
     final scriptFile = File(p.join(agentDir.path, entryPoint));
     if (!scriptFile.existsSync()) {
