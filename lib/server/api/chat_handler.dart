@@ -25,24 +25,39 @@ class ChatHandler {
       final rawMessages = json['messages'] as List;
 
       // Check for X-Session-ID header for stateful session management
-      userId = request.headers['X-Session-ID'] ??
-          json['user']?.toString() ??
-          (() {
-            final n = Random().nextInt(100000);
-            // Use a round-robin pool for stateless IDs to prevent infinite session growth.
-            // We use a pool of 32 slots (stateless-0 to stateless-31).
-            // This allows concurrency but prevents "zombie" sessions from accumulating forever in LlamaService.
-            // We use a simple random selection from the pool for now, or a static counter.
-            // A static counter would be better but we are in a handler instance.
-            // Let's use Random but mod 32.
-            final slot = n % 32;
-            return 'stateless-$slot';
-          })();
-      // userId = 'stateless-${DateTime.now().microsecondsSinceEpoch}-$n'; // OLD infinite growth{Random().nextInt(99999)}';
+      String userId;
+      bool isFreshSession;
+
+      final clientSessionId =
+          request.headers['X-Session-ID'] ?? request.headers['x-session-id'];
+      final freshHeader = request.headers['X-Fresh-Session'] ??
+          request.headers['x-fresh-session'];
+
+      if (clientSessionId != null && clientSessionId.isNotEmpty) {
+        // CASE 1: Stateful / Custom ID provided by client.
+        userId = clientSessionId;
+
+        // DX Logic: Default to RESUMING (false), unless explicitly told to RESET (true).
+        if (freshHeader != null && freshHeader.toLowerCase() == 'true') {
+          isFreshSession = true; // Explicit reset requested
+        } else {
+          isFreshSession = false; // Implicit resume (Standard behavior)
+        }
+      } else {
+        // CASE 2: Stateless / Anonymous (No ID provided).
+        // Use a round-robin pool for stateless IDs.
+        final n = Random().nextInt(100000);
+        final slot = n % 32;
+        userId = 'stateless-$slot';
+
+        // SECURITY CRITICAL: Always force fresh for random slots to prevent
+        // "Zombie Sessions" (loading a previous user's context).
+        isFreshSession = true;
+      }
 
       // VISUAL LOG: Incoming
       print(
-          '📩 Incoming Chat Request (User: $userId, Model: ${json['model']})');
+          '📩 Incoming Chat Request (User: $userId, Model: ${json['model']}, Fresh: $isFreshSession)');
 
       final messages = <Message>[];
       for (final m in rawMessages) {
@@ -67,13 +82,6 @@ class ChatHandler {
           headers: {'content-type': 'application/json'},
         );
       }
-
-      // Check for session continuity hint.
-      // If 'false', the client asserts that it relies on previous context.
-      // If the server cannot find it, it will abort instead of creating a fresh empty session.
-      final isFreshSession =
-          (request.headers['x-fresh-session'] ?? 'true').toLowerCase() ==
-              'true';
 
       final tokenStream = engine.generateStream(userId, messages,
           isFreshSession: isFreshSession);

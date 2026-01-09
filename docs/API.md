@@ -1,62 +1,42 @@
-# Hugind API Compatibility
+# API Reference
 
-OpenAI-compatible endpoints exposed by the Hugind server, plus unsupported ones for clarity.
+Hugind exposes an OpenAI-compatible HTTP API.
 
-## Summary
-| Endpoint | Purpose | Hugind | vLLM |
-| --- | --- | --- | --- |
-| `GET /health` | Liveness probe (non-OpenAI) | Yes | No |
-| `GET /v1/models` | List model ids | Yes | Yes |
-| `POST /v1/chat/completions` | Chat generation | Yes | Yes |
-| `POST /v1/completions` | Legacy completion API | Yes | Yes |
-| `POST /v1/embeddings` | Vector embeddings | Yes | Yes |
-| `POST /v1/audio/transcriptions` | Speech-to-text | No | No |
-| `POST /v1/audio/translations` | Speech translation | No | No |
-| `POST /v1/images/generations` | Image generation | No | No |
-| `POST /v1/images/edits` | Image edit | No | No |
-| `POST /v1/images/variations` | Image variations | No | No |
-| `POST /v1/fine_tuning/jobs` | Fine-tuning | No | No |
-| `GET /v1/fine_tuning/jobs` | List fine-tunes | No | No |
-| `POST /v1/moderations` | Content moderation | No | No |
-| `POST /v1/batches` | Batch jobs | No | No |
-| `/v1/assistants/*` | Assistants API surface | No | No |
+Base URL: `http://127.0.0.1:<port>/v1`
 
-### `/v1/completions` Feature Parity
-| Feature/Field | OpenAI Behavior | vLLM | Hugind |
-| --- | --- | --- | --- |
-| Prompt (`prompt`) | Required text/array | Yes | Yes |
-| Model (`model`) | Selects model id | Yes | Yes |
-| Max tokens (`max_tokens`) | Truncates output | Yes | No (sampler fixed at startup) |
-| Temperature/`top_p`/`top_k` | Sampling controls | Yes | No (set in config only) |
-| Stop sequences (`stop`) | Halts on match | Yes | No (set in config only) |
-| Logprobs (`logprobs`, `top_logprobs`) | Token probabilities | Yes | No |
-| `echo` | Returns prompt tokens | Yes | No |
-| `n` (multiple choices) | Generate N completions | Yes | Partial (non-stream only, sequential) |
-| Streaming (`stream`) | SSE chunks when true | Yes | Yes (single prompt only) |
-| `presence_penalty`/`frequency_penalty` | Penalize prior tokens | Yes | No |
-| JSON mode (`response_format`) | Constrained JSON | Partial | No |
-| Tool/function calling | Not in completions | N/A | N/A |
-| Attachments | Not part of endpoint | N/A | N/A |
+## Endpoints
 
-## Plan to Close Gap with vLLM
-| Item | Current State | Next Steps |
-| --- | --- | --- |
-| Auth parity | Implemented | Enforced when `server.api_key` is set in config. Supports Bearer token. |
-| Error/compat polish | Partial | Align response fields/codes with OpenAI spec across endpoints; add token usage accounting. |
-| Sampling parity | Partial | Per-request sampling is ignored today (llama.cpp sampler params set at startup). Either expose per-request overrides or document as config-only. |
-| Completions parity | Partial | Add `logprobs`, `echo`, proper `n` fan-out, and JSON mode if desired. |
-| Embeddings polish | Implemented | Documented batching limits. |
+- `GET /health` basic status and model name
+- `GET /v1/models` list available models
+- `POST /v1/chat/completions` streaming chat responses (SSE)
+- `POST /v1/completions` text completions (non-chat)
+- `POST /v1/embeddings` embeddings only (enabled when `server.embeddings: true`)
+- `POST /v1/chat/hibernate` persist and unload a session from memory
 
-## Behavior Notes
-- Authentication: Config supports `server.api_key`. If set, requests must include `Authorization: Bearer <key>`.
-- Model id: The `model` field in requests should match the config name used at startup (e.g., `tiny-llama`).
-- Sessions: Providing an `X-Session-ID` header allows reusing cached context across requests (Stateful Mode).
-- Streaming: `/v1/chat/completions` always streams SSE chunks; `/v1/completions` supports both streaming (`stream: true`) and buffered responses.
-- Embeddings: `/v1/embeddings` is available. Requires a model that supports embeddings or a dedicated embedding model.
-- Vision: `/v1/chat/completions` supports image inputs when running a vision-capable model with mmproj. Use OpenAI-style content parts (`type: text` + `type: image_url` with a `data:` URL or local file path/`file://...`). Remote HTTP fetches are not supported by the server.
+## Headers
 
-## Examples / Tests
-See integration-style examples in `test/api/*.dart`. They are marked `skip` by default; run with a live server using `--run-skipped`, e.g.:
+- `Authorization: Bearer <api_key>` if `server.api_key` is set
+- `X-Session-ID: <id>` enables stateful sessions
+- `X-Fresh-Session: true|false` hints whether the session is new (default `false` if `X-Session-ID` is present; `true` otherwise)
+
+## Chat Completions Example
+
+```bash
+curl http://127.0.0.1:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "X-Session-ID: demo" \
+  -d '{
+    "model": "my-assistant",
+    "stream": true,
+    "messages": [
+      {"role": "user", "content": "Hello"}
+    ]
+  }'
 ```
-HUGIND_URL=http://127.0.0.1:8080 dart test test/api/completions_test.dart --run-skipped
-```
+
+Responses stream as SSE (`data: ...`) with a final `data: [DONE]` chunk.
+
+## Error Notes
+
+- A `409` response indicates a missing session cache; resend full history.
+- If the server is in embeddings-only mode, chat endpoints return a `404` (Not Found).
