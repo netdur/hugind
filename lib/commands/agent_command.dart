@@ -307,8 +307,9 @@ class AgentRunCommand extends Command {
     print('✅ Server is reachable.');
 
     // 5. Setup Capabilities
+    // Only allow the agent directory by default.
+    // Allowing Directory.current is unsafe as it exposes the user's CWD (e.g. repo root with secrets).
     final allowedPaths = <String>{
-      Directory.current.path,
       agentDir.path,
     };
 
