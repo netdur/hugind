@@ -54,7 +54,7 @@ class McpClient {
 
   void _cleanup(int code) {
     // Reject all pending requests so the Agent doesn't hang
-    for (var id in _pendingRequests.keys) {
+    for (var id in _pendingRequests.keys.toList()) {
       _pendingRequests[id]!
           .completeError('MCP Server exited unexpectedly (Code $code)');
     }
@@ -74,7 +74,10 @@ class McpClient {
     };
 
     _send(req);
-    return completer.future;
+    return completer.future.timeout(const Duration(seconds: 30), onTimeout: () {
+      _pendingRequests.remove(id);
+      throw TimeoutException('MCP request timed out ($method)');
+    });
   }
 
   void notify(String method, [Map<String, dynamic>? params]) {

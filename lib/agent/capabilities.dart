@@ -60,16 +60,14 @@ class SysCapability {
     try {
       // 1. Resolve the allowed paths (roots) to their true physical paths
       final realAllowedPaths = allowedPaths
-          .map((p) {
-            final dir = Directory(p);
+          .map((allowedPath) {
+            final dir = Directory(allowedPath);
             return dir.existsSync() ? dir.resolveSymbolicLinksSync() : null;
           })
           .whereType<String>()
           .toList();
 
       // 2. Resolve the target path
-      // If the file exists, get its true path.
-      // If it's a new file (write mode), resolve its parent directory.
       String realTargetPath;
       final entity = File(path);
       if (entity.existsSync() || Directory(path).existsSync()) {
@@ -81,15 +79,16 @@ class SysCapability {
           realTargetPath =
               p.join(parent.resolveSymbolicLinksSync(), p.basename(path));
         } else {
-          // If parent doesn't exist, we fallback to absolute string,
-          // effectively blocking it unless a recursive create permission exists (out of scope)
+          // Fallback to absolute string if parent missing (likely blocked unless root is higher)
           realTargetPath = p.normalize(p.absolute(path));
         }
       }
 
-      // 3. Check against roots
+      // 3. Check against roots using proper path containment
       for (var root in realAllowedPaths) {
-        if (realTargetPath.startsWith(root)) return true;
+        if (root == realTargetPath || p.isWithin(root, realTargetPath)) {
+          return true;
+        }
       }
       return false;
     } catch (e) {
@@ -106,13 +105,19 @@ class NetworkCapability {
 
   Future<String> fetch(String url) async {
     final uri = Uri.parse(url);
+
+    if (uri.scheme != 'http' && uri.scheme != 'https') {
+      throw Exception(
+          'Permission denied: Only HTTP/HTTPS schemes are allowed.');
+    }
+
     if (!_isAllowed(uri.host)) {
       throw Exception(
           'Permission denied: Network access to ${uri.host} is not allowed.');
     }
 
     try {
-      final response = await http.get(uri);
+      final response = await http.get(uri).timeout(const Duration(seconds: 30));
       return response.body;
     } catch (e) {
       throw Exception('Network request failed: $e');

@@ -59,6 +59,13 @@ class AgentInstallCommand extends Command {
         return;
       }
 
+      // Sanitize Agent Name (alphanumeric, dashes, underscores only)
+      if (!RegExp(r'^[a-zA-Z0-9_-]+$').hasMatch(agentName)) {
+        print(
+            '❌ Invalid agent name "$agentName". Use only alphanumeric, "-", or "_".');
+        return;
+      }
+
       print('📦 Installing \'$agentName\'...');
 
       // Parse permissions for display
@@ -241,6 +248,13 @@ class AgentRunCommand extends Command {
         agentYaml = loaded;
         backendName = agentYaml['backend'] as String? ?? backendName;
         entryPoint = agentYaml['entry_point'] as String? ?? entryPoint;
+      }
+
+      // Sanitize Entrypoint
+      if (p.isAbsolute(entryPoint) || entryPoint.contains('..')) {
+        print(
+            '❌ Invalid entry_point "$entryPoint". Must be a relative path without ".."');
+        return;
       }
     } catch (e) {
       print('❌ Failed to parse agent.yaml: $e');

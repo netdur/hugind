@@ -184,13 +184,17 @@ class AgentSandbox {
       class AgentToolsCapability {
         Future<List<Map<String, dynamic>>> list() async {
            final jsonStr = await Bridge.mcpListTools();
-           final decoded = jsonDecode(jsonStr);
-           return (decoded as List).cast<Map<String, dynamic>>();
+           final decoded = jsonDecode(jsonStr) as List;
+           return decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
         }
         
         Future<dynamic> call(String name, Map<String, dynamic> args) async {
            final jsonStr = await Bridge.mcpCallTool(name, args);
-           return jsonDecode(jsonStr);
+           final decoded = jsonDecode(jsonStr);
+           if (decoded is Map) {
+              return Map<String, dynamic>.from(decoded);
+           }
+           return decoded;
         }
       }
 
