@@ -47,8 +47,6 @@ class ChatHandler {
       } else {
         // CASE 2: Stateless / Anonymous (No ID provided).
         // Use a round-robin pool for stateless IDs.
-        // CASE 2: Stateless / Anonymous (No ID provided).
-        // Use a round-robin pool for stateless IDs.
         // FIX: Use sequential counter instead of Random to prevent collisions
         // under high concurrency (e.g. 2 requests picking same random slot).
         final n = _statelessCounter++;

@@ -8,7 +8,6 @@ class EngineManager {
   EngineManager._();
 
   final List<LlamaEngine> _engines = [];
-  int _rrIndex = 0; // Round-robin index
 
   /// Returns a list of unique model names currently deployed
   List<String> get loadedModels {
@@ -17,47 +16,31 @@ class EngineManager {
 
   /// Deploy engines based on configuration
   Future<void> deploy(ServerConfig config) async {
-    print('   → Deploying ${config.concurrency} engine instance(s)...');
+    print('   → Deploying engine instance for model: ${config.modelPath}...');
 
-    for (int i = 0; i < config.concurrency; i++) {
-      final engine = LlamaEngine(config);
-      await engine.init();
-      _engines.add(engine);
-      print('     ✓ Instance #${i + 1} ready');
-    }
+    // Single Engine Architecture (Batching)
+    // We create ONE engine, but it will handle 'config.concurrency' via nSeqMax internally.
+    final engine = LlamaEngine(config);
+    await engine.init();
+    _engines.add(engine);
+    print('     ✓ Engine ready (Concurrency: ${config.concurrency})');
   }
 
   /// Route a request to the appropriate engine
   LlamaEngine getEngineForUser(String userId) {
     if (_engines.isEmpty) throw StateError("No engines deployed");
-
-    // 1. Session Affinity Check
-    // If a user already has a session on an engine, send them back there.
-    // (Currently LlamaEngine._activeSessions is private, in a real app
-    // we would expose a method 'hasUser(id)' or track it here).
-    // For now, we will trust the simple Load Balancing.
-
-    // 2. Simple Round Robin (for now)
-    // In a multi-slot setup, this distributes NEW users across engines.
-    final engine = _engines[_rrIndex];
-    _rrIndex = (_rrIndex + 1) % _engines.length;
-
-    return engine;
+    // Single Engine: Always return the first/only one.
+    return _engines.first;
   }
 
   /// Force hibernate a user session across all engines
   Future<bool> hibernateSession(String userId) async {
-    bool hibernated = false;
-    for (final engine in _engines) {
-      if (await engine.hibernateSession(userId)) {
-        hibernated = true;
-      }
-    }
-    return hibernated;
+    if (_engines.isEmpty) return false;
+    return await _engines.first.hibernateSession(userId);
   }
 
   Future<void> dispose() async {
-    print('   → Shutting down engines...');
+    print('   → Shutting down engine...');
     for (final e in _engines) {
       await e.dispose();
     }

@@ -43,13 +43,15 @@ class LlamaEngine {
     final readyCompleter = Completer<void>();
     _readyWaiters.add(readyCompleter);
 
-    _isolate!.send(LlamaLoad(
+    _isolate!.send(LlamaLoadExtended(
       path: config.modelPath,
       modelParams: config.modelParams,
-      contextParams: config.contextParams,
+      contextParams: config.contextParams
+        ..nSeqMax = config.maxSlots, // Use max slots from config
       samplingParams: config.samplerParams,
       verbose: true, // debug
       mmprojPath: config.mmprojPath,
+      sessionHome: config.sessionHome,
     ));
 
     await readyCompleter.future;
@@ -95,6 +97,19 @@ class LlamaEngine {
       _promptCompleters[promptId]!.complete();
       _promptCompleters.remove(promptId);
     }
+
+    // Auto-Save state for stateful sessions
+    // Derive userId from promptId (format: ${userId}_timestamp)
+    final parts = promptId.split('_');
+    if (parts.isNotEmpty) {
+      // userId might contain underscores, so we join all but last
+      final userId = parts.sublist(0, parts.length - 1).join('_');
+      if (userId.startsWith('stateless-')) {
+        _isolate!.send(LlamaFreeSession(userId));
+      } else {
+        _isolate!.send(LlamaSaveState(userId));
+      }
+    }
   }
 
   Future<List<double>> embed(String input) async {
@@ -123,31 +138,21 @@ class LlamaEngine {
     // user 'clear' logic is tricky in multi-user service.
     // For now, we just append. (Limitation of this refactor without clear-session support).
 
-    if (history.messages.isEmpty ||
-        history.messages.first.role != Role.system) {
-      history.messages
-          .insert(0, Message(role: Role.system, content: config.systemPrompt));
+    if (isFreshSession) {
+      if (history.messages.isEmpty ||
+          history.messages.first.role != Role.system) {
+        history.messages.insert(
+            0, Message(role: Role.system, content: config.systemPrompt));
+      }
     }
 
     final promptId = "${userId}_${DateTime.now().millisecondsSinceEpoch}";
 
-    // Auto-Restore check (Simple convention: ./sessions/$userId.bin)
-    // We only try to load if not fresh and we suspect it exists.
-    // Since we don't track loaded state perfectly, we might redundant load,
-    // but LlamaService.loadSession handles checks/overheads reasonably or we accept it.
+    // Auto-Restore check (Simple convention: ${config.sessionHome}/$userId.bin)
     if (!isFreshSession) {
-      final sessionFile = File("./sessions/$userId.bin");
+      final sessionFile = File("${config.sessionHome}/$userId.bin");
       if (sessionFile.existsSync()) {
-        // Send Load Session
-        // We don't await this strictly before Generate for perf?
-        // Or we must? We must, otherwise Generation might start on empty.
-        // But we don't have a specific command ID return for this in proper flow.
-        // We can just fire and hope internal queue handles it?
-        // LlamaService processes sequentially per user? No, concurrent.
-        // ServiceIsolate processes commands sequentially?
-        // ServiceIsolate.entryPoint listens to stream. It handles sequentially?
-        // ReceivePort stream is sequential.
-        // So if we send Load then Prompt, they arrive in order.
+        // Explicitly load session state
         _isolate!.send(LlamaLoadSession(userId, sessionFile.path));
       }
     }
@@ -171,11 +176,13 @@ class LlamaEngine {
     _promptStreams[promptId] = controller;
 
     // Send
-    _isolate!.send(LlamaPrompt(
+    // Send
+    _isolate!.send(LlamaPromptExtended(
       prompt,
       promptId,
       images: inputs,
       slotId: userId, // Mapping UserID to SlotID/SessionID
+      clearHistory: isFreshSession, // CRITICAL: Control history clearing
     ));
 
     return controller.stream;
@@ -183,11 +190,16 @@ class LlamaEngine {
 
   Future<bool> hibernateSession(String userId) async {
     if (_embeddingsOnly) return false;
-    // We send SaveState. We don't have a mechanism to await result easily here
-    // without refactoring `_activeGenerations` to track generic confirmation.
-    // For now, we fire and return true, assuming success.
+    // Confirm hibernation
     _isolate!.send(LlamaSaveState(userId));
+    // We assume success for the command fire.
+    //Ideally we should track completion, but this signature returns bool instantly.
     return true;
+  }
+
+  Future<void> freeSession(String userId) async {
+    if (_embeddingsOnly) return;
+    _isolate!.send(LlamaFreeSession(userId));
   }
 
   Future<void> dispose() async {

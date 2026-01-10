@@ -173,33 +173,29 @@ class RemoveCommand extends Command {
         return;
       }
 
-      // Case B: Repo has files - Select to delete
+      // Case B: Repo has files
+      // 1. Offer to delete the entire repository first (Default behavior)
+      if (Confirm(
+        prompt: 'Delete entire repository "$repo" (${files.length} files)?',
+        defaultValue: true,
+      ).interact()) {
+        await manager.deleteRepo(repo);
+        print('🗑️  Deleted repository $repo');
+        return;
+      }
+
+      // 2. If user says NO, offer fine-grained file selection
       final fileNames = files.map((f) => p.basename(f.path)).toList();
-
-      // Add option to delete everything
-      final options = ['[DELETE ENTIRE REPO]', ...fileNames];
-
       final selection = MultiSelect(
-        prompt: 'Select items to delete:',
-        options: options,
+        prompt: 'Select specific files to delete:',
+        options: fileNames,
       ).interact();
 
       if (selection.isEmpty) return;
 
-      // Check if "Delete Repo" was selected (index 0)
-      if (selection.contains(0)) {
-        if (Confirm(
-                prompt: 'Are you sure you want to delete the entire "$repo"?')
-            .interact()) {
-          await manager.deleteRepo(repo);
-          print('🗑️  Deleted repository $repo');
-        }
-        return;
-      }
-
       // Delete selected files
       for (var index in selection) {
-        final filename = options[index]; // options map 1:1 to index
+        final filename = fileNames[index]; // options map 1:1 to index
         await manager.deleteFile(repo, filename);
         print('🗑️  Deleted $filename');
       }

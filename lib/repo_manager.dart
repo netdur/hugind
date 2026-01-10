@@ -13,6 +13,8 @@ class RepoManager {
     'configs',
     'cache',
     'temp',
+    'sessions', // NEW: Ignore sessions directory
+    'agents', // NEW: Ignore agents directory
     '.DS_Store'
   };
 
@@ -189,14 +191,16 @@ class RepoManager {
     }
 
     // Cleanup parent user directory if empty
-    final parent = repoDir.parent;
-    if (await parent.exists() && await parent.list().isEmpty) {
-      await parent.delete();
-    }
+    await _cleanupParentIfEmpty(repoDir.parent);
   }
 
   Directory _getRepoDir(String repo) {
-    final parts = repo.split('/');
+    // Remove trailing slash if present
+    var cleanRepo = repo;
+    if (cleanRepo.endsWith('/')) {
+      cleanRepo = cleanRepo.substring(0, cleanRepo.length - 1);
+    }
+    final parts = cleanRepo.split('/');
     if (parts.length != 2) {
       throw Exception('Invalid repo format: "$repo". Expected "user/repo".');
     }
@@ -205,11 +209,44 @@ class RepoManager {
 
   Future<void> _cleanupEmptyDirs(String repo) async {
     final repoDir = _getRepoDir(repo);
-    if (await repoDir.exists() && await repoDir.list().isEmpty) {
-      await repoDir.delete();
-      if (await repoDir.parent.list().isEmpty) {
-        await repoDir.parent.delete();
+    if (!await repoDir.exists()) return;
+
+    // Check content. If only artifacts (like .DS_Store) remain, delete them and the dir.
+    try {
+      final entities = await repoDir.list().toList();
+      final isArtifactsOnly =
+          entities.every((e) => p.basename(e.path) == '.DS_Store');
+
+      if (isArtifactsOnly) {
+        for (var e in entities) {
+          if (e is File) await e.delete();
+        }
+        if (await repoDir.exists()) {
+          await repoDir.delete();
+        }
+
+        // Check parent (user dir)
+        await _cleanupParentIfEmpty(repoDir.parent);
       }
+    } catch (_) {
+      // Ignore errors during cleanup
     }
+  }
+
+  Future<void> _cleanupParentIfEmpty(Directory parent) async {
+    if (!await parent.exists()) return;
+    try {
+      final entities = await parent.list().toList();
+      final isArtifactsOnly =
+          entities.every((e) => p.basename(e.path) == '.DS_Store');
+      if (isArtifactsOnly) {
+        for (var e in entities) {
+          if (e is File) await e.delete();
+        }
+        if (await parent.exists()) {
+          await parent.delete();
+        }
+      }
+    } catch (_) {}
   }
 }

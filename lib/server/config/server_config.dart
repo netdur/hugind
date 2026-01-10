@@ -11,6 +11,7 @@ class ServerConfig {
   final int timeoutSeconds;
   final String systemPrompt;
   final bool embeddingsEnabled;
+  final String sessionHome;
 
   // Engine ID
   final String name;
@@ -34,6 +35,7 @@ class ServerConfig {
     required this.timeoutSeconds,
     required this.systemPrompt,
     required this.embeddingsEnabled,
+    required this.sessionHome,
     required this.modelPath,
     this.mmprojPath,
     required this.modelParams,

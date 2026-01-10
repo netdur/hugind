@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:isolate';
+import 'dart:io';
 
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
 
@@ -40,7 +41,7 @@ class ServiceIsolate {
     return ServiceIsolate._(isolate, sendPort);
   }
 
-  void send(LlamaCommand command) {
+  void send(Object command) {
     _sendPort.send(command);
   }
 
@@ -65,7 +66,10 @@ void _entryPoint(SendPort parentSendPort) {
   Future<void> processingChain = Future.value();
 
   receivePort.listen((message) {
-    if (message is LlamaCommand) {
+    if (message is LlamaCommand ||
+        message is LlamaFreeSession ||
+        message is LlamaPromptExtended ||
+        message is LlamaLoadExtended) {
       // Chain the task
       processingChain = processingChain.then((_) async {
         await child.handle(message);
@@ -85,16 +89,17 @@ class ServiceChild {
 
   // Track active subscriptions to cancel if needed
   final Map<String, StreamSubscription> _subscriptions = {};
+  final Set<String> _knownSessions = {};
 
   ServiceChild(this.parentSendPort);
 
-  Future<void> handle(LlamaCommand command) async {
+  Future<void> handle(dynamic command) async {
     try {
       if (command is LlamaInit) {
         _handleInit(command);
-      } else if (command is LlamaLoad) {
+      } else if (command is LlamaLoadExtended || command is LlamaLoad) {
         _handleLoad(command);
-      } else if (command is LlamaPrompt) {
+      } else if (command is LlamaPrompt || command is LlamaPromptExtended) {
         await _handlePrompt(command);
       } else if (command is LlamaStop) {
         _handleStop(command);
@@ -108,6 +113,11 @@ class ServiceChild {
             LlamaResponse.error("LoadState not supported", command.slotId));
       } else if (command is LlamaLoadSession) {
         await _handleLoadSession(command);
+      } else if (command is LlamaFreeSession) {
+        _service?.freeSession(command.sessionId);
+        // We could send confirmation, but free is usually fire-and-forget or sync-enough
+        parentSendPort.send(
+            LlamaResponse.confirmation(LlamaStatus.ready, command.sessionId));
       }
     } catch (e) {
       parentSendPort.send(LlamaResponse.error("Uncaught isolate error: $e"));
@@ -143,6 +153,7 @@ class ServiceChild {
     try {
       final success = await _service!.loadSession(cmd.slotId, cmd.path);
       if (success) {
+        _knownSessions.add(cmd.slotId);
         parentSendPort
             .send(LlamaResponse.confirmation(LlamaStatus.ready, cmd.slotId));
       } else {
@@ -166,8 +177,11 @@ class ServiceChild {
     }
   }
 
-  void _handleLoad(LlamaLoad cmd) {
+  void _handleLoad(dynamic cmd) {
     try {
+      final sessionHome = cmd is LlamaLoadExtended
+          ? cmd.sessionHome
+          : '${Directory.current.path}/sessions';
       _service = LlamaService(
         cmd.path,
         modelParams: cmd.modelParams,
@@ -175,6 +189,7 @@ class ServiceChild {
         samplerParams: cmd.samplingParams,
         verbose: cmd.verbose,
         mmprojPath: cmd.mmprojPath,
+        sessionHome: sessionHome, // Explicit session home
       );
 
       parentSendPort.send(LlamaResponse.confirmation(LlamaStatus.ready));
@@ -183,102 +198,151 @@ class ServiceChild {
     }
   }
 
-  Future<void> _handlePrompt(LlamaPrompt cmd) async {
+  Future<void> _handlePrompt(dynamic cmd) async {
+    // cmd can be LlamaPrompt (legacy/package) or LlamaPromptExtended (local)
+    // Extract fields
+    String prompt;
+    String? promptId;
+    List<LlamaImage>? images;
+    String? slotId;
+    bool clearHistory = true; // Default to true for standard command
+
+    if (cmd is LlamaPromptExtended) {
+      prompt = cmd.prompt;
+      promptId = cmd.promptId;
+      images = cmd.images;
+      slotId = cmd.slotId;
+      clearHistory = cmd.clearHistory;
+    } else if (cmd is LlamaPrompt) {
+      prompt = cmd.prompt;
+      promptId = cmd.promptId;
+      images = cmd.images;
+      slotId = cmd.slotId;
+    } else {
+      return; // Should not happen
+    }
+
+    // Force string check
+    if (promptId == null) return;
+    final pid = promptId;
+
     if (_service == null) {
-      parentSendPort
-          .send(LlamaResponse.error("Service not initialized", cmd.promptId));
+      parentSendPort.send(LlamaResponse.error("Service not initialized", pid));
       return;
     }
 
-    final sessionId = cmd.slotId ?? 'default';
-    final promptId = cmd.promptId;
+    final sessionId = slotId ?? 'default';
 
     // Send "Generating" status immediately
     parentSendPort.send(LlamaResponse(
       text: "",
       isDone: false,
       status: LlamaStatus.generating,
-      promptId: promptId,
+      promptId: pid,
     ));
 
     // Auto-create session if it's new (required by LlamaService)
     final isStateless = sessionId.startsWith('stateless-');
+    final needsCreate = !_knownSessions.contains(sessionId);
 
-    // Attempt creation with RETRY logic
-    // LlamaService can be finicky with slot allocation races, even if serialized.
-    int retries = 0;
-    const maxRetries = 3;
-    bool created = false;
-
-    while (!created && retries < maxRetries) {
+    // With nSeqMax > 1 (Batching), we don't need complex retry logic for slots.
+    // LlamaService internally manages slots based on nSeqMax.
+    // We just ensure the session is created.
+    if (needsCreate) {
       try {
         if (isStateless) {
           await (_service as dynamic).createSession(sessionId);
         } else {
-          // Stateful handling (try create, ignore exists)
+          // Stateful handling (try create, ignore exists if it was implicitly created)
           try {
             await (_service as dynamic).createSession(sessionId);
           } catch (_) {}
         }
-        created = true;
+        _knownSessions.add(sessionId);
       } catch (e) {
-        retries++;
-        if (retries >= maxRetries) {
-          // If it failed 3 times, we can't proceed.
-          parentSendPort.send(LlamaResponse.error(
-              "Session creation failed for $sessionId after $maxRetries retries: $e",
-              promptId));
-          return;
-        }
-        // Wait a bit before retrying to let slots free up
-        await Future.delayed(Duration(milliseconds: 100 * retries));
+        parentSendPort.send(LlamaResponse.error(
+            "Session creation failed for $sessionId: $e", pid));
+        return;
       }
     }
 
     Stream<String> stream;
     try {
-      if (cmd.images != null && cmd.images!.isNotEmpty) {
+      // Use the User's Pattern: setPrompt + generateText
+      // This allows explicit control over clearHistory.
+
+      if (images != null && images.isNotEmpty) {
         stream = _service!.generateWithMedia(
           sessionId,
-          cmd.prompt,
-          inputs: cmd.images!,
+          prompt,
+          inputs: images,
         );
+        // Media implies fresh context usually, or handled internally.
+        // We subscribe immediately.
+        final sub = stream.listen(
+          (token) {
+            parentSendPort.send(LlamaResponse(
+              text: token,
+              isDone: false,
+              status: LlamaStatus.generating,
+              promptId: pid,
+            ));
+          },
+          onDone: () {
+            _subscriptions.remove(pid);
+            parentSendPort.send(LlamaResponse(
+              text: "",
+              isDone: true,
+              status: LlamaStatus.ready,
+              promptId: pid,
+            ));
+          },
+          onError: (e) {
+            _subscriptions.remove(pid);
+            parentSendPort.send(LlamaResponse.error(e.toString(), pid));
+          },
+        );
+        _subscriptions[pid] = sub;
+        _waitForCompletion(sessionId, pid);
       } else {
-        stream = _service!.generateText(sessionId, prompt: cmd.prompt);
+        // Text Only: Use the explicit control pattern
+        // 1. Get Stream
+        stream = _service!.generateText(sessionId);
+
+        // 2. Subscribe FIRST (Matching user example)
+        final sub = stream.listen(
+          (token) {
+            parentSendPort.send(LlamaResponse(
+              text: token,
+              isDone: false,
+              status: LlamaStatus.generating,
+              promptId: pid,
+            ));
+          },
+          onDone: () {
+            _subscriptions.remove(pid);
+            parentSendPort.send(LlamaResponse(
+              text: "",
+              isDone: true,
+              status: LlamaStatus.ready,
+              promptId: pid,
+            ));
+          },
+          onError: (e) {
+            _subscriptions.remove(pid);
+            parentSendPort.send(LlamaResponse.error(e.toString(), pid));
+          },
+        );
+        _subscriptions[pid] = sub;
+
+        // 3. Set Prompt (Triggers generation)
+        await _service!
+            .setPrompt(sessionId, prompt, clearHistory: clearHistory);
+        _waitForCompletion(sessionId, pid);
       }
-
-      final sub = stream.listen(
-        (token) {
-          parentSendPort.send(LlamaResponse(
-            text: token,
-            isDone: false,
-            status: LlamaStatus.generating,
-            promptId: promptId,
-          ));
-        },
-        onDone: () {
-          _subscriptions.remove(promptId);
-          parentSendPort.send(LlamaResponse(
-            text: "",
-            isDone: true,
-            status: LlamaStatus.ready,
-            promptId: promptId,
-          ));
-
-          // REMOVED deleteSession to prevent race conditions or state corruption.
-          // Let LlamaService manage eviction naturally for now.
-        },
-        onError: (e) {
-          _subscriptions.remove(promptId);
-          parentSendPort.send(LlamaResponse.error(e.toString(), promptId));
-          // REMOVED deleteSession
-        },
-      );
-
-      _subscriptions[promptId] = sub;
     } catch (e) {
       parentSendPort
-          .send(LlamaResponse.error("Generation start failed: $e", promptId));
+          .send(LlamaResponse.error("Generation start failed: $e", pid));
     }
   }
 
@@ -291,8 +355,74 @@ class ServiceChild {
       await sub.cancel();
     }
     _subscriptions.clear();
+    _knownSessions.clear();
     await _service?.dispose();
     _service = null;
     parentSendPort.send(LlamaResponse.confirmation(LlamaStatus.disposed));
   }
+
+  Future<void> _waitForCompletion(String sessionId, String promptId) async {
+    try {
+      while (true) {
+        if (_service == null) break;
+        final status = (_service as dynamic).status(sessionId);
+        if (status != LlamaStatus.generating) break;
+        await Future.delayed(const Duration(milliseconds: 10));
+      }
+    } catch (_) {
+      // If status isn't available, fall back to stream completion only.
+      return;
+    }
+
+    if (!_subscriptions.containsKey(promptId)) return;
+    await _subscriptions[promptId]!.cancel();
+    _subscriptions.remove(promptId);
+    parentSendPort.send(LlamaResponse(
+      text: "",
+      isDone: true,
+      status: LlamaStatus.ready,
+      promptId: promptId,
+    ));
+  }
+}
+
+class LlamaFreeSession {
+  final String sessionId;
+  LlamaFreeSession(this.sessionId);
+}
+
+class LlamaPromptExtended {
+  final String prompt;
+  final String? promptId;
+  final List<LlamaImage>? images;
+  final String? slotId;
+  final bool clearHistory;
+
+  LlamaPromptExtended(
+    this.prompt,
+    this.promptId, {
+    this.images,
+    this.slotId,
+    this.clearHistory = true,
+  });
+}
+
+class LlamaLoadExtended {
+  final String path;
+  final ModelParams modelParams;
+  final ContextParams contextParams;
+  final SamplerParams samplingParams;
+  final bool verbose;
+  final String? mmprojPath;
+  final String sessionHome;
+
+  LlamaLoadExtended({
+    required this.path,
+    required this.modelParams,
+    required this.contextParams,
+    required this.samplingParams,
+    required this.sessionHome,
+    this.verbose = false,
+    this.mmprojPath,
+  });
 }

@@ -26,6 +26,10 @@ class ConfigLoader {
     final embeddingsRaw = server['embeddings'];
     final embeddingsEnabled = embeddingsRaw == true ||
         embeddingsRaw?.toString().toLowerCase() == 'true';
+    final sessionHome = _resolvePathRelative(
+      server['session_home']?.toString() ?? './sessions',
+      configPath,
+    );
 
     // NEW: Parse Library Path
     String? libPath;
@@ -125,6 +129,7 @@ class ConfigLoader {
       timeoutSeconds: server['timeout_seconds'] ?? 600,
       systemPrompt: systemPrompt,
       embeddingsEnabled: embeddingsEnabled,
+      sessionHome: sessionHome,
       modelPath: modelPath,
       mmprojPath: mmprojPath,
       modelParams: modelParams,
@@ -145,6 +150,19 @@ class ConfigLoader {
       if (home != null) path = path.replaceFirst('~', home);
     }
     return p.normalize(p.absolute(path));
+  }
+
+  static String _resolvePathRelative(String rawPath, String configPath) {
+    var resolved = rawPath;
+    if (resolved.startsWith('~')) {
+      final home =
+          Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+      if (home != null) resolved = resolved.replaceFirst('~', home);
+    }
+    if (!p.isAbsolute(resolved) && !rawPath.startsWith('~')) {
+      resolved = p.join(p.dirname(configPath), resolved);
+    }
+    return p.normalize(p.absolute(resolved));
   }
 
   static Future<String> _loadSystemPrompt(

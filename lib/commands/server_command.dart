@@ -210,11 +210,13 @@ class ServerStartCommand extends Command {
       timeoutSeconds: c.timeoutSeconds,
       systemPrompt: c.systemPrompt,
       embeddingsEnabled: c.embeddingsEnabled,
+      sessionHome: c.sessionHome,
       modelPath: c.modelPath,
       mmprojPath: c.mmprojPath,
       modelParams: c.modelParams,
       contextParams: c.contextParams,
       samplerParams: c.samplerParams,
+      chatFormat: c.chatFormat,
     );
   }
 

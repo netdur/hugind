@@ -17,11 +17,14 @@ import 'api/hibernate_handler.dart';
 Future<void> bootstrapServer(ServerConfig config) async {
   await _checkPortAvailability(config.host, config.port);
 
+  Directory(config.sessionHome).createSync(recursive: true);
+
   print('   → Model: ${config.modelPath}');
   print(
       '   → Context: ${config.contextParams.nCtx} (Batch: ${config.contextParams.nBatch})');
   print(
       '   → Architecture: ${config.concurrency} Workers / ${config.maxSlots} Slots per worker');
+  print('   → Sessions: ${config.sessionHome}');
   if (config.embeddingsEnabled) {
     print('   → Mode: embeddings-only (chat completions disabled)');
   }

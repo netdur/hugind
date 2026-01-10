@@ -20,6 +20,7 @@ server:
   # System Integration
   timeout_seconds: 600               # Idle timeout to unload model
   system_prompt_file: "prompts/coding_assistant.txt" # Default system prompt if none provided
+  session_home: "./sessions"         # Where to persist session state files
 
   # Path to libllama.so / .dylib / .dll
   # If empty, Hugind tries to auto-detect it.

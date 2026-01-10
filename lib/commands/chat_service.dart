@@ -10,6 +10,7 @@ class ChatService {
     required String model,
     required List<dynamic> fullHistory,
     required Map<String, dynamic> newMessage,
+    bool isNewSession = false,
   }) async {
     final uri = Uri.parse('$baseUrl/completions');
     final client = http.Client();
@@ -25,6 +26,7 @@ class ChatService {
     request.headers.addAll({
       'Content-Type': 'application/json',
       'X-Session-ID': sessionId,
+      if (isNewSession) 'X-Fresh-Session': 'true',
     });
     request.body = jsonEncode(payload);
 
@@ -46,7 +48,7 @@ class ChatService {
       retryReq.headers.addAll({
         'Content-Type': 'application/json',
         'X-Session-ID': sessionId,
-        'X-Fresh-Session': 'true', // Tell server to overwrite KV cache
+        if (isNewSession) 'X-Fresh-Session': 'true',
       });
       retryReq.body = jsonEncode(rehydratePayload);
 
@@ -58,8 +60,8 @@ class ChatService {
 
   Future<void> hibernate(String id) async {
     try {
-      await http
-          .post(Uri.parse('$baseUrl/hibernate'), headers: {'X-Session-ID': id});
+      await http.post(Uri.parse('$baseUrl/hibernate'),
+          headers: {'X-Session-ID': id}).timeout(const Duration(seconds: 1));
     } catch (_) {}
   }
 }
