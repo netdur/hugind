@@ -19,9 +19,9 @@ class ChatCommand extends Command {
   final _service = ChatService();
 
   ChatCommand() {
-    addSubcommand(StartCommand(_repo, this));
-    addSubcommand(ResumeCommand(_repo, this));
-    addSubcommand(ListCommand(_repo));
+    // We do NOT add subcommands via addSubcommand because CommandRunner
+    // enforces usage of subcommands if they exist, preventing 'hugind chat'
+    // from running the wizard. We handle dispatch manually in run().
   }
 
   @override
@@ -30,16 +30,75 @@ class ChatCommand extends Command {
 
     if (rest.isEmpty) {
       await _runWizard();
-    } else {
-      final arg = rest.first;
-      if (_repo.exists(arg)) {
-        await _startChatLoop(arg);
-      } else {
-        // Assume it's a config name
-        final newId = await _repo.create(arg);
-        await _startChatLoop(newId);
-      }
+      return;
     }
+
+    final sub = rest.first;
+    final args = rest.skip(1).toList();
+
+    switch (sub) {
+      case 'start':
+        await _runStart(args);
+        break;
+      case 'resume':
+        await _runResume(args);
+        break;
+      case 'list':
+        _runList();
+        break;
+      case 'help':
+        printUsage();
+        break;
+      default:
+        // Fallback: Check if it's a session ID or config name directly?
+        // Existing logic supported `hugind chat session_id`
+        if (_repo.exists(sub)) {
+          await _startChatLoop(sub);
+        } else {
+          // Assume it's a config name
+          final newId = await _repo.create(sub);
+          await _startChatLoop(newId);
+        }
+    }
+  }
+
+  // Manual Subcommand Handlers
+
+  Future<void> _runStart(List<String> args) async {
+    if (args.isEmpty) {
+      await _wizardStartNew();
+    } else {
+      final id = await _repo.create(args.first);
+      await _startChatLoop(id);
+    }
+  }
+
+  Future<void> _runResume(List<String> args) async {
+    if (args.isEmpty) {
+      await _wizardResume();
+    } else {
+      await _startChatLoop(args.first);
+    }
+  }
+
+  void _runList() {
+    print('ID              LAST ACTIVE   TITLE');
+    for (var s in _repo.list()) {
+      print(
+          '${s.id.padRight(14)}  ${_formatTime(s.lastActive).padRight(12)}  ${s.title}');
+    }
+  }
+
+  @override
+  void printUsage() {
+    print('Usage: hugind chat [subcommand]');
+    print('');
+    print('Subcommands:');
+    print('  start <config?>   Start new chat (interactive if no config)');
+    print('  resume <id?>      Resume chat (interactive if no id)');
+    print('  list              List sessions');
+    print('');
+    print('Run without arguments to launch the wizard.');
   }
 
   Future<void> _runWizard() async {
@@ -279,13 +338,6 @@ ${cBold}Available Commands:$cReset
           userMsg = {'role': 'user', 'content': input};
         }
 
-        // Show Spinner
-        final spinner = Spinner(
-          icon: '🤔',
-          leftPrompt: (done) => 'Thinking...',
-          rightPrompt: (done) => '',
-        ).interact();
-
         final buffer = StringBuffer();
 
         try {
@@ -298,17 +350,9 @@ ${cBold}Available Commands:$cReset
               baseUrl: baseUrl);
 
           if (response.statusCode != 200) {
-            spinner.done();
             print('Error ${response.statusCode}');
             continue;
           }
-
-          // Stop spinner when we get the response stream,
-          // but strictly speaking we might want to wait for first data.
-          // For now, let's stop it immediately to start streaming.
-          // Or better: Use a dummy spinner that we manually clear.
-          // The interact spinner captures stdout, so we must stop it before writing.
-          spinner.done();
 
           stdout.write(cAI); // Switch to AI color
 
@@ -351,7 +395,6 @@ ${cBold}Available Commands:$cReset
           messages.add({'role': 'assistant', 'content': buffer.toString()});
           await _repo.save(id, session);
         } catch (e) {
-          spinner.done();
           print('\nConnection Failed: $e');
         }
       }
@@ -391,87 +434,6 @@ ${cBold}Available Commands:$cReset
       print('$prefix $preview...');
     }
     print('${cSys}----------------------$cReset');
-  }
-}
-
-// Minimal Subcommands delegating back to main logic
-class StartCommand extends Command {
-  final SessionRepo repo;
-  final ChatCommand parentCmd; // To access _startChatLoop
-  StartCommand(this.repo, this.parentCmd);
-  @override
-  String get name => 'start';
-  @override
-  String get description => 'Start new chat';
-  @override
-  Future<void> run() async {
-    if (argResults!.rest.isEmpty)
-      return print('Usage: hugind chat start <config>');
-    final id = await repo.create(argResults!.rest.first);
-    await parentCmd._startChatLoop(id);
-  }
-}
-
-class ResumeCommand extends Command {
-  final SessionRepo repo;
-  final ChatCommand parentCmd;
-  ResumeCommand(this.repo, this.parentCmd);
-  @override
-  String get name => 'resume';
-  @override
-  String get description => 'Resume chat ID';
-  @override
-  Future<void> run() async {
-    if (argResults!.rest.isEmpty) {
-      final sessions = repo.list();
-      if (sessions.isEmpty) {
-        print('No sessions found.');
-        return;
-      }
-
-      final options = sessions.map((s) {
-        final time = _formatTime(s.lastActive);
-        return '${s.title} (${s.model}) - $time';
-      }).toList();
-
-      final selection = Select(
-        prompt: 'Select a session to resume:',
-        options: options,
-      ).interact();
-
-      await parentCmd._startChatLoop(sessions[selection].id);
-    } else {
-      await parentCmd._startChatLoop(argResults!.rest.first);
-    }
-  }
-
-  String _formatTime(DateTime d) {
-    final diff = DateTime.now().difference(d);
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    return '${diff.inDays}d ago';
-  }
-}
-
-class ListCommand extends Command {
-  final SessionRepo repo;
-  ListCommand(this.repo);
-  @override
-  String get name => 'list';
-  @override
-  String get description => 'List sessions';
-  @override
-  void run() {
-    print('ID              LAST ACTIVE   TITLE');
-    for (var s in repo.list()) {
-      print(
-          '${s.id.padRight(14)}  ${_ago(s.lastActive).padRight(12)}  ${s.title}');
-    }
-  }
-
-  String _ago(DateTime d) {
-    final diff = DateTime.now().difference(d);
-    return '${diff.inMinutes}m ago';
   }
 }
 
