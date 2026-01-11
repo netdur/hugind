@@ -69,6 +69,7 @@ class ChatCommand extends Command {
     final session = await _repo.load(id);
     final messages = session['messages'] as List;
     final model = session['model'];
+    final baseUrl = await _service.resolveBaseUrl(model.toString());
 
     print('\nLoaded Session: $id ($model)');
     _printContext(messages);
@@ -77,11 +78,11 @@ class ChatCommand extends Command {
     String? _pendingImage;
 
     // Trap Ctrl+C
-    final sigint = ProcessSignal.sigint.watch().listen((_) async {
-      print('\n❄️  Hibernating...');
-      await _service.hibernate(id);
-      exit(0);
-    });
+      final sigint = ProcessSignal.sigint.watch().listen((_) async {
+        print('\n❄️  Hibernating...');
+        await _service.hibernate(id, baseUrl: baseUrl);
+        exit(0);
+      });
 
     try {
       while (true) {
@@ -161,7 +162,8 @@ class ChatCommand extends Command {
               model: model,
               fullHistory: messages, // Passed in case of 409
               newMessage: userMsg,
-              isNewSession: messages.isEmpty);
+              isNewSession: messages.isEmpty,
+              baseUrl: baseUrl);
 
           if (response.statusCode != 200) {
             print('Error ${response.statusCode}');
@@ -212,7 +214,7 @@ class ChatCommand extends Command {
     } finally {
       sigint.cancel();
       print('👋 Exiting...');
-      await _service.hibernate(id);
+      await _service.hibernate(id, baseUrl: baseUrl);
     }
   }
 

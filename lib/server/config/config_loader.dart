@@ -35,7 +35,8 @@ class ConfigLoader {
     String? libPath;
     if (server['library_path'] != null &&
         server['library_path'].toString().isNotEmpty) {
-      libPath = _resolvePath(server['library_path']);
+      libPath =
+          _resolvePathRelative(server['library_path'].toString(), configPath);
     }
 
     // Load System Prompt
@@ -47,7 +48,8 @@ class ConfigLoader {
 
     // 3. Model Section & Validation
     final model = yaml['model'] ?? {};
-    final modelPath = _resolvePath(model['path']);
+    final modelPath =
+        _resolvePathRelative(model['path']?.toString() ?? '', configPath);
 
     // --- VALIDATION CHECK 1: Model Existence ---
     if (modelPath.isEmpty || !await File(modelPath).exists()) {
@@ -56,7 +58,7 @@ class ConfigLoader {
     }
 
     final mmprojPath = model['mmproj_path'] != null
-        ? _resolvePath(model['mmproj_path'])
+        ? _resolvePathRelative(model['mmproj_path'].toString(), configPath)
         : null;
     if (mmprojPath != null && !await File(mmprojPath).exists()) {
       print(
@@ -141,18 +143,8 @@ class ConfigLoader {
 
   // --- Helpers ---
 
-  static String _resolvePath(String? rawPath) {
-    if (rawPath == null || rawPath.isEmpty) return '';
-    String path = rawPath;
-    if (path.startsWith('~')) {
-      final home =
-          Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
-      if (home != null) path = path.replaceFirst('~', home);
-    }
-    return p.normalize(p.absolute(path));
-  }
-
   static String _resolvePathRelative(String rawPath, String configPath) {
+    if (rawPath.isEmpty) return '';
     var resolved = rawPath;
     if (resolved.startsWith('~')) {
       final home =
@@ -167,11 +159,7 @@ class ConfigLoader {
 
   static Future<String> _loadSystemPrompt(
       String promptPath, String configPath) async {
-    String resolvedPath = _resolvePath(promptPath);
-    // If relative, make it relative to config file
-    if (!p.isAbsolute(resolvedPath) && !promptPath.startsWith('~')) {
-      resolvedPath = p.join(p.dirname(configPath), promptPath);
-    }
+    final resolvedPath = _resolvePathRelative(promptPath, configPath);
 
     final file = File(resolvedPath);
     if (await file.exists()) return (await file.readAsString()).trim();
