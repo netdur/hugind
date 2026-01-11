@@ -43,25 +43,100 @@ class ChatCommand extends Command {
   }
 
   Future<void> _runWizard() async {
-    final sessions = _repo.list();
-    final choices = [
-      '[ + ] Start New Chat...',
-      ...sessions.map((s) => '${s.title} (${s.model})')
-    ];
-
+    final choices = ['Start New Chat', 'Resume Chat'];
     final selection = Select(
-      prompt: '🦅 Hugind Workspace',
+      prompt: '🦅 Hugind AI Workspace',
       options: choices,
     ).interact();
 
     if (selection == 0) {
-      final model = Input(prompt: 'Config Name:', defaultValue: 'my-assistant')
+      await _wizardStartNew();
+    } else {
+      await _wizardResume();
+    }
+  }
+
+  Future<void> _wizardStartNew() async {
+    final configs = _listConfigs();
+    if (configs.isEmpty) {
+      print('No configs found in ${_configHome()}/configs');
+      final model = Input(
+              prompt: 'Enter Model Name Manualy:', defaultValue: 'my-assistant')
           .interact();
       final id = await _repo.create(model);
       await _startChatLoop(id);
-    } else {
-      await _startChatLoop(sessions[selection - 1].id);
+      return;
     }
+
+    final choices = [...configs, 'Custom...'];
+    final selection = Select(
+      prompt: 'Select Configuration:',
+      options: choices,
+    ).interact();
+
+    String model;
+    if (selection == choices.length - 1) {
+      model = Input(prompt: 'Enter Config Name:', defaultValue: 'my-assistant')
+          .interact();
+    } else {
+      model = configs[selection];
+    }
+    final id = await _repo.create(model);
+    await _startChatLoop(id);
+  }
+
+  Future<void> _wizardResume() async {
+    final sessions = _repo.list();
+    if (sessions.isEmpty) {
+      print('No active sessions found.');
+      // Fallback to start new
+      if (Confirm(prompt: 'Start a new chat instead?').interact()) {
+        await _wizardStartNew();
+      }
+      return;
+    }
+
+    final options = sessions.map((s) {
+      final time = _formatTime(s.lastActive);
+      return '${s.title} (${s.model}) - $time';
+    }).toList();
+
+    final selection = Select(
+      prompt: 'Select a session to resume:',
+      options: options,
+    ).interact();
+
+    await _startChatLoop(sessions[selection].id);
+  }
+
+  List<String> _listConfigs() {
+    final dir = Directory(p.join(_configHome(), 'configs'));
+    if (!dir.existsSync()) return [];
+    return dir
+        .listSync()
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.yml') || f.path.endsWith('.yaml'))
+        .map((f) => p.basenameWithoutExtension(f.path))
+        .toList();
+  }
+
+  String _configHome() {
+    final env = Platform.environment;
+    if (Platform.isWindows) {
+      final appData = env['APPDATA'];
+      if (appData != null) return p.join(appData, 'hugind');
+      return p.join(env['USERPROFILE'] ?? '.', '.hugind');
+    }
+    final xdg = env['XDG_CONFIG_HOME'];
+    if (xdg != null && xdg.isNotEmpty) return p.join(xdg, 'hugind');
+    return p.join(env['HOME'] ?? '.', '.hugind');
+  }
+
+  String _formatTime(DateTime d) {
+    final diff = DateTime.now().difference(d);
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
   }
 
   // Exposed for subcommands to use
@@ -71,41 +146,93 @@ class ChatCommand extends Command {
     final model = session['model'];
     final baseUrl = await _service.resolveBaseUrl(model.toString());
 
-    print('\nLoaded Session: $id ($model)');
-    _printContext(messages);
+    // ANSI Colors
+    const String cUser = '\x1B[32m'; // Green
+    const String cAI = '\x1B[36m'; // Cyan
+    const String cSys = '\x1B[90m'; // Dark Gray
+    const String cReset = '\x1B[0m';
+    const String cBold = '\x1B[1m';
 
-    // State for image attachment
+    _printWelcome(id, model.toString());
+    _printContext(messages, cUser, cAI, cSys, cReset);
+
+    // State
     String? _pendingImage;
 
     // Trap Ctrl+C
-      final sigint = ProcessSignal.sigint.watch().listen((_) async {
-        print('\n❄️  Hibernating...');
-        await _service.hibernate(id, baseUrl: baseUrl);
-        exit(0);
-      });
+    final sigint = ProcessSignal.sigint.watch().listen((_) async {
+      print('\n\n❄️  Hibernating...');
+      await _service.hibernate(id, baseUrl: baseUrl);
+      exit(0);
+    });
 
     try {
       while (true) {
-        final prompt = _pendingImage != null ? '\n(🖼️ ) >>> ' : '\n>>> ';
+        final prompt = _pendingImage != null
+            ? '\n${cBold}🖼️  (Image) $cUser>>> $cReset'
+            : '\n$cUser>>> $cReset';
+
         stdout.write(prompt);
         final input = stdin.readLineSync()?.trim();
-        if (input == null) continue; // EOF
-        if (input.isEmpty && _pendingImage == null) continue; // Empty enter
+
+        if (input == null) break; // EOF
+        if (input.isEmpty && _pendingImage == null) continue;
 
         // Slash Commands
         if (input.startsWith('/')) {
-          if (input == '/exit' || input == '/quit') break;
+          final parts = input.split(' ');
+          final cmd = parts[0].toLowerCase();
+          final args = parts.skip(1).join(' ');
 
-          if (input.startsWith('/image')) {
-            final args = input.split(' ');
-            if (args.length < 2) {
+          if (cmd == '/exit' || cmd == '/quit') break;
+
+          if (cmd == '/help') {
+            print('''
+${cBold}Available Commands:$cReset
+  /image <path>   Attach an image to the next message
+  /sys <path>     Inject a system prompt from a text file
+  /clear          Clear the terminal screen
+  /exit, /quit    Exit the chat
+             ''');
+            continue;
+          }
+
+          if (cmd == '/clear') {
+            print("\x1B[2J\x1B[0;0H");
+            _printWelcome(id, model.toString());
+            continue;
+          }
+
+          if (cmd == '/sys') {
+            if (args.isEmpty) {
+              print('Usage: /sys <path/to/prompt.txt>');
+              continue;
+            }
+            final file = File(args);
+            if (!file.existsSync()) {
+              print('❌ File not found: ${file.path}');
+              continue;
+            }
+            try {
+              final content = await file.readAsString();
+              messages.add({'role': 'system', 'content': content});
+              await _repo.save(id, session);
+              print(
+                  '${cSys}System prompt injected (${content.length} chars).$cReset');
+            } catch (e) {
+              print('❌ Error reading file: $e');
+            }
+            continue;
+          }
+
+          if (cmd == '/image') {
+            if (args.isEmpty) {
               print('Usage: /image <path/to/image.jpg>');
               continue;
             }
-            final path = args.sublist(1).join(' ');
-            final file = File(path.trim());
+            final file = File(args.trim());
             if (!file.existsSync()) {
-              print('❌ File not found: $path');
+              print('❌ File not found: ${file.path}');
               continue;
             }
 
@@ -115,7 +242,7 @@ class ChatCommand extends Command {
 
               // Simple mime detection
               String mime = 'image/jpeg';
-              final ext = p.extension(path).toLowerCase();
+              final ext = p.extension(file.path).toLowerCase();
               if (ext == '.png')
                 mime = 'image/png';
               else if (ext == '.webp') mime = 'image/webp';
@@ -128,7 +255,7 @@ class ChatCommand extends Command {
             continue;
           }
 
-          // Add other commands here
+          print('Unknown command: $cmd');
           continue;
         }
 
@@ -152,23 +279,38 @@ class ChatCommand extends Command {
           userMsg = {'role': 'user', 'content': input};
         }
 
-        // 1. Send (Optimistic + Retry Logic handled by Service)
-        stdout.write('AI: ');
+        // Show Spinner
+        final spinner = Spinner(
+          icon: '🤔',
+          leftPrompt: (done) => 'Thinking...',
+          rightPrompt: (done) => '',
+        ).interact();
+
         final buffer = StringBuffer();
 
         try {
           final response = await _service.sendMessage(
               sessionId: id,
               model: model,
-              fullHistory: messages, // Passed in case of 409
+              fullHistory: messages,
               newMessage: userMsg,
               isNewSession: messages.isEmpty,
               baseUrl: baseUrl);
 
           if (response.statusCode != 200) {
+            spinner.done();
             print('Error ${response.statusCode}');
             continue;
           }
+
+          // Stop spinner when we get the response stream,
+          // but strictly speaking we might want to wait for first data.
+          // For now, let's stop it immediately to start streaming.
+          // Or better: Use a dummy spinner that we manually clear.
+          // The interact spinner captures stdout, so we must stop it before writing.
+          spinner.done();
+
+          stdout.write(cAI); // Switch to AI color
 
           final filter = _TokenStreamFilter();
 
@@ -194,40 +336,61 @@ class ChatCommand extends Command {
             }
           }).asFuture();
 
-          // Flush any remaining partial tokens (unless they were EOS)
+          // Flush
           final remainder = filter.flush();
           if (remainder.isNotEmpty) {
             stdout.write(remainder);
             buffer.write(remainder);
           }
 
+          stdout.write(cReset); // Reset color
           print(''); // Newline
 
-          // 3. Save to Local Disk (Thick Client)
+          // 3. Save to Local Disk
           messages.add(userMsg);
           messages.add({'role': 'assistant', 'content': buffer.toString()});
           await _repo.save(id, session);
         } catch (e) {
-          print('Connection Failed: $e');
+          spinner.done();
+          print('\nConnection Failed: $e');
         }
       }
     } finally {
       sigint.cancel();
-      print('👋 Exiting...');
+      print('\n👋 Exiting...');
       await _service.hibernate(id, baseUrl: baseUrl);
     }
   }
 
-  void _printContext(List messages) {
+  void _printWelcome(String id, String model) {
+    const cTitle = '\x1B[1;34m';
+    const cReset = '\x1B[0m';
+    print('\n$cTitle🦅  HUGIND WORKSPACE$cReset');
+    print('   Session: $id');
+    print('   Model:   $model');
+    print('   Type /help for commands.\n');
+  }
+
+  void _printContext(
+      List messages, String cUser, String cAI, String cSys, String cReset) {
     if (messages.isEmpty) return;
-    print('--- Recent Context ---');
-    final start = (messages.length > 4) ? messages.length - 4 : 0;
+    print('${cSys}--- Recent Context ---$cReset');
+    final start = (messages.length > 6) ? messages.length - 6 : 0;
     for (var i = start; i < messages.length; i++) {
       final m = messages[i];
-      final role = m['role'].toString().toUpperCase();
-      print('$role: ${(m['content'] as String).split('\n').first}...');
+      final role = m['role'].toString().toLowerCase();
+      final content = (m['content'] is String)
+          ? m['content'] as String
+          : '(multimodal content)';
+
+      String prefix = '$cSys$role:$cReset';
+      if (role == 'user') prefix = '$cUser$role:$cReset';
+      if (role == 'assistant') prefix = '$cAI$role:$cReset';
+
+      final preview = content.split('\n').take(1).join();
+      print('$prefix $preview...');
     }
-    print('----------------------');
+    print('${cSys}----------------------$cReset');
   }
 }
 
