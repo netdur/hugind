@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
+import '../../global_settings.dart';
 import 'server_config.dart';
 
 class ConfigLoader {
@@ -26,8 +27,9 @@ class ConfigLoader {
     final embeddingsRaw = server['embeddings'];
     final embeddingsEnabled = embeddingsRaw == true ||
         embeddingsRaw?.toString().toLowerCase() == 'true';
+    final sessionHomeRaw = server['session_home']?.toString();
     final sessionHome = _resolvePathRelative(
-      server['session_home']?.toString() ?? './sessions',
+      sessionHomeRaw ?? await GlobalSettings.getSessionsPath(),
       configPath,
     );
 
