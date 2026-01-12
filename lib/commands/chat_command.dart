@@ -46,6 +46,9 @@ class ChatCommand extends Command {
       case 'list':
         _runList();
         break;
+      case 'delete':
+        await _runDelete(args);
+        break;
       case 'help':
         printUsage();
         break;
@@ -96,6 +99,7 @@ class ChatCommand extends Command {
     print('Subcommands:');
     print('  start <config?>   Start new chat (interactive if no config)');
     print('  resume <id?>      Resume chat (interactive if no id)');
+    print('  delete            Delete a chat session');
     print('  list              List sessions');
     print('');
     print('Run without arguments to launch the wizard.');
@@ -166,6 +170,39 @@ class ChatCommand extends Command {
     ).interact();
 
     await _startChatLoop(sessions[selection].id);
+  }
+
+  Future<void> _runDelete(List<String> args) async {
+    final sessions = _repo.list();
+    if (sessions.isEmpty) {
+      print('No active sessions found.');
+      return;
+    }
+
+    // Interactive selection if no ID provided in args?
+    // User requested "hugind chat delete" -> select -> confirm
+    final options = sessions.map((s) {
+      final time = _formatTime(s.lastActive);
+      return '${s.title} (${s.model}) - $time';
+    }).toList();
+
+    final selection = Select(
+      prompt: 'Select a session to DELETE:',
+      options: options,
+    ).interact();
+
+    final session = sessions[selection];
+    final confirm = Confirm(
+      prompt: 'Are you sure you want to delete "${session.title}"?',
+      defaultValue: false,
+    ).interact();
+
+    if (confirm) {
+      await _repo.delete(session.id);
+      print('✅ Session deleted.');
+    } else {
+      print('❌ Operation cancelled.');
+    }
   }
 
   List<String> _listConfigs() {
@@ -393,6 +430,21 @@ ${cBold}Available Commands:$cReset
           // 3. Save to Local Disk
           messages.add(userMsg);
           messages.add({'role': 'assistant', 'content': buffer.toString()});
+
+          // Auto-Generate Title (1st to 5th turn)
+          if (messages.length <= 10 && messages.length % 2 == 0) {
+            stdout.write('${cSys}Generating title...$cReset');
+            final title = await _service.generateTitle(
+                model: model.toString(), history: messages, baseUrl: baseUrl);
+            if (title.isNotEmpty) {
+              session['title'] = title;
+              stdout.write(
+                  '\r${cSys}Title updated: $title             $cReset\n');
+            } else {
+              stdout.write('\r' + ' ' * 20 + '\r'); // clear line
+            }
+          }
+
           await _repo.save(id, session);
         } catch (e) {
           print('\nConnection Failed: $e');

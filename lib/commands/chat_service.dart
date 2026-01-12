@@ -39,8 +39,7 @@ class ChatService {
     String? baseUrl,
   }) async {
     final client = http.Client();
-    final uri =
-        Uri.parse('${baseUrl ?? defaultBaseUrl}/completions');
+    final uri = Uri.parse('${baseUrl ?? defaultBaseUrl}/completions');
 
     try {
       // 1. Optimistic Attempt: Send only the new message
@@ -123,6 +122,72 @@ class ChatService {
       persistentConnection: response.persistentConnection,
       reasonPhrase: response.reasonPhrase,
     );
+  }
+
+  Future<String> generateTitle({
+    required String model,
+    required List<dynamic> history,
+    String? baseUrl,
+  }) async {
+    final client = http.Client();
+    final uri = Uri.parse('${baseUrl ?? defaultBaseUrl}/completions');
+
+    // Use first few messages for context
+    final context = history.take(6).toList();
+    final promptMessages = [
+      ...context,
+      {
+        'role': 'user',
+        'content':
+            'Generate a short, concise 3-5 word title for this conversation. Do not use quotes.'
+      }
+    ];
+
+    try {
+      final payload = {
+        'model': model,
+        'messages': promptMessages,
+        'stream': true
+      };
+
+      final request = http.Request('POST', uri);
+      request.headers.addAll({
+        'Content-Type': 'application/json',
+        // No Session ID -> Stateless
+      });
+      request.body = jsonEncode(payload);
+
+      final response = await client.send(request);
+
+      if (response.statusCode != 200) return "";
+
+      final sb = StringBuffer();
+      await response.stream
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) {
+        if (line.startsWith('data: ')) {
+          final data = line.substring(6);
+          if (data == '[DONE]') return;
+          try {
+            final json = jsonDecode(data);
+            final delta = json['choices'][0]['delta']['content'];
+            if (delta != null) sb.write(delta);
+          } catch (_) {}
+        }
+      }).asFuture();
+
+      return sb
+          .toString()
+          .replaceAll('[EOS]', '')
+          .replaceAll('[DONE]', '')
+          .replaceAll('"', '')
+          .trim();
+    } catch (e) {
+      return "";
+    } finally {
+      client.close();
+    }
   }
 }
 

@@ -4,7 +4,11 @@ import 'dart:math';
 import 'package:path/path.dart' as p;
 
 class SessionRepo {
+  final String? _rootOverride;
+  SessionRepo({String? root}) : _rootOverride = root;
+
   Directory get _dir {
+    if (_rootOverride != null) return Directory(_rootOverride!);
     final env = Platform.environment;
     final home = env['HOME'] ?? env['USERPROFILE'] ?? '.';
     final d = Directory(p.join(home, '.hugind', 'chats'));
@@ -43,6 +47,13 @@ class SessionRepo {
     await _file(id).writeAsString(jsonEncode(data));
   }
 
+  /// Delete session
+  Future<void> delete(String id) async {
+    if (exists(id)) {
+      await _file(id).delete();
+    }
+  }
+
   /// List all sessions for the Wizard
   List<SessionInfo> list() {
     if (!_dir.existsSync()) return [];
@@ -56,13 +67,18 @@ class SessionRepo {
         final json = jsonDecode(f.readAsStringSync());
         final msgs = json['messages'] as List;
 
-        // Extract a title from the first user message
-        String title = "New Chat";
-        final firstUser =
-            msgs.firstWhere((m) => m['role'] == 'user', orElse: () => null);
-        if (firstUser != null) {
-          title = (firstUser['content'] as String).trim().replaceAll('\n', ' ');
-          if (title.length > 30) title = "${title.substring(0, 30)}...";
+        // Extract a title
+        String title = json['title'] ?? "New Chat";
+
+        // Fallback: If no explicit title, try to generate one from the first user message
+        if (json['title'] == null) {
+          final firstUser =
+              msgs.firstWhere((m) => m['role'] == 'user', orElse: () => null);
+          if (firstUser != null) {
+            title =
+                (firstUser['content'] as String).trim().replaceAll('\n', ' ');
+            if (title.length > 30) title = "${title.substring(0, 30)}...";
+          }
         }
 
         list.add(SessionInfo(
