@@ -115,6 +115,7 @@ class ServiceChild {
         await _handleLoadSession(command);
       } else if (command is LlamaFreeSession) {
         _service?.freeSession(command.sessionId);
+        _knownSessions.remove(command.sessionId);
         // We could send confirmation, but free is usually fire-and-forget or sync-enough
         parentSendPort.send(
             LlamaResponse.confirmation(LlamaStatus.ready, command.sessionId));
@@ -130,17 +131,30 @@ class ServiceChild {
           .send(LlamaResponse.error("Service not initialized", cmd.slotId));
       return;
     }
+    final sessionId = cmd.slotId;
+    if (sessionId.isEmpty) {
+      // Nothing to save; avoid calling into LlamaService with an empty ID.
+      parentSendPort
+          .send(LlamaResponse.confirmation(LlamaStatus.ready, sessionId));
+      return;
+    }
+    if (!_knownSessions.contains(sessionId)) {
+      // Session was never created or already freed; treat save as a no-op.
+      parentSendPort
+          .send(LlamaResponse.confirmation(LlamaStatus.ready, sessionId));
+      return;
+    }
     // LlamaSaveState in isolate_types doesn't have path, so we use a convention.
     // LlamaService defaults sessionHome to './sessions'.
     try {
-      final path = "${_service!.sessionHome}/${cmd.slotId}.bin";
+      final path = "${_service!.sessionHome}/${sessionId}.bin";
       // Cast to dynamic because analyzer might see old void signature
-      await (_service as dynamic).saveSession(cmd.slotId, path);
+      await (_service as dynamic).saveSession(sessionId, path);
       // We use promptId to return the slotId for correlation
       parentSendPort
-          .send(LlamaResponse.confirmation(LlamaStatus.ready, cmd.slotId));
+          .send(LlamaResponse.confirmation(LlamaStatus.ready, sessionId));
     } catch (e) {
-      parentSendPort.send(LlamaResponse.error("Save failed: $e", cmd.slotId));
+      parentSendPort.send(LlamaResponse.error("Save failed: $e", sessionId));
     }
   }
 
