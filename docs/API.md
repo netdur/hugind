@@ -8,7 +8,7 @@ Base URL: `http://127.0.0.1:<port>/v1`
 
 - `GET /health` basic status and model name
 - `GET /v1/models` list available models
-- `POST /v1/chat/completions` streaming chat responses (SSE)
+- `POST /v1/chat/completions` streaming chat responses (SSE only)
 - `POST /v1/completions` text completions (non-chat)
 - `POST /v1/embeddings` embeddings only (enabled when `server.embeddings: true`)
 - `POST /v1/chat/hibernate` persist and unload a session from memory
@@ -35,6 +35,11 @@ curl http://127.0.0.1:8080/v1/chat/completions \
 ```
 
 Responses stream as SSE (`data: ...`) with a final `data: [DONE]` chunk.
+
+## Completions Notes
+
+- `POST /v1/completions` supports both streaming (`stream: true`) and non-streaming.
+- Streaming only supports a single prompt per request.
 
 ## Error Notes
 

@@ -1,6 +1,6 @@
 # Configuration
 
-Hugind configurations are YAML files stored under `<home>/configs/*.yml`. Each config controls server settings, model paths, context size, and sampling defaults.
+Hugind configurations are YAML files stored under `<config_home>/configs/*.yml`. Each config controls server settings, model paths, context size, and sampling defaults. See `docs/cli.md` for how `<config_home>` and `<data_home>` are resolved.
 
 ## Commands
 
@@ -14,7 +14,7 @@ Interactive wizard that:
 - Lets you select a model file
 - Detects vision projectors (`mmproj`) when present
 - Suggests a safe context size
-- Writes the resulting config to `<home>/configs/<name>.yml`
+- Writes the resulting config to `<config_home>/configs/<name>.yml`
 
 Options:
 - `-m, --model <path>` skip the model picker and use a specific file
@@ -26,7 +26,7 @@ Lists saved configs by name.
 Deletes a saved config after confirmation.
 
 ### `hugind config defaults [--lib <path>] [--hf-token <token>]`
-Sets global defaults in `~/.hugind/settings.yml`.
+Sets global defaults in `<data_home>/settings.yml`.
 
 - `--lib` sets the default `libllama` library path.
 - `--hf-token` sets the Hugging Face token used by `hugind model add`.
@@ -84,10 +84,12 @@ sampling:
 ### Notes on Key Fields
 
 - `server.library_path` can be omitted if Hugind can auto-detect the shared library.
+- `server.session_home` defaults to `<data_home>/sessions/` unless overridden.
 - `model.path` is required; Hugind resolves `~` and relative paths.
 - `context.nSeqMax` is derived from `server.max_slots` in code.
 - `chat.format` supports `auto`, `chatml`, `qwen3`, `gemma`, `alpaca`, `harmony`.
 - `embeddings: true` enables only `/v1/embeddings` and disables chat/completions.
+- Only `sampling.temp`, `sampling.top_k`, `sampling.top_p`, `sampling.min_p`, and `sampling.dry_multiplier` are consumed today.
 
 ## Best Practices
 

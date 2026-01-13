@@ -1,6 +1,6 @@
 # Model Management
 
-Hugind manages GGUF model files downloaded from Hugging Face. Models are stored under the Hugind home directory in `~/.hugind/<user>/<repo>/`.
+Hugind manages GGUF model files downloaded from Hugging Face. Models are stored under `<data_home>/<user>/<repo>/` (see `docs/cli.md` for directory resolution).
 
 ## Commands
 
@@ -40,7 +40,7 @@ If a repo is gated or private, set a token:
 hugind config defaults --hf-token <hf_token>
 ```
 
-This stores the token in `~/.hugind/settings.yml` and is used for downloads.
+This stores the token in `<data_home>/settings.yml` and is used for downloads.
 
 ## Best Practices
 
@@ -48,3 +48,4 @@ This stores the token in `~/.hugind/settings.yml` and is used for downloads.
 - Keep disk headroom: a single 7B model can be multiple GBs.
 - Use `hugind model show` before deleting to avoid removing the wrong file.
 - For multi-model testing, name configs after the repo+quant to keep them distinct.
+- Partial downloads use a `.part` suffix until completion.

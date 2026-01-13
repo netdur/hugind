@@ -1,14 +1,17 @@
 # Server Runtime
 
-The server hosts an OpenAI-compatible API over HTTP, backed by `llama_cpp_dart`.
+The server hosts an OpenAI-compatible API over HTTP, backed by `llama_cpp_dart`. See `docs/cli.md` for how `<config_home>` is resolved.
 
 ## Commands
 
+### `hugind server`
+Launches an interactive wizard to select a config and start a server.
+
 ### `hugind server list`
-Lists all configs under `<home>/configs` and checks if their `/health` endpoint is reachable.
+Lists all configs under `<config_home>/configs` and checks if their `/health` endpoint is reachable.
 
 ### `hugind server start <config_name>`
-Starts a server in the foreground using `<home>/configs/<config_name>.yml`.
+Starts a server in the foreground using `<config_home>/configs/<config_name>.yml`.
 
 Options:
 - `-p, --port <port>` override the configured port
@@ -16,7 +19,7 @@ Options:
 
 Behavior:
 - Loads the config and resolves the model path.
-- Determines the `libllama` path (CLI > config > auto-detect > global defaults).
+- Determines the `libllama` path (CLI `--lib` > config `library_path` > auto-detect).
 - Bootstraps the server and prints health and API URLs.
 
 ### `hugind server stop <config_name>`

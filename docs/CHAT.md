@@ -1,6 +1,6 @@
 # Chat Workspace
 
-The chat command provides an interactive terminal client with persistent sessions stored on disk.
+The chat command provides an interactive terminal client with persistent sessions stored on disk. See `docs/cli.md` for how `<data_home>` is resolved.
 
 ## Commands
 
@@ -20,15 +20,26 @@ Loads an existing session and enters chat.
 ### `hugind chat list`
 Lists session IDs and last active time.
 
+### `hugind chat <config_or_session>`
+Directly start a chat by config name or resume a session by ID.
+
+### `hugind chat delete`
+Interactive session deletion.
+
 ## Session Storage
 
-Sessions are stored as JSON under `<home>/chats/` and include:
+Sessions are stored as JSON under `<data_home>/chats/` and include:
 - `model` (the config name)
 - `messages` (chat history)
 - `last_active` timestamp
+- `title` (optional, derived from the first user message)
 
 ## Slash Commands
 
+- `/help` shows available slash commands.
+- `/image <path>` attaches an image to the next message.
+- `/sys <path>` injects a system prompt from a text file.
+- `/clear` clears the terminal screen.
 - `/exit` or `/quit` ends the session loop.
 
 On Ctrl+C, Hugind sends a hibernate request so server state can persist.
