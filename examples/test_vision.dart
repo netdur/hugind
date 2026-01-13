@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -70,22 +71,50 @@ Future<void> _sendChat(HttpClient client, String sessionId,
     request.write(jsonEncode(payload));
     final response = await request.close();
 
-    await response.transform(utf8.decoder).listen((data) {
-      final lines = data.split('\n');
-      for (final line in lines) {
-        if (line.startsWith('data: ') && line != 'data: [DONE]') {
-          try {
-            final jsonStr = line.substring(6);
-            final json = jsonDecode(jsonStr);
-            if (json['choices'] != null && json['choices'].isNotEmpty) {
-              final content = json['choices'][0]['delta']['content'];
-              if (content != null) stdout.write(content);
-            }
-          } catch (_) {}
-        }
+    var done = false;
+    final completer = Completer<void>();
+    late final StreamSubscription<String> sub;
+
+    sub = response
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .listen((line) {
+      if (!line.startsWith('data: ')) return;
+      if (line == 'data: [DONE]') {
+        done = true;
+        sub.cancel();
+        if (!completer.isCompleted) completer.complete();
+        return;
       }
-    }).asFuture();
+
+      try {
+        final jsonStr = line.substring(6);
+        final json = jsonDecode(jsonStr);
+        if (json['choices'] != null && json['choices'].isNotEmpty) {
+          final content = json['choices'][0]['delta']['content'];
+          if (content != null) {
+            final text = content.toString();
+            if (text.contains('[EOS]')) {
+              // Stop streaming if the server doesn't close the connection.
+              stdout.write(text.replaceAll('[EOS]', ''));
+              done = true;
+              sub.cancel();
+              if (!completer.isCompleted) completer.complete();
+              return;
+            }
+            stdout.write(text);
+          }
+        }
+      } catch (_) {}
+    }, onDone: () {
+      if (!completer.isCompleted) completer.complete();
+    }, onError: (_) {
+      if (!completer.isCompleted) completer.complete();
+    });
+
+    await completer.future;
     print('');
+    if (done) client.close(force: true);
   } catch (e) {
     print('Error: $e');
   }

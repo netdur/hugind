@@ -21,7 +21,8 @@ def benchmark_request(base_url, model, prompt, request_id, results_list):
     
     headers = {
         "Content-Type": "application/json",
-        "Authorization": "Bearer nopass"
+        "Authorization": "Bearer nopass",
+        "X-Fresh-Session": "false"
     }
 
     start_time = time.time()
@@ -82,7 +83,7 @@ def main():
     parser = argparse.ArgumentParser(description="Benchmark Hugind Server")
     parser.add_argument("--base-url", type=str, default="http://localhost:8080/v1", help="Hugind API URL")
     parser.add_argument("--model", type=str, default="gpt-3.5-turbo", help="Model name")
-    parser.add_argument("--concurrency", type=int, default=2, help="Number of concurrent requests")
+    parser.add_argument("--concurrency", type=int, default=10, help="Number of concurrent requests")
     parser.add_argument("--prompt", type=str, default="Explain quantum physics in one sentence.", help="Prompt to send")
     
     args = parser.parse_args()

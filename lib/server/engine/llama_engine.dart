@@ -52,6 +52,7 @@ class LlamaEngine {
       verbose: true, // debug
       mmprojPath: config.mmprojPath,
       sessionHome: config.sessionHome,
+      maxSystemRamMb: 65536, // Disable RAM Pressure janitor (set to 64GB)
     ));
 
     await readyCompleter.future;

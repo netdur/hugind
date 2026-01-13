@@ -91,8 +91,30 @@ class ChatHandler {
 
       // Create the SSE byte stream with [DONE] signal
       Stream<List<int>> sseStream() async* {
+        final filter = _TokenStreamFilter();
         try {
           await for (final token in tokenStream) {
+            final filtered = filter.process(token);
+            if (filtered.done) {
+              if (filtered.text.isNotEmpty) {
+                final chunk = {
+                  "id": "chatcmpl-${DateTime.now().millisecondsSinceEpoch}",
+                  "object": "chat.completion.chunk",
+                  "created": DateTime.now().millisecondsSinceEpoch ~/ 1000,
+                  "model": engine.config.name,
+                  "choices": [
+                    {
+                      "index": 0,
+                      "delta": {"content": filtered.text},
+                      "finish_reason": null
+                    }
+                  ]
+                };
+                yield utf8.encode('data: ${jsonEncode(chunk)}\n\n');
+              }
+              break;
+            }
+            if (filtered.text.isEmpty) continue;
             final chunk = {
               "id": "chatcmpl-${DateTime.now().millisecondsSinceEpoch}",
               "object": "chat.completion.chunk",
@@ -102,6 +124,24 @@ class ChatHandler {
                 {
                   "index": 0,
                   "delta": {"content": token},
+                  "finish_reason": null
+                }
+              ]
+            };
+            yield utf8.encode('data: ${jsonEncode(chunk)}\n\n');
+          }
+
+          final remainder = filter.flush();
+          if (remainder.isNotEmpty) {
+            final chunk = {
+              "id": "chatcmpl-${DateTime.now().millisecondsSinceEpoch}",
+              "object": "chat.completion.chunk",
+              "created": DateTime.now().millisecondsSinceEpoch ~/ 1000,
+              "model": engine.config.name,
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {"content": remainder},
                   "finish_reason": null
                 }
               ]
@@ -265,4 +305,68 @@ class _ParsedContent {
   final String content;
   final List<String> images;
   _ParsedContent({required this.content, required this.images});
+}
+
+class _TokenChunk {
+  final String text;
+  final bool done;
+  _TokenChunk(this.text, this.done);
+}
+
+class _TokenStreamFilter {
+  final List<String> stopSequences = ['[EOS]', '<|endoftext|>', '<|im_end|>'];
+  String _buffer = '';
+
+  _TokenChunk process(String chunk) {
+    _buffer += chunk;
+
+    for (final stop in stopSequences) {
+      if (_buffer.contains(stop)) {
+        final index = _buffer.indexOf(stop);
+        final text = _buffer.substring(0, index);
+        _buffer = _buffer.substring(index + stop.length);
+        return _TokenChunk(text, true);
+      }
+    }
+
+    if (_buffer.length > 50) {
+      final safeLen = _buffer.length - 20;
+      final text = _buffer.substring(0, safeLen);
+      _buffer = _buffer.substring(safeLen);
+      return _TokenChunk(text, false);
+    }
+
+    final partialKeep = _partialStopSuffixLength();
+    if (partialKeep > 0) {
+      final splitPoint = _buffer.length - partialKeep;
+      final text = _buffer.substring(0, splitPoint);
+      _buffer = _buffer.substring(splitPoint);
+      return _TokenChunk(text, false);
+    }
+
+    final text = _buffer;
+    _buffer = '';
+    return _TokenChunk(text, false);
+  }
+
+  String flush() {
+    final text = _buffer;
+    _buffer = '';
+    for (final stop in stopSequences) {
+      if (text == stop) return '';
+    }
+    return text;
+  }
+
+  int _partialStopSuffixLength() {
+    var keepLength = 0;
+    for (final stop in stopSequences) {
+      for (var i = 1; i < stop.length; i++) {
+        if (i > _buffer.length) break;
+        final suffix = _buffer.substring(_buffer.length - i);
+        if (stop.startsWith(suffix) && i > keepLength) keepLength = i;
+      }
+    }
+    return keepLength;
+  }
 }
