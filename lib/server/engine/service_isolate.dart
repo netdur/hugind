@@ -196,6 +196,11 @@ class ServiceChild {
       final sessionHome = cmd is LlamaLoadExtended
           ? cmd.sessionHome
           : '${Directory.current.path}/sessions';
+      if (cmd is LlamaLoadExtended) {
+        print(
+            "DEBUG: LlamaLoadExtended received with maxSystemRamMb: ${cmd.maxSystemRamMb}");
+      }
+
       _service = LlamaService(
         cmd.path,
         modelParams: cmd.modelParams,
@@ -204,6 +209,7 @@ class ServiceChild {
         verbose: cmd.verbose,
         mmprojPath: cmd.mmprojPath,
         sessionHome: sessionHome, // Explicit session home
+        maxSystemRamMb: (cmd is LlamaLoadExtended) ? cmd.maxSystemRamMb : null,
       );
 
       parentSendPort.send(LlamaResponse.confirmation(LlamaStatus.ready));
@@ -304,12 +310,6 @@ class ServiceChild {
           },
           onDone: () {
             _subscriptions.remove(pid);
-            parentSendPort.send(LlamaResponse(
-              text: "",
-              isDone: true,
-              status: LlamaStatus.ready,
-              promptId: pid,
-            ));
           },
           onError: (e) {
             _subscriptions.remove(pid);
@@ -335,12 +335,6 @@ class ServiceChild {
           },
           onDone: () {
             _subscriptions.remove(pid);
-            parentSendPort.send(LlamaResponse(
-              text: "",
-              isDone: true,
-              status: LlamaStatus.ready,
-              promptId: pid,
-            ));
           },
           onError: (e) {
             _subscriptions.remove(pid);
@@ -388,9 +382,11 @@ class ServiceChild {
       return;
     }
 
-    if (!_subscriptions.containsKey(promptId)) return;
-    await _subscriptions[promptId]!.cancel();
-    _subscriptions.remove(promptId);
+    if (_subscriptions.containsKey(promptId)) {
+      await _subscriptions[promptId]!.cancel();
+      _subscriptions.remove(promptId);
+    }
+
     parentSendPort.send(LlamaResponse(
       text: "",
       isDone: true,
@@ -429,6 +425,7 @@ class LlamaLoadExtended {
   final bool verbose;
   final String? mmprojPath;
   final String sessionHome;
+  final int? maxSystemRamMb;
 
   LlamaLoadExtended({
     required this.path,
@@ -438,5 +435,6 @@ class LlamaLoadExtended {
     required this.sessionHome,
     this.verbose = false,
     this.mmprojPath,
+    this.maxSystemRamMb,
   });
 }
