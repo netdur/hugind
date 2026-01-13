@@ -5,6 +5,7 @@ import 'package:args/command_runner.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
+import 'package:interact/interact.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
 
 import '../server/config/config_loader.dart';
@@ -22,6 +23,55 @@ class ServerCommand extends Command {
     addSubcommand(ServerListCommand());
     addSubcommand(ServerStartCommand());
     addSubcommand(ServerStopCommand());
+  }
+
+  @override
+  Future<void> run() async {
+    // If we are here, no subcommand was passed
+    await _runWizard();
+  }
+
+  Future<void> _runWizard() async {
+    final configDir = Directory(p.join(_configHome(), 'configs'));
+    if (!await configDir.exists()) {
+      print('No configurations found in ${configDir.path}.');
+      // Create new?
+      return;
+    }
+
+    final files = configDir
+        .listSync()
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.yml') || f.path.endsWith('.yaml'))
+        .toList();
+
+    if (files.isEmpty) {
+      print('No configurations found.');
+      return;
+    }
+
+    final configNames =
+        files.map((f) => p.basenameWithoutExtension(f.path)).toList();
+
+    // Check status of each (for better UI)
+    print('🦅 Hugind Server Manager');
+
+    // We can show status in the selection list?
+    // "model-a (Running)", "model-b"
+    // Loading status might take time. Let's just list names for now or do a quick check.
+
+    final selection = Select(
+      prompt: 'Select a server config to start:',
+      options: configNames,
+    ).interact();
+
+    final selectedConfig = configNames[selection];
+
+    // Ask for port override?
+    // final port = Input(prompt: "Port (default from config):").interact();
+    // For now, straight start.
+
+    await startServerSequence(selectedConfig);
   }
 }
 
@@ -130,148 +180,155 @@ class ServerStartCommand extends Command {
     }
 
     final configName = argResults!.rest.first;
-    final configPath = p.join(_configHome(), 'configs', '$configName.yml');
+    final portOverride =
+        argResults!['port'] != null ? int.tryParse(argResults!['port']) : null;
 
-    if (!File(configPath).existsSync()) {
-      print('❌ Config "$configName" not found at $configPath');
-      return;
+    await startServerSequence(configName,
+        portOverride: portOverride, libOverride: argResults!['lib']);
+  }
+
+  // Helpers moved to top level
+}
+
+// =============================================================================
+// SHARED LOGIC
+// =============================================================================
+
+Future<void> startServerSequence(String configName,
+    {int? portOverride, String? libOverride}) async {
+  final configPath = p.join(_configHome(), 'configs', '$configName.yml');
+
+  if (!File(configPath).existsSync()) {
+    print('❌ Config "$configName" not found at $configPath');
+    return;
+  }
+
+  print('🚀 Initializing Hugind Server ($configName)...');
+
+  try {
+    // 1. Load Configuration FIRST
+    var config = await ConfigLoader.load(configPath);
+
+    // 2. Determine Library Path Priority
+    String? finalLibPath = libOverride;
+
+    if (finalLibPath == null) {
+      // Check config
+      if (config.libraryPath != null) {
+        if (File(config.libraryPath!).existsSync()) {
+          finalLibPath = config.libraryPath;
+        } else {
+          print(
+              '⚠️  Warning: Configured library path not found: ${config.libraryPath}');
+          print('   → Attempting auto-detection...');
+        }
+      }
     }
 
-    print('🚀 Initializing Hugind Server ($configName)...');
+    if (finalLibPath == null) {
+      // Fallback to auto-detect
+      finalLibPath = await _resolveLibraryPath();
+    }
 
-    try {
-      // 1. Load Configuration FIRST
-      // We need this to see if the user defined 'library_path' in YAML
-      var config = await ConfigLoader.load(configPath);
-
-      // 2. Determine Library Path Priority:
-      //    A. CLI Argument (--lib)
-      //    B. Config YAML (server.library_path)
-      //    C. Auto-Detection
-      String? finalLibPath = argResults!['lib'];
-
-      if (finalLibPath == null) {
-        // Check config
-        if (config.libraryPath != null) {
-          if (File(config.libraryPath!).existsSync()) {
-            finalLibPath = config.libraryPath;
-          } else {
-            print(
-                '⚠️  Warning: Configured library path not found: ${config.libraryPath}');
-            print('   → Attempting auto-detection...');
-          }
-        }
-      }
-
-      if (finalLibPath == null) {
-        // Fallback to auto-detect
-        finalLibPath = await _resolveLibraryPath();
-      }
-
-      // 3. Validate & Set
-      if (finalLibPath == null || !File(finalLibPath).existsSync()) {
-        print('❌ Fatal: Could not find libllama shared library.');
-        print('   1. Set "library_path" in your config.yml');
-        print('   2. Or provide path via --lib <path>');
-        print('   3. Or ensure it exists in standard system paths.');
-        exit(1);
-      }
-
-      Llama.libraryPath = finalLibPath;
-
-      // 4. Apply Port Override
-      if (argResults!['port'] != null) {
-        final overridePort = int.tryParse(argResults!['port']);
-        if (overridePort != null) {
-          print('   → Overriding port: $overridePort');
-          config = _overridePort(config, overridePort);
-        }
-      }
-
-      // 5. Bootstrap
-      await bootstrapServer(config);
-    } catch (e) {
-      // catch e, stacktrace if you want debugging
-      print('\n❌ Fatal Error: $e');
+    // 3. Validate & Set
+    if (finalLibPath == null || !File(finalLibPath).existsSync()) {
+      print('❌ Fatal: Could not find libllama shared library.');
+      print('   1. Set "library_path" in your config.yml');
+      print('   2. Or provide path via --lib <path>');
+      print('   3. Or ensure it exists in standard system paths.');
       exit(1);
     }
-  }
 
-  // Helper to clone config with new port
-  ServerConfig _overridePort(ServerConfig c, int newPort) {
-    return ServerConfig(
-      name: c.name,
-      host: c.host,
-      port: newPort,
-      libraryPath: c.libraryPath,
-      apiKey: c.apiKey,
-      concurrency: c.concurrency,
-      maxSlots: c.maxSlots,
-      timeoutSeconds: c.timeoutSeconds,
-      systemPrompt: c.systemPrompt,
-      embeddingsEnabled: c.embeddingsEnabled,
-      sessionHome: c.sessionHome,
-      modelPath: c.modelPath,
-      mmprojPath: c.mmprojPath,
-      modelParams: c.modelParams,
-      contextParams: c.contextParams,
-      samplerParams: c.samplerParams,
-      chatFormat: c.chatFormat,
-    );
-  }
+    Llama.libraryPath = finalLibPath;
 
-  Future<String?> _resolveLibraryPath() async {
-    // 1. Check Environment Variable
-    final envPath = Platform.environment['LIBLLAMA_PATH'];
-    if (envPath != null && File(envPath).existsSync()) return envPath;
-
-    // 2. Check Global Settings
-    final globalPath = await GlobalSettings.getLibraryPath();
-    if (globalPath != null && File(globalPath).existsSync()) {
-      return globalPath;
+    // 4. Apply Port Override
+    if (portOverride != null) {
+      print('   → Overriding port: $portOverride');
+      config = _overridePort(config, portOverride);
     }
 
-    // 3. Auto-detection logic
-    final scriptDir = p.dirname(Platform.script.toFilePath());
-    final exeDir = p.dirname(Platform.resolvedExecutable);
-
-    // Potential filenames
-    final filenames = <String>[];
-    if (Platform.isMacOS) {
-      filenames.addAll(['libmtmd.dylib', 'libllama.dylib']);
-    } else if (Platform.isWindows) {
-      filenames.add('libllama.dll');
-    } else {
-      filenames.add('libllama.so');
-    }
-
-    // Potential directories
-    final directories = [
-      // Relative to executable (Homebrew Cellar / Dist)
-      exeDir,
-      p.join(exeDir, 'lib'),
-      p.join(exeDir, '../lib'), // Common structure: bin/../lib
-
-      // Dev / Script relative
-      p.join(scriptDir, 'bin', 'MAC_ARM64'),
-      p.join(Directory.current.path, 'bin', 'MAC_ARM64'),
-      p.join(Directory.current.path, 'bin'),
-
-      // System / Homebrew
-      '/opt/homebrew/lib',
-      '/usr/local/lib',
-      '/usr/lib',
-    ];
-
-    for (final dir in directories) {
-      for (final name in filenames) {
-        final path = p.join(dir, name);
-        if (File(path).existsSync()) return path;
-      }
-    }
-
-    return null;
+    // 5. Bootstrap
+    await bootstrapServer(config);
+  } catch (e) {
+    print('\n❌ Fatal Error: $e');
+    exit(1);
   }
+}
+
+// Helper to clone config with new port
+ServerConfig _overridePort(ServerConfig c, int newPort) {
+  return ServerConfig(
+    name: c.name,
+    host: c.host,
+    port: newPort,
+    libraryPath: c.libraryPath,
+    apiKey: c.apiKey,
+    concurrency: c.concurrency,
+    maxSlots: c.maxSlots,
+    timeoutSeconds: c.timeoutSeconds,
+    systemPrompt: c.systemPrompt,
+    embeddingsEnabled: c.embeddingsEnabled,
+    sessionHome: c.sessionHome,
+    modelPath: c.modelPath,
+    mmprojPath: c.mmprojPath,
+    modelParams: c.modelParams,
+    contextParams: c.contextParams,
+    samplerParams: c.samplerParams,
+    chatFormat: c.chatFormat,
+  );
+}
+
+Future<String?> _resolveLibraryPath() async {
+  // 1. Check Environment Variable
+  final envPath = Platform.environment['LIBLLAMA_PATH'];
+  if (envPath != null && File(envPath).existsSync()) return envPath;
+
+  // 2. Check Global Settings
+  final globalPath = await GlobalSettings.getLibraryPath();
+  if (globalPath != null && File(globalPath).existsSync()) {
+    return globalPath;
+  }
+
+  // 3. Auto-detection logic
+  final scriptDir = p.dirname(Platform.script.toFilePath());
+  final exeDir = p.dirname(Platform.resolvedExecutable);
+
+  // Potential filenames
+  final filenames = <String>[];
+  if (Platform.isMacOS) {
+    filenames.addAll(['libmtmd.dylib', 'libllama.dylib']);
+  } else if (Platform.isWindows) {
+    filenames.add('libllama.dll');
+  } else {
+    filenames.add('libllama.so');
+  }
+
+  // Potential directories
+  final directories = [
+    // Relative to executable (Homebrew Cellar / Dist)
+    exeDir,
+    p.join(exeDir, 'lib'),
+    p.join(exeDir, '../lib'), // Common structure: bin/../lib
+
+    // Dev / Script relative
+    p.join(scriptDir, 'bin', 'MAC_ARM64'),
+    p.join(Directory.current.path, 'bin', 'MAC_ARM64'),
+    p.join(Directory.current.path, 'bin'),
+
+    // System / Homebrew
+    '/opt/homebrew/lib',
+    '/usr/local/lib',
+    '/usr/lib',
+  ];
+
+  for (final dir in directories) {
+    for (final name in filenames) {
+      final path = p.join(dir, name);
+      if (File(path).existsSync()) return path;
+    }
+  }
+
+  return null;
 }
 
 // =============================================================================
@@ -321,7 +378,8 @@ class ServerStopCommand extends Command {
       if (response.statusCode == 200) {
         print('🟢 Detected a running server on $host:$port');
       } else {
-        print('⚠️ Health check returned ${response.statusCode}; server may not be running.');
+        print(
+            '⚠️ Health check returned ${response.statusCode}; server may not be running.');
       }
     } catch (_) {
       print('⚪️ No response on $host:$port (may already be stopped).');
@@ -339,7 +397,8 @@ class ServerStopCommand extends Command {
       print('  netstat -ano | findstr :$port');
       print('  taskkill /PID <PID> /F');
     } else {
-      print('  (Unknown OS) Use a port/PID lister to find and kill the process.');
+      print(
+          '  (Unknown OS) Use a port/PID lister to find and kill the process.');
     }
 
     print('\nIf you started the server in this shell, Ctrl+C will stop it.');

@@ -378,6 +378,10 @@ ${cBold}Available Commands:$cReset
         final buffer = StringBuffer();
 
         try {
+          // Show spinner while waiting for connection/first-byte
+          final spinner = _SimpleSpinner(message: 'Thinking...');
+          spinner.start();
+
           final response = await _service.sendMessage(
               sessionId: id,
               model: model,
@@ -387,40 +391,69 @@ ${cBold}Available Commands:$cReset
               baseUrl: baseUrl);
 
           if (response.statusCode != 200) {
+            spinner.stop();
             print('Error ${response.statusCode}');
             continue;
           }
 
-          stdout.write(cAI); // Switch to AI color
-
           final filter = _TokenStreamFilter();
+          final highlighter = _SyntaxHighlighter();
 
           // 2. Stream & Parse
-          await response.stream
+          final completer = Completer<void>();
+          late final StreamSubscription<String> sub;
+
+          bool isFirst = true;
+
+          sub = response.stream
               .transform(utf8.decoder)
               .transform(const LineSplitter())
               .listen((line) {
+            if (isFirst) {
+              spinner.stop();
+              isFirst = false;
+              stdout.write(cAI); // Start AI Color
+            }
+
             if (line.startsWith('data: ')) {
               final data = line.substring(6);
-              if (data == '[DONE]') return;
+              if (data == '[DONE]') {
+                sub.cancel();
+                if (!completer.isCompleted) completer.complete();
+                return;
+              }
               try {
                 final json = jsonDecode(data);
                 final delta = json['choices'][0]['delta']['content'];
                 if (delta != null) {
                   final safe = filter.process(delta);
                   if (safe.isNotEmpty) {
-                    stdout.write(safe);
+                    // Pass through highlighter
+                    final formatted = highlighter.format(safe);
+                    stdout.write(formatted);
                     buffer.write(safe);
+                  }
+                  if (filter.sawStop) {
+                    sub.cancel();
+                    if (!completer.isCompleted) completer.complete();
                   }
                 }
               } catch (_) {}
             }
-          }).asFuture();
+          }, onDone: () {
+            if (isFirst) spinner.stop();
+            if (!completer.isCompleted) completer.complete();
+          }, onError: (_) {
+            if (isFirst) spinner.stop();
+            if (!completer.isCompleted) completer.complete();
+          });
+
+          await completer.future;
 
           // Flush
           final remainder = filter.flush();
           if (remainder.isNotEmpty) {
-            stdout.write(remainder);
+            stdout.write(highlighter.format(remainder));
             buffer.write(remainder);
           }
 
@@ -492,9 +525,11 @@ ${cBold}Available Commands:$cReset
 class _TokenStreamFilter {
   final List<String> stopSequences = ['[EOS]', '<|endoftext|>', '<|im_end|>'];
   String _buffer = '';
+  bool sawStop = false;
 
   /// Returns the "safe" text to print, keeping potential partial stop tokens in buffer
   String process(String chunk) {
+    sawStop = false;
     _buffer += chunk;
 
     // Quick check: if buffer doesn't look like it contains any stop seq, print all
@@ -519,6 +554,7 @@ class _TokenStreamFilter {
         // Print everything UP TO the stop token
         final index = _buffer.indexOf(stop);
         toPrint += _buffer.substring(0, index);
+        sawStop = true;
 
         // Remove the stop token and everything before it from buffer effectively
         // Actually, we usually want to stop validation there, but here we just hide it.
@@ -573,5 +609,83 @@ class _TokenStreamFilter {
       if (ret == stop) return '';
     }
     return ret;
+  }
+}
+
+class _SyntaxHighlighter {
+  // Simple heuristics for markdown
+  // ```code``` -> color
+  // **bold** -> bold
+  // `inline` -> color
+
+  bool insideBlock = false;
+  String _buffer = '';
+
+  String format(String chunk) {
+    // This is a very naive streaming parser.
+    // For robust highlighting, we need a full state machine.
+    // We'll just highlight "```" toggles and paint content between them.
+
+    final buffer = StringBuffer();
+    final chars = chunk.split('');
+
+    for (int i = 0; i < chars.length; i++) {
+      final char = chars[i];
+      _buffer += char;
+
+      // Detect ```
+      if (_buffer.endsWith('```')) {
+        if (insideBlock) {
+          // End of block
+          insideBlock = false;
+          // We need to backtrack to remove color from ```?
+          // Simple: just print ``` then reset
+          buffer.write('\x1B[0m'); // Reset
+        } else {
+          // Start of block
+          insideBlock = true;
+          buffer.write('\x1B[33m'); // Yellow for code
+        }
+        _buffer = ''; // Reset buffer after token match
+      }
+
+      buffer.write(char);
+    }
+    return buffer.toString();
+  }
+}
+
+class _SimpleSpinner {
+  Timer? _timer;
+  int _frame = 0;
+  final List<String> _frames = [
+    '⠋',
+    '⠙',
+    '⠹',
+    '⠸',
+    '⠼',
+    '⠴',
+    '⠦',
+    '⠧',
+    '⠇',
+    '⠏'
+  ];
+  final String message;
+
+  _SimpleSpinner({required this.message});
+
+  void start() {
+    stdout.write('\x1B[?25l'); // Hide cursor
+    _timer = Timer.periodic(const Duration(milliseconds: 80), (t) {
+      final char = _frames[_frame % _frames.length];
+      _frame++;
+      stdout.write('\r\x1B[36m$char\x1B[0m $message');
+    });
+  }
+
+  void stop() {
+    _timer?.cancel();
+    stdout.write('\x1B[?25h'); // Show cursor
+    stdout.write('\r\x1B[2K\r'); // Clear line
   }
 }
