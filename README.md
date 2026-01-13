@@ -14,7 +14,7 @@ Powered by [llama_cpp_dart](https://github.com/netdur/llama_cpp_dart).
 *   **🧠 Stateful Memory (3-Tier Architecture)**: Powered by `llama_cpp_dart`'s `LlamaService`, Hugind intelligently manages user sessions:
     *   **Hot**: Active slots stay in VRAM for instant access.
     *   **Warm**: Idle sessions map to system RAM when VRAM is full.
-    *   **Cold**: Long-term storage hibernates to disk (`./sessions/`), surviving server restarts.
+    *   **Cold**: Long-term storage hibernates to disk (see `server.session_home`), surviving server restarts.
 *   **🛡️ Secure Agent Runtime**: Run community agents safely. Hugind treats agents like **browser extensions**—sandboxed scripts with strict, manifest-based permissions (`agent.yaml`).
 *   **🔌 MCP Client**: Native support for the **Model Context Protocol**. Connect agents to external tools (GitHub, Databases, Filesystem) via standard MCP servers.
 *   **👁️ Multimodal Vision**: Native support for image inputs. Run models like `Llava` or `Moondream` via the OpenAI Vision API.
@@ -98,9 +98,9 @@ hugind chat resume <session-id>
 ```
 
 inside the chat:
-*   **Encrypted State**: Sessions are saved to disk automatically.
+*   **Persistent State**: Sessions are saved to disk automatically.
 *   **Hibernation**: When you exit (Ctrl+C), the session hibernates. Resuming is instant.
-*   **Slash Commands**: Use `/exit`, `/history`, or other commands.
+*   **Slash Commands**: Use `/help`, `/image`, `/sys`, `/clear`, `/exit`.
 
 ---
 
@@ -114,7 +114,7 @@ Unlike other frameworks that might require compilation or external dependencies,
 Agents are installed like plugins. Hugind analyzes the `agent.yaml` and warns you about permissions.
 
 ```bash
-hugind agent install netdur/stock-analyst
+hugind agent install /path/to/stock-analyst
 ```
 
 **The Security Check:**
@@ -122,14 +122,14 @@ hugind agent install netdur/stock-analyst
 📦 Installing 'stock-analyst'...
 ⚠️  PERMISSIONS REQUESTED:
    • 🌐 Network: api.stockdata.org, finance.yahoo.com
-   • 📂 Filesystem: Workspace Only (Safe)
-   • 🔌 MCP: Requires 'filesystem' tool
+   • 📂 Filesystem: Read=✅, Write=✅
+   • 🔌 MCP: Requires filesystem
 
 Do you accept? [y/N]
 ```
 
 ### Running an Agent
-Once installed, agents run in a dedicated process, connecting to the local inference server.
+Once installed, agents run in a sandboxed runtime, connecting to the local inference server.
 
 ```bash
 hugind agent run stock-analyst
@@ -149,8 +149,7 @@ entry_point: "main.dart"
 author: "netdur"
 
 # ⚙️ RUNTIME
-backend:
-  recommended: "gemma-2-9b" 
+backend: "metal_unified"
 
 # 🛡️ PERMISSIONS
 permissions:
@@ -164,29 +163,17 @@ permissions:
   filesystem:
     read: true
     write: true
-    # If allowed_paths is empty, access is restricted to the Agent's Workspace.
-    allowed_paths: [] 
+    # If allowed_paths is empty, access is restricted to the agent directory.
+    allowed_paths: []
 
   # 💻 Shell (Default: false)
   shell:
     allow: false 
   
-  # 🧠 Persistence
-  persistence:
-    store: true
-
 # 🔌 DEPENDENCIES (MCP)
 dependencies:
   mcp:
     - name: "filesystem"
-      required: true
-      min_version: "1.0"
-
-# 🔧 CONFIGURATION
-env:
-  - name: "STOCK_API_KEY"
-    description: "API Key for stockdata.org"
-    required: true
 ```
 
 ---
@@ -195,7 +182,7 @@ env:
 
 Hugind acts as an **MCP Client**. This allows your agents to use standard tools (like reading Git repos, querying Postgres) without the agent developer needing to write that logic.
 
-1.  **Configure MCP Servers** in `~/.hugind/config.yaml`:
+1.  **Configure MCP Servers** in `<data_home>/settings.yml` (see `docs/cli.md` for path resolution):
     ```yaml
     mcp_servers:
       filesystem:
@@ -208,10 +195,8 @@ Hugind acts as an **MCP Client**. This allows your agents to use standard tools 
 
 ## 💬 API Usage
 
-```
-
 ### 👁️ Vision (Multimodal)
-Analyze images using models like `Llava`.
+Analyze images using models like `Llava` (local paths or data URLs only).
 ```bash
 curl http://localhost:8080/v1/chat/completions ... -d '{
   "model": "llava-v1.6",
@@ -220,7 +205,7 @@ curl http://localhost:8080/v1/chat/completions ... -d '{
       "role": "user",
       "content": [
         {"type": "text", "text": "What is in this image?"},
-        {"type": "image_url", "image_url": {"url": "https://..."}}
+        {"type": "image_url", "image_url": {"url": "file:///Users/me/cat.jpg"}}
       ]
     }
   ]
@@ -248,7 +233,7 @@ curl -H "X-Session-ID: session-a" ... -d '{"messages": [{"role": "user", "conten
 
 ## 🎛️ Configuration
 
-Configs live in `~/.hugind/configs/*.yml`. They are clean, readable, and hardware-aware.
+Configs live in `<config_home>/configs/*.yml` (see `docs/cli.md` for how paths resolve). They are clean, readable, and hardware-aware.
 
 ```yaml
 model:
@@ -268,14 +253,20 @@ server:
 
 ## 📚 Documentation
 
-*   [**User Guide**](docs/USER.md): In-depth workflow and concepts.
-*   [**Agent Development**](docs/AGENT_DEV.md): How to write secure scripts and manifests.
-*   **Server Architecture**: Deep dive into the Isolate-based engine and memory system.
-*   [**API Reference**](docs/API.md): Full endpoint compatibility table.
+*   [**Docs Index**](docs/README.md)
+*   [**CLI**](docs/cli.md)
+*   [**Models**](docs/model.md)
+*   [**Config**](docs/config.md)
+*   [**Server**](docs/server.md)
+*   [**Chat**](docs/chat.md)
+*   [**Agents**](docs/agent.md)
+*   [**Agent Development**](docs/agent_dev.md)
+*   [**API Reference**](docs/api.md)
+*   [**Developer Guide**](docs/developer.md)
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please check [docs/DEV.md](docs/DEV.md) for build instructions.
+Contributions are welcome! Please check [docs/developer.md](docs/developer.md) for build instructions.
 
 ## 📄 License
 

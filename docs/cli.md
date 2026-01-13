@@ -20,18 +20,24 @@ hugind [--version] <command> [subcommand] [options]
 
 ## Hugind Home Directories
 
-Hugind stores files under a per-user home directory.
+Hugind uses two roots today: one for configs/agents, and one for data.
 
-- macOS/Linux: `~/.hugind` unless `XDG_CONFIG_HOME` is set, then `$XDG_CONFIG_HOME/hugind`
-- Windows: `%APPDATA%\hugind` or `%USERPROFILE%\.hugind`
+**Config home (configs, agents):**
+- macOS/Linux: `$XDG_CONFIG_HOME/hugind` if set, otherwise `~/.hugind`
+- Windows: `%APPDATA%\hugind` if set, otherwise `%USERPROFILE%\.hugind`
+
+**Data home (models, chats, sessions, settings):**
+- macOS/Linux: `~/.hugind`
+- Windows: `%USERPROFILE%\.hugind`
 
 Common paths:
 
-- Configs: `<home>/configs/*.yml`
-- Models: `<home>/<hf_user>/<hf_repo>/*.gguf`
-- Agents: `<home>/agents/<agent_name>/`
-- Chat sessions: `<home>/chats/*.json`
-- Global settings: `<home>/settings.yml`
+- Configs: `<config_home>/configs/*.yml`
+- Agents: `<config_home>/agents/<agent_name>/`
+- Models: `<data_home>/<hf_user>/<hf_repo>/*.gguf`
+- Chat sessions: `<data_home>/chats/*.json`
+- Server sessions: `<data_home>/sessions/`
+- Global settings: `<data_home>/settings.yml`
 
 ## Quick Examples
 

@@ -17,11 +17,12 @@ Welcome to the new Hugind docs. This set focuses on practical usage, clear CLI r
 - Server runtime and lifecycle: `docs/server.md`
 - Chat workspace and sessions: `docs/chat.md`
 - Agent runtime and security: `docs/agent.md`
+- Agent development guide: `docs/agent_dev.md`
 - API reference (OpenAI-compatible endpoints): `docs/api.md`
 - Developer internals and architecture: `docs/developer.md`
 
 ## Conventions Used
 
 - All commands are shown as `hugind <command> <subcommand> [args]`.
-- Config and data files live under your Hugind home directory. See `docs/cli.md` for OS-specific paths.
+- Configs/agents and data files live under separate Hugind directories. See `docs/cli.md` for OS-specific paths.
 - Examples assume a local server at `http://127.0.0.1:8080`.

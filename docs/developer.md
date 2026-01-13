@@ -35,7 +35,7 @@ To add a new subcommand:
 `ConfigLoader.load()` merges:
 - `server` settings (host, port, API key, concurrency)
 - `model` settings (path, GPU layers, mmap, mmproj)
-- `context` settings (n_ctx, batch sizes, threads, cache types)
+- `context` settings (`size`, batch sizes, threads, cache types)
 - `sampling` defaults
 - `chat.format` if set
 

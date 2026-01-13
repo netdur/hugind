@@ -22,7 +22,7 @@ For this tutorial, we'll use a standard model (Gemma 3 4B) which strikes a good 
 # Verify no models are currently installed
 hugind model list
 
-# Download Gemma 2B (It will present an interactive selection)
+# Download Gemma 3 4B (It will present an interactive selection)
 hugind model add google/gemma-3-4b-it-qat-q4_0-gguf
 ```
 
@@ -48,14 +48,14 @@ hugind config init team_server
 
 The default config is optimized for a single user. We need to edit it to support 10 concurrent slots.
 
-Open `~/.hugind/configs/team_server.yml` in your text editor.
+Open `<config_home>/configs/team_server.yml` in your text editor. (See `docs/cli.md` for how `<config_home>` is resolved.)
 
 ### Key Changes Needed:
 
 1.  **Increase `max_slots`**: Set this to **10**.
-2.  **Increase `n_ctx`**: Ensure total context fits all users.
-    *   *Math:* If each user needs 4k tokens: `10 users * 4096 = 40,960`.
-    *   Set `n_ctx: 40960`.
+2.  **Set `context.size`**: This is the per-session context window.
+    *   If each user needs 4k tokens, set `size: 4096`.
+    *   Total KV cache memory scales with `size * max_slots`.
 3.  **Concurrency**: Keep `concurrency: 1`. This loads the model **once** into VRAM and shares it across the 10 slots (efficient).
 
 **Example `team_server.yml`:**
@@ -72,14 +72,14 @@ model:
   path: /Users/username/.hugind/google/gemma-3-4b-it-qat-q4_0-gguf/gemma-3-4b-it-q4_0.gguf
 
 context:
-  n_ctx: 40960      # Total context pool (4k per user)
-  n_batch: 512
+  size: 4096        # Context per session
+  batch_size: 512
 
 sampler:
   temperature: 0.7
 ```
 
-> **Warning:** Increasing `n_ctx` increases VRAM usage significantly. If the server fails to start (OOM), try reducing `n_ctx` (e.g., to 20480 for 2k/user) or `max_slots`.
+> **Warning:** Increasing `context.size` increases VRAM usage significantly. If the server fails to start (OOM), try reducing `size` (e.g., to 2048) or `max_slots`.
 
 ---
 
