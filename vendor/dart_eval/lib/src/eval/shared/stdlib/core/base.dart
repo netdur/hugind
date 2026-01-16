@@ -6,6 +6,27 @@ import 'package:dart_eval/src/eval/shared/stdlib/core/pattern.dart';
 import 'package:dart_eval/src/eval/utils/wrap_helper.dart';
 import 'num.dart';
 
+int? _coerceInt($Value? value) {
+  if (value == null || value is $null) return null;
+  if (value is $int) return value.$value;
+  if (value is $double) return value.$value.toInt();
+  if (value is $String) return int.tryParse(value.$value);
+  final raw = value.$value;
+  if (raw is int) return raw;
+  if (raw is double) return raw.toInt();
+  if (raw is String) return int.tryParse(raw);
+  return null;
+}
+
+Pattern _coercePattern($Value? value) {
+  if (value == null || value is $null) return '';
+  if (value is $Pattern) return value.$value;
+  if (value is $String) return value.$value;
+  final raw = value.$value;
+  if (raw is Pattern) return raw;
+  return raw.toString();
+}
+
 const $dynamicCls = BridgeClassDef(
   BridgeClassType(BridgeTypeRef(CoreTypes.dynamic),
       isAbstract: true, $extends: null),
@@ -440,13 +461,12 @@ class $String implements $Instance {
   static $Value? _startsWith(
       final Runtime runtime, final $Value? target, final List<$Value?> args) {
     target as $String;
-    final pattern = args[0] as $String;
-    final index = args.length > 1 ? args[1] as $int : null;
+    final pattern = _coercePattern(args.isNotEmpty ? args[0] : null);
+    final index = args.length > 1 ? _coerceInt(args[1]) : null;
     if (index != null) {
-      return $bool(target.$value.startsWith(pattern.$value, index.$value));
-    } else {
-      return $bool(target.$value.startsWith(pattern.$value));
+      return $bool(target.$value.startsWith(pattern, index));
     }
+    return $bool(target.$value.startsWith(pattern));
   }
 
   static const $Function __split = $Function(_split);
@@ -454,9 +474,9 @@ class $String implements $Instance {
   static $Value? _split(
       final Runtime runtime, final $Value? target, final List<$Value?> args) {
     target as $String;
-    final pattern = args[0] as $String;
+    final pattern = _coercePattern(args.isNotEmpty ? args[0] : null);
     return $List.wrap(
-        target.$value.split(pattern.$value).map((e) => $String(e)).toList());
+        target.$value.split(pattern).map((e) => $String(e)).toList());
   }
 
   static const $Function __substring = $Function(_substring);
@@ -464,9 +484,9 @@ class $String implements $Instance {
   static $Value? _substring(
       final Runtime runtime, final $Value? target, final List<$Value?> args) {
     target as $String;
-    final start = args[0] as $int;
-    final end = args.length > 1 ? args[1] as $int : null;
-    return $String(target.$value.substring(start.$value, end?.$value));
+    final start = _coerceInt(args.isNotEmpty ? args[0] : null) ?? 0;
+    final end = args.length > 1 ? _coerceInt(args[1]) : null;
+    return $String(target.$value.substring(start, end));
   }
 
   static const $Function __toLowerCase = $Function(_toLowerCase);

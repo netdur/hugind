@@ -14,6 +14,7 @@ import 'package:dart_eval/src/eval/compiler/statement/switch.dart';
 import 'package:dart_eval/src/eval/compiler/statement/try.dart';
 import 'package:dart_eval/src/eval/compiler/statement/variable_declaration.dart';
 import 'package:dart_eval/src/eval/compiler/statement/while.dart';
+import 'package:dart_eval/src/eval/compiler/statement/continue.dart';
 import 'package:dart_eval/src/eval/compiler/type.dart';
 
 import 'block.dart';
@@ -48,6 +49,8 @@ StatementInfo compileStatement(
     return compileAssertStatement(s, ctx, expectedReturnType);
   } else if (s is BreakStatement) {
     return compileBreakStatement(s, ctx);
+  } else if (s is ContinueStatement) {
+    return compileContinueStatement(s, ctx);
   } else if (s is PatternVariableDeclarationStatement) {
     return compilePatternVariableDeclarationStatement(s, ctx);
   } else {

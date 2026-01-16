@@ -144,7 +144,29 @@ class Await implements EvcOp {
         catchStack: List.of(runtime.catchStack.last),
         args: []);
 
-    var future = runtime.frame[_futureOffset] as $Future;
+    var futureValue = runtime.frame[_futureOffset];
+    if (futureValue == null) {
+      if (runtime.returnValue == null && runtime.lastFutureValue != null) {
+        futureValue = runtime.lastFutureValue;
+      }
+    }
+    if (futureValue == null) {
+      futureValue = runtime.returnValue;
+    }
+    $Future future;
+    if (futureValue is $Future) {
+      future = futureValue;
+    } else if (futureValue is Future) {
+      future = $Future.wrap(futureValue.then((value) =>
+          value is $Value ? value : runtime.wrapAlways(value)));
+    } else if (futureValue == null) {
+      future = $Future.wrap(Future.value(const $null()));
+    } else {
+      final wrapped = futureValue is $Value
+          ? futureValue
+          : runtime.wrapAlways(futureValue);
+      future = $Future.wrap(Future.value(wrapped));
+    }
     _suspend(runtime, continuation, future, completer);
 
     // Return with the completer as the result (the following lines are a copy of the Return op code)

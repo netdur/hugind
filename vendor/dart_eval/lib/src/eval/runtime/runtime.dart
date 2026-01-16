@@ -723,6 +723,9 @@ class Runtime {
   /// The most recent return value
   Object? returnValue;
 
+  /// Last seen Future return (used for await recovery when stack slots are null)
+  Object? lastFutureValue;
+
   bool inCatch = false;
 
   /// 0 = throw, 1 = return, 2 = break, 3 = continue

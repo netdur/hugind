@@ -47,6 +47,11 @@ StatementInfo macroLoop(
     update(ctx);
   }
 
+  final continueLabel = CompilerLabel(LabelType.loopContinue, loopStart, (ctx) {
+    final result = ctx.pushOp(JumpConstant.make(-1), JumpConstant.LEN);
+    return result;
+  });
+
   final label = CompilerLabel(LabelType.loop, loopStart, (ctx) {
     ctx.endAllocScopeQuiet();
 
@@ -64,9 +69,17 @@ StatementInfo macroLoop(
     return result;
   });
 
+  ctx.labels.add(continueLabel);
   ctx.labels.add(label);
   final statementResult = body(ctx, expectedReturnType);
   ctx.labels.removeLast();
+  ctx.labels.removeLast();
+
+  if (updateBeforeBody) {
+    ctx.resolveLabelTo(continueLabel, loopStart);
+  } else {
+    ctx.resolveLabelTo(continueLabel, ctx.out.length);
+  }
 
   if (!(statementResult.willAlwaysThrow || statementResult.willAlwaysReturn)) {
     if (update != null && !updateBeforeBody) {

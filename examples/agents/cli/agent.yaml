@@ -1,0 +1,8 @@
+name: "cli"
+version: "0.1.0"
+description: "Translates plain English requests into safe shell commands and executes them upon confirmation."
+entry_point: "main.dart"
+backend: "qwen3vl-8b"
+permissions:
+  shell:
+    allow: true

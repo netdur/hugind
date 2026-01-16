@@ -93,6 +93,63 @@ class AgentSandbox {
                   ],
                   namedParams: []),
               isStatic: true),
+          'sysReadFile': BridgeMethodDef(
+              BridgeFunctionDef(
+                  returns: BridgeTypeAnnotation(BridgeTypeRef(CoreTypes.future,
+                      [BridgeTypeAnnotation(BridgeTypeRef(CoreTypes.string))])),
+                  params: [
+                    BridgeParameter(
+                        'path',
+                        BridgeTypeAnnotation(
+                            BridgeTypeRef(CoreTypes.string, [])),
+                        false)
+                  ],
+                  namedParams: []),
+              isStatic: true),
+          'sysWriteFile': BridgeMethodDef(
+              BridgeFunctionDef(
+                  returns: BridgeTypeAnnotation(BridgeTypeRef(CoreTypes.future,
+                      [BridgeTypeAnnotation(BridgeTypeRef(CoreTypes.bool))])),
+                  params: [
+                    BridgeParameter(
+                        'path',
+                        BridgeTypeAnnotation(
+                            BridgeTypeRef(CoreTypes.string, [])),
+                        false),
+                    BridgeParameter(
+                        'contents',
+                        BridgeTypeAnnotation(
+                            BridgeTypeRef(CoreTypes.string, [])),
+                        false)
+                  ],
+                  namedParams: []),
+              isStatic: true),
+          'sysExists': BridgeMethodDef(
+              BridgeFunctionDef(
+                  returns: BridgeTypeAnnotation(BridgeTypeRef(CoreTypes.future,
+                      [BridgeTypeAnnotation(BridgeTypeRef(CoreTypes.bool))])),
+                  params: [
+                    BridgeParameter(
+                        'path',
+                        BridgeTypeAnnotation(
+                            BridgeTypeRef(CoreTypes.string, [])),
+                        false)
+                  ],
+                  namedParams: []),
+              isStatic: true),
+          'sysMkdir': BridgeMethodDef(
+              BridgeFunctionDef(
+                  returns: BridgeTypeAnnotation(BridgeTypeRef(CoreTypes.future,
+                      [BridgeTypeAnnotation(BridgeTypeRef(CoreTypes.bool))])),
+                  params: [
+                    BridgeParameter(
+                        'path',
+                        BridgeTypeAnnotation(
+                            BridgeTypeRef(CoreTypes.string, [])),
+                        false)
+                  ],
+                  namedParams: []),
+              isStatic: true),
           'sysPrint': BridgeMethodDef(
               BridgeFunctionDef(
                   returns: BridgeTypeAnnotation(
@@ -174,6 +231,10 @@ class AgentSandbox {
          external static Future<String> sysRun(String executable, List<String> args, String? workDir);
          external static Future<bool> sysConfirm(String message);
          external static dynamic sysReadInput(String prompt);
+         external static Future<String> sysReadFile(String path);
+         external static Future<bool> sysWriteFile(String path, String contents);
+         external static Future<bool> sysExists(String path);
+         external static Future<bool> sysMkdir(String path);
          external static void sysPrint(String message);
          external static Future<String> llmChat(String prompt);
          external static Future<String> netFetch(String url);
@@ -212,10 +273,29 @@ class AgentSandbox {
         dynamic readInput(String prompt) {
            return Bridge.sysReadInput(prompt);
         }
+
+        Future<String> readFile(String path) {
+           return Bridge.sysReadFile(path);
+        }
+
+        Future<bool> writeFile(String path, String contents) {
+           return Bridge.sysWriteFile(path, contents);
+        }
+
+        Future<bool> exists(String path) {
+           return Bridge.sysExists(path);
+        }
+
+        Future<bool> mkdir(String path) {
+           return Bridge.sysMkdir(path);
+        }
         
         void print(String? msg) {
            Bridge.sysPrint(msg ?? 'null');
         }
+        
+        // Convenience method for printing
+        void printMsg(String msg) => this.print(msg);
       }
 
       class LlmCapability {
@@ -258,19 +338,42 @@ class AgentSandbox {
       // Bridge each capability call directly to the host
       runtime.registerBridgeFunc('package:agent/main.dart', 'Bridge.sysRun',
           (rt, target, args) {
-        print('HOST: Bridge.sysRun called');
-        final executable = args[0] is $Value
-            ? (args[0] as $Value).$value as String
-            : args[0] as String;
-        final runArgs = args[1] is $Value
-            ? ((args[1] as $Value).$reified as List).cast<String>()
-            : (args[1] as List).cast<String>();
-        final workDir = args[2] is $Value
-            ? (args[2] as $Value).$value as String?
-            : args[2] as String?;
+        // Host debug logging removed.
+        String unwrapString(dynamic value) {
+          if (value is $Value) {
+            final raw = value.$value;
+            if (raw is String) return raw;
+            final reified = value.$reified;
+            if (reified is String) return reified;
+            return reified?.toString() ?? raw?.toString() ?? '';
+          }
+          return value?.toString() ?? '';
+        }
+
+        String? unwrapStringOrNull(dynamic value) {
+          if (value == null) return null;
+          final text = unwrapString(value);
+          return text.isEmpty ? null : text;
+        }
+
+        List<String> unwrapStringList(dynamic value) {
+          if (value is $Value) {
+            final reified = value.$reified;
+            if (reified is List) {
+              return reified.map((e) => e.toString()).toList();
+            }
+          }
+          if (value is List) {
+            return value.map((e) => e.toString()).toList();
+          }
+          return [];
+        }
+
+        final executable = unwrapString(args[0]);
+        final runArgs = unwrapStringList(args[1]);
+        final workDir = unwrapStringOrNull(args[2]);
         final future = sys.run(executable, runArgs, workDir: workDir);
         final wrapped = $Future.wrap(future.then((s) => $String(s)));
-        print('HOST: Bridge.sysRun returning wrapped future: \$wrapped');
         return wrapped;
       });
 
@@ -291,12 +394,60 @@ class AgentSandbox {
         return $String(sys.readInput(prompt));
       });
 
-      runtime.registerBridgeFunc('package:agent/main.dart', 'Bridge.sysPrint',
+      runtime.registerBridgeFunc('package:agent/main.dart', 'Bridge.sysReadFile',
           (rt, target, args) {
-        final message = args[0] is $Value
+        final path = args[0] is $Value
             ? (args[0] as $Value).$value as String
             : args[0] as String;
-        sys.printMsg(message);
+        final future = sys.readFile(path);
+        return $Future.wrap(future.then((s) => $String(s)));
+      });
+
+      runtime.registerBridgeFunc(
+          'package:agent/main.dart', 'Bridge.sysWriteFile', (rt, target, args) {
+        final path = args[0] is $Value
+            ? (args[0] as $Value).$value as String
+            : args[0] as String;
+        final contents = args[1] is $Value
+            ? (args[1] as $Value).$value as String
+            : args[1] as String;
+        final future = sys.writeFile(path, contents);
+        return $Future.wrap(future.then((v) => $bool(v)));
+      });
+
+      runtime.registerBridgeFunc('package:agent/main.dart', 'Bridge.sysExists',
+          (rt, target, args) {
+        final path = args[0] is $Value
+            ? (args[0] as $Value).$value as String
+            : args[0] as String;
+        final future = sys.exists(path);
+        return $Future.wrap(future.then((v) => $bool(v)));
+      });
+
+      runtime.registerBridgeFunc('package:agent/main.dart', 'Bridge.sysMkdir',
+          (rt, target, args) {
+        final path = args[0] is $Value
+            ? (args[0] as $Value).$value as String
+            : args[0] as String;
+        final future = sys.mkdir(path);
+        return $Future.wrap(future.then((v) => $bool(v)));
+      });
+
+      runtime.registerBridgeFunc('package:agent/main.dart', 'Bridge.sysPrint',
+          (rt, target, args) {
+        String coerceString(dynamic value) {
+          if (value is $Value) {
+            final raw = value.$value;
+            if (raw is String) return raw;
+            final reified = value.$reified;
+            if (reified is String) return reified;
+            return reified?.toString() ?? raw?.toString() ?? '';
+          }
+          if (value is String) return value;
+          return value?.toString() ?? '';
+        }
+
+        sys.printMsg(coerceString(args[0]));
         return null;
       });
 
@@ -337,19 +488,13 @@ class AgentSandbox {
             : args[1] as Map;
 
         final future = mcp.callTool(name, toolArgs.cast<String, dynamic>());
-        // We're returning dynamic, so we might need to wrap it recursively if complex object
-        // For simplicity, assuming JSON primitives or standard collections
-        // dart_eval needs better wrapping for complex maps, but $Value.encode logic or similar might be needed.
-        // But for now let's hope standard wrapping works for primitives.
-        // Actually dart_eval helpers are better manually invoked for deep structure.
-        // But we return dynamic.
-
         return $Future.wrap(future.then((val) {
           return $String(jsonEncode(val));
         }));
       });
 
       // --- Execute ---
+      // We must execute _buildContext from bridge.dart
       final boxedArgs = args.map((a) => $String(a)).toList();
       final contextResult = runtime
           .executeLib('package:agent/main.dart', '_buildContext', [boxedArgs]);
@@ -359,6 +504,7 @@ class AgentSandbox {
         throw Exception("Context build failed.");
       }
 
+      // Then execute main from main.dart
       final result = runtime
           .executeLib('package:agent/main.dart', 'main', [contextResult]);
 

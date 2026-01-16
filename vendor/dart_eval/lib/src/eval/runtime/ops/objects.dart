@@ -21,6 +21,20 @@ class InvokeDynamic implements EvcOp {
     final method0 = runtime.constantPool[_methodIdx] as String;
     var object = runtime.frame[_location];
 
+    //
+    if (object is! $Value) {
+      final wrapped = runtime.wrapPrimitive(object);
+      if (wrapped != null) {
+        object = wrapped;
+      } else if (object != null) {
+        // Fallback for unknown raw objects
+        try { object = $Object(object); } catch(_) {}
+      } else {
+        object = $null();
+      }
+    }
+    //
+
     while (true) {
       if (object is $InstanceImpl) {
         final methods = object.evalClass.methods;
@@ -97,13 +111,40 @@ class InvokeDynamic implements EvcOp {
         runtime._prOffset = object.offset;
         return;
       }
+      
+      // --- FIX STARTS HERE ---
       final method = ((object as $Instance).$getProperty(runtime, method0)
           as EvalFunction);
       try {
-        runtime.returnValue = method.call(runtime, object, runtime.args.cast());
+        // Create a list of arguments, ensuring every primitive is wrapped in a $Value
+        final boxedArgs = <$Value?>[];
+        for (var arg in runtime.args) {
+          if (arg is! $Value) {
+            // Attempt to wrap primitive types (String, int, bool, etc)
+            final wrapped = runtime.wrapPrimitive(arg);
+            if (wrapped != null) {
+              arg = wrapped;
+            } else {
+               // Fallback: If it's a raw object we can't identify, try to wrap in $Object
+               // FIX: Added '!' because we know wrapPrimitive handles nulls, so here arg is not null.
+               try {
+                  arg = $Object(arg!);
+               } catch(_) {}
+            }
+          }
+          boxedArgs.add(arg as $Value?);
+        }
+
+        // Call with boxedArgs instead of runtime.args.cast()
+        runtime.returnValue = method.call(runtime, object, boxedArgs);
+        if (runtime.returnValue is $Future || runtime.returnValue is Future) {
+          runtime.lastFutureValue = runtime.returnValue;
+        }
       } catch (e) {
         runtime.$throw(e);
       }
+      // --- FIX ENDS HERE ---
+      
       runtime.args = [];
       return;
     }

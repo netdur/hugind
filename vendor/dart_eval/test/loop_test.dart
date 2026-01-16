@@ -168,5 +168,25 @@ void main() {
       expect(runtime.executeLib('package:example/main.dart', 'main'),
           $int(100100));
     });
+
+    test('For loop with continue', () {
+      final runtime = compiler.compileWriteAndLoad({
+        'example': {
+          'main.dart': '''
+            num main() {
+              var sum = 0;
+              for (var i = 0; i < 10; i++) {
+                if (i % 2 == 0) {
+                  continue;
+                }
+                sum += i;
+              }
+              return sum;
+            }
+          ''',
+        }
+      });
+      expect(runtime.executeLib('package:example/main.dart', 'main'), $int(25));
+    });
   });
 }

@@ -353,6 +353,16 @@ class CompilerContext with ScopeContext {
       }
     }
   }
+
+  void resolveLabelTo(CompilerLabel label, int targetOffset) {
+    final references = labelReferences[label];
+    if (references != null) {
+      for (final ref in references) {
+        final jump = JumpConstant.make(targetOffset);
+        rewriteOp(ref, jump, 0);
+      }
+    }
+  }
 }
 
 class ContextSaveState with ScopeContext {

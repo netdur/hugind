@@ -49,6 +49,9 @@ class PushReturnValue implements EvcOp {
   @override
   void run(Runtime runtime) {
     final offset = runtime.frameOffset++;
+    if (runtime.returnValue is $Future || runtime.returnValue is Future) {
+      runtime.lastFutureValue = runtime.returnValue;
+    }
     runtime.frame[offset] = runtime.returnValue;
   }
 
