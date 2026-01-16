@@ -2,6 +2,25 @@
 
 part of '../runtime.dart';
 
+bool _coerceBool(dynamic value) {
+  if (value is $Value) {
+    final raw = value.$value;
+    if (raw is bool) return raw;
+    final reified = value.$reified;
+    return _coerceBool(reified ?? raw);
+  }
+  if (value is bool) return value;
+  if (value is String) {
+    final lowered = value.toLowerCase();
+    if (lowered == 'true') return true;
+    if (lowered == 'false') return false;
+    return value.isNotEmpty;
+  }
+  if (value is num) return value != 0;
+  if (value == null) return false;
+  return true;
+}
+
 class PushConstant implements EvcOp {
   PushConstant(Runtime runtime) : _const = runtime._readInt32();
 
@@ -235,8 +254,24 @@ class BoxString implements EvcOp {
   @override
   void run(Runtime runtime) {
     final reg = _reg;
-    if (runtime.frame[reg] is $String) return;
-    runtime.frame[reg] = $String(runtime.frame[reg] as String);
+    final value = runtime.frame[reg];
+    if (value is $String) return;
+    if (value is $Value) {
+      final raw = value.$value;
+      if (raw is String) {
+        runtime.frame[reg] = $String(raw);
+        return;
+      }
+      final reified = value.$reified;
+      runtime.frame[reg] = $String(
+          (reified is String) ? reified : (reified?.toString() ?? raw?.toString() ?? ''));
+      return;
+    }
+    if (value is String) {
+      runtime.frame[reg] = $String(value);
+      return;
+    }
+    runtime.frame[reg] = $String(value?.toString() ?? '');
   }
 
   @override
@@ -354,7 +389,10 @@ class Unbox implements EvcOp {
 
   @override
   void run(Runtime runtime) {
-    runtime.frame[_reg] = (runtime.frame[_reg] as $Value).$value;
+    final value = runtime.frame[_reg];
+    if (value is $Value) {
+      runtime.frame[_reg] = value.$value;
+    }
   }
 
   @override
@@ -591,7 +629,7 @@ class LogicalNot extends EvcOp {
   @override
   void run(Runtime runtime) {
     final frame = runtime.frame;
-    frame[runtime.frameOffset++] = !(frame[_index] as bool);
+    frame[runtime.frameOffset++] = !_coerceBool(frame[_index]);
   }
 
   @override
@@ -611,7 +649,7 @@ class BoxBool implements EvcOp {
   void run(Runtime runtime) {
     final reg = _reg;
     if (runtime.frame[reg] is $bool) return;
-    runtime.frame[reg] = $bool(runtime.frame[reg] as bool);
+    runtime.frame[reg] = $bool(_coerceBool(runtime.frame[reg]));
   }
 
   @override

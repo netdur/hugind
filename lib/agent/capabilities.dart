@@ -56,6 +56,41 @@ class SysCapability {
     return stdin.readLineSync() ?? '';
   }
 
+  Future<String> readFile(String path) async {
+    if (!_isAllowed(path)) {
+      throw Exception('Access denied to path: $path. Allowed: $allowedPaths');
+    }
+    final file = File(path);
+    if (!file.existsSync()) {
+      throw Exception('File not found: $path');
+    }
+    return file.readAsString();
+  }
+
+  Future<bool> writeFile(String path, String contents) async {
+    if (!_isAllowed(path)) {
+      throw Exception('Access denied to path: $path. Allowed: $allowedPaths');
+    }
+    final file = File(path);
+    await file.writeAsString(contents);
+    return true;
+  }
+
+  Future<bool> exists(String path) async {
+    if (!_isAllowed(path)) {
+      return false;
+    }
+    return File(path).existsSync() || Directory(path).existsSync();
+  }
+
+  Future<bool> mkdir(String path, {bool recursive = true}) async {
+    if (!_isAllowed(path)) {
+      throw Exception('Access denied to path: $path. Allowed: $allowedPaths');
+    }
+    await Directory(path).create(recursive: recursive);
+    return true;
+  }
+
   bool _isAllowed(String path) {
     try {
       // 1. Resolve the allowed paths (roots) to their true physical paths

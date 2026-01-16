@@ -12,8 +12,7 @@ url: "https://github.com/netdur/hugind-agents"
 # ⚙️ RUNTIME CONFIGURATION
 # ------------------------------------------------------------------
 entry_point: "main.dart"  # The script to run
-backend:                  # Default model requirements
-  recommended: "gemma-2-9b" 
+backend: "gemma-2-9b"                  # Default model requirements
 
 # ------------------------------------------------------------------
 # 🛡️ PERMISSIONS (The Security Boundary)

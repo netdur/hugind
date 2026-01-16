@@ -353,11 +353,26 @@ class AgentRunCommand extends Command {
       }
     }
 
-    // If the first arg looks like a directory, allow it for workDir usage.
-    if (args.isNotEmpty) {
-      final candidateDir = Directory(args.first);
+    // Allow any arg that resolves to a directory (or its parent) for FS usage.
+    for (final arg in args) {
+      final candidateDir = Directory(arg);
       if (candidateDir.existsSync()) {
         allowedPaths.add(candidateDir.absolute.path);
+        continue;
+      }
+      final candidateFile = File(arg);
+      if (candidateFile.existsSync()) {
+        final parent = candidateFile.parent;
+        if (parent.existsSync()) {
+          allowedPaths.add(parent.absolute.path);
+        }
+        continue;
+      }
+      if (arg.contains('/') || arg.startsWith('.')) {
+        final parent = Directory(p.dirname(arg));
+        if (parent.existsSync()) {
+          allowedPaths.add(parent.absolute.path);
+        }
       }
     }
 

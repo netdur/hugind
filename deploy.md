@@ -101,6 +101,8 @@ Wait about 60 seconds for GitHub to propagate, then test the upgrade locally:
 ```bash
 # Update your local tap
 brew update
+or
+brew tap netdur/hugind
 
 # Upgrade the package
 brew upgrade hugind

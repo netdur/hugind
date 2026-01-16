@@ -1,0 +1,28 @@
+name: "unix-cli-tutor"
+version: "1.0.0"
+description: "Translates plain English requests into safe shell commands and executes them upon confirmation."
+author: "hugind"
+license: "MIT"
+url: "https://github.com/hugind/hugind-agents"
+
+entry_point: "main.dart"
+backend: "qwen3vl-8b"
+
+permissions:
+  network:
+    allowed_domains: []
+  filesystem:
+    read: true
+    write: false
+  shell:
+    allow: true
+    allowed_commands: []
+  persistence:
+    store: false
+
+dependencies:
+  mcp:
+    - name: "shell"
+      required: true
+
+env: []
