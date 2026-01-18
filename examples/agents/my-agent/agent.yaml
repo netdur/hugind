@@ -4,25 +4,23 @@ description: "Translates plain English requests into safe shell commands and exe
 author: "hugind"
 license: "MIT"
 url: "https://github.com/hugind/hugind-agents"
+hugind_version: ">=0.6.0"
 
 entry_point: "main.dart"
 backend: "qwen3vl-8b"
 
 permissions:
   network:
-    allowed_domains: []
+    allow: false
   filesystem:
     read: true
     write: false
   shell:
     allow: true
-    allowed_commands: []
-  persistence:
-    store: false
+    whitelist:
+      - "sh"
 
 dependencies:
-  mcp:
-    - name: "shell"
-      required: true
+  mcp: []
 
 env: []

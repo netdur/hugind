@@ -1,5 +1,22 @@
 name: "git-committer"
 version: "0.1.0"
 description: "Generate commit titles and changelog bullets from local git changes."
-backend: "gemma-4b"
+hugind_version: ">=0.6.0"
 entry_point: "main.drt"
+backend: "gemma-4b"
+
+permissions:
+  network:
+    allow: false
+  filesystem:
+    read: false
+    write: false
+  shell:
+    allow: true
+    whitelist:
+      - "git"
+
+dependencies:
+  mcp: []
+
+env: []

@@ -9,8 +9,18 @@ import 'mcp_client.dart';
 class SysCapability {
   final List<String> allowedPaths;
   final bool shellAllowed;
+  final bool readAllowed;
+  final bool writeAllowed;
+  final List<String> shellWhitelist;
+  final List<String> shellBlacklist;
 
-  SysCapability({this.allowedPaths = const [], this.shellAllowed = false});
+  SysCapability(
+      {this.allowedPaths = const [],
+      this.shellAllowed = false,
+      this.readAllowed = true,
+      this.writeAllowed = true,
+      this.shellWhitelist = const [],
+      this.shellBlacklist = const []});
 
   Future<String> run(String executable, List<String> args,
       {String? workDir}) async {
@@ -18,6 +28,11 @@ class SysCapability {
       // Check if this specific command is whitelisted?
       // For now, simpler boolean check as per initial plan
       return 'Permission denied: Shell execution is disabled for this agent.';
+    }
+
+    final shellPolicyError = _validateShellPolicy(executable);
+    if (shellPolicyError != null) {
+      return shellPolicyError;
     }
 
     if (workDir != null) {
@@ -57,6 +72,9 @@ class SysCapability {
   }
 
   Future<String> readFile(String path) async {
+    if (!readAllowed) {
+      throw Exception('Permission denied: filesystem read is disabled.');
+    }
     if (!_isAllowed(path)) {
       throw Exception('Access denied to path: $path. Allowed: $allowedPaths');
     }
@@ -68,6 +86,9 @@ class SysCapability {
   }
 
   Future<bool> writeFile(String path, String contents) async {
+    if (!writeAllowed) {
+      throw Exception('Permission denied: filesystem write is disabled.');
+    }
     if (!_isAllowed(path)) {
       throw Exception('Access denied to path: $path. Allowed: $allowedPaths');
     }
@@ -77,6 +98,9 @@ class SysCapability {
   }
 
   Future<bool> exists(String path) async {
+    if (!readAllowed) {
+      return false;
+    }
     if (!_isAllowed(path)) {
       return false;
     }
@@ -84,6 +108,9 @@ class SysCapability {
   }
 
   Future<bool> mkdir(String path, {bool recursive = true}) async {
+    if (!writeAllowed) {
+      throw Exception('Permission denied: filesystem write is disabled.');
+    }
     if (!_isAllowed(path)) {
       throw Exception('Access denied to path: $path. Allowed: $allowedPaths');
     }
@@ -135,14 +162,36 @@ class SysCapability {
       return false; // Fail closed
     }
   }
+
+  String? _validateShellPolicy(String executable) {
+    final execName = p.basename(executable);
+    if (shellWhitelist.isNotEmpty) {
+      if (!shellWhitelist.contains(executable) &&
+          !shellWhitelist.contains(execName)) {
+        return 'Permission denied: "$execName" is not in the shell whitelist.';
+      }
+    }
+
+    if (shellBlacklist.isNotEmpty) {
+      if (shellBlacklist.contains(executable) ||
+          shellBlacklist.contains(execName)) {
+        return 'Permission denied: "$execName" is blocked by shell blacklist.';
+      }
+    }
+    return null;
+  }
 }
 
 class NetworkCapability {
   final List<String> allowedDomains;
+  final bool networkAllowed;
 
-  NetworkCapability({this.allowedDomains = const []});
+  NetworkCapability({this.allowedDomains = const [], this.networkAllowed = true});
 
   Future<String> fetch(String url) async {
+    if (!networkAllowed) {
+      throw Exception('Permission denied: network access is disabled.');
+    }
     final uri = Uri.parse(url);
 
     if (uri.scheme != 'http' && uri.scheme != 'https') {
@@ -185,6 +234,9 @@ class NetworkCapability {
   }
 
   bool _isAllowed(String host) {
+    if (allowedDomains.isEmpty) {
+      return true;
+    }
     for (var domain in allowedDomains) {
       if (host == domain || host.endsWith('.$domain')) {
         return true;
@@ -213,10 +265,13 @@ class NetworkCapability {
 class McpCapability {
   final Map<String, dynamic> serverConfigs;
   final List<String> requiredServers;
+  final List<String> optionalServers;
   final Map<String, McpClient> _clients = {};
 
   McpCapability(
-      {this.serverConfigs = const {}, this.requiredServers = const []});
+      {this.serverConfigs = const {},
+      this.requiredServers = const [],
+      this.optionalServers = const []});
 
   Future<void> _ensureServer(String name) async {
     if (_clients.containsKey(name)) return;
@@ -246,7 +301,7 @@ class McpCapability {
     // For now, we only connect to servers explicitly listed in dependencies
     // or we could iterate all configured servers.
     // Let's iterate required servers.
-    for (var name in requiredServers) {
+    for (var name in [...requiredServers, ...optionalServers]) {
       try {
         await _ensureServer(name);
         final client = _clients[name]!;
@@ -312,6 +367,30 @@ class McpCapability {
         }
       }
     }
+    for (var serverName in optionalServers) {
+      try {
+        await _ensureServer(serverName);
+      } catch (_) {
+        continue;
+      }
+      final client = _clients[serverName]!;
+
+      try {
+        final result = await client
+            .request('tools/call', {'name': name, 'arguments': args});
+        return result;
+      } catch (e) {
+        final list = await client.request('tools/list', {});
+        final tools = (list['tools'] as List?) ?? [];
+        final hasTool = tools.any((t) => t['name'] == name);
+
+        if (hasTool) {
+          final res = await client
+              .request('tools/call', {'name': name, 'arguments': args});
+          return res['content'];
+        }
+      }
+    }
     throw Exception('Tool "$name" not found on any configured MCP server.');
   }
 
@@ -325,11 +404,12 @@ class McpCapability {
 
 class LlmCapability {
   final String baseUrl;
+  final String? model;
 
-  LlmCapability(this.baseUrl);
+  LlmCapability(this.baseUrl, {this.model});
 
   Future<String> chat(String prompt, {String? system}) async {
-    final uri = Uri.parse('$baseUrl/v1/chat/completions');
+    final uri = Uri.parse(_chatUrl(baseUrl));
 
     final messages = <Map<String, String>>[];
     if (system != null && system.isNotEmpty) {
@@ -338,6 +418,7 @@ class LlmCapability {
     messages.add({'role': 'user', 'content': prompt});
 
     final body = jsonEncode({
+      if (model != null && model!.isNotEmpty) 'model': model,
       'messages': messages,
       'temperature': 0.7,
       'stream': false,
@@ -389,5 +470,15 @@ class LlmCapability {
     } catch (e) {
       throw Exception('LLM request failed: $e');
     }
+  }
+
+  String _chatUrl(String baseUrl) {
+    final trimmed = baseUrl.endsWith('/')
+        ? baseUrl.substring(0, baseUrl.length - 1)
+        : baseUrl;
+    if (trimmed.endsWith('/v1')) {
+      return '$trimmed/chat/completions';
+    }
+    return '$trimmed/v1/chat/completions';
   }
 }

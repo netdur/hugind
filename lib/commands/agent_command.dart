@@ -238,6 +238,8 @@ class AgentRunCommand extends Command {
 
     // 2. Parse Manifest
     var backendName = 'metal_unified';
+    String? backendUrl;
+    String? backendModel;
     var entryPoint = 'main.dart';
     YamlMap? agentYaml;
 
@@ -246,8 +248,26 @@ class AgentRunCommand extends Command {
       final loaded = loadYaml(content);
       if (loaded is YamlMap) {
         agentYaml = loaded;
-        backendName = agentYaml['backend'] as String? ?? backendName;
+        final backendConfig = agentYaml['backend'];
+        if (backendConfig is String) {
+          backendName = backendConfig;
+        } else if (backendConfig is Map) {
+          backendUrl = backendConfig['url']?.toString();
+          backendModel = backendConfig['model']?.toString();
+        }
         entryPoint = agentYaml['entry_point'] as String? ?? entryPoint;
+        final requiredVersion = agentYaml['hugind_version']?.toString();
+        if (requiredVersion != null && requiredVersion.isNotEmpty) {
+          final currentVersion = _readHugindVersion();
+          if (currentVersion == null) {
+            print(
+                '⚠️  Could not determine Hugind version to verify "$requiredVersion".');
+          } else if (!_satisfiesVersion(currentVersion, requiredVersion)) {
+            print(
+                '❌ Agent requires Hugind $requiredVersion, but current version is $currentVersion.');
+            return;
+          }
+        }
       }
 
       // Sanitize Entrypoint
@@ -264,36 +284,49 @@ class AgentRunCommand extends Command {
     }
 
     print('🚀 Launching agent: $agentName');
-    print('   • Backend: $backendName');
+    if (backendUrl != null && backendUrl!.isNotEmpty) {
+      print('   • Backend URL: $backendUrl');
+      if (backendModel != null && backendModel!.isNotEmpty) {
+        print('   • Model: $backendModel');
+      }
+    } else {
+      print('   • Backend: $backendName');
+    }
     print('   • Entry: $entryPoint');
 
     // 3. Resolve Backend
-    final configPath = p.join(_configHome(), 'configs', '$backendName.yml');
-    if (!File(configPath).existsSync()) {
-      print('❌ Server config "$backendName" not found at $configPath');
-      return;
+    String baseUrl;
+    if (backendUrl != null && backendUrl!.isNotEmpty) {
+      baseUrl = _normalizeBaseUrl(backendUrl!);
+      print('ℹ️  Agent "$agentName" connecting to $baseUrl ...');
+    } else {
+      final configPath = p.join(_configHome(), 'configs', '$backendName.yml');
+      if (!File(configPath).existsSync()) {
+        print('❌ Server config "$backendName" not found at $configPath');
+        return;
+      }
+
+      // Parse Server Config to get port
+      String host = '127.0.0.1';
+      int port = 8080;
+
+      try {
+        final serverConfigContent = await File(configPath).readAsString();
+        final serverYaml = loadYaml(serverConfigContent);
+        final serverMap = serverYaml['server'] as Map?;
+        host = serverMap?['host']?.toString() ?? host;
+        port = int.tryParse(serverMap?['port']?.toString() ?? '') ?? port;
+      } catch (e) {
+        print('⚠️  Error reading server config, using defaults: $e');
+      }
+
+      baseUrl = 'http://$host:$port';
+      print('ℹ️  Agent "$agentName" connecting to $baseUrl ($backendName)...');
     }
-
-    // Parse Server Config to get port
-    String host = '127.0.0.1';
-    int port = 8080;
-
-    try {
-      final serverConfigContent = await File(configPath).readAsString();
-      final serverYaml = loadYaml(serverConfigContent);
-      final serverMap = serverYaml['server'] as Map?;
-      host = serverMap?['host']?.toString() ?? host;
-      port = int.tryParse(serverMap?['port']?.toString() ?? '') ?? port;
-    } catch (e) {
-      print('⚠️  Error reading server config, using defaults: $e');
-    }
-
-    final baseUrl = 'http://$host:$port';
-    print('ℹ️  Agent "$agentName" connecting to $baseUrl ($backendName)...');
 
     // 4. Ping Server
     try {
-      final resp = await http.get(Uri.parse('$baseUrl/health'));
+      final resp = await http.get(Uri.parse('${baseUrl}/health'));
       if (resp.statusCode != 200) {
         print('❌ Server health check failed: ${resp.statusCode}');
         return;
@@ -317,6 +350,12 @@ class AgentRunCommand extends Command {
     var shellAllowed = false;
     var allowedDomains = <String>[];
     var requiredMcp = <String>[];
+    var optionalMcp = <String>[];
+    var readAllowed = true;
+    var writeAllowed = true;
+    var networkAllowed = false;
+    List<String> shellWhitelist = [];
+    List<String> shellBlacklist = [];
 
     if (agentYaml != null) {
       // Filesystem extras
@@ -324,13 +363,22 @@ class AgentRunCommand extends Command {
       if (fsConfig != null) {
         final extras = fsConfig['allowed_paths'] as List?;
         if (extras != null) {
-          allowedPaths.addAll(extras.cast<String>());
+          for (final raw in extras.cast<String>()) {
+            allowedPaths.add(_resolveEnvPath(raw, agentDir));
+          }
+        }
+        if (fsConfig['read'] == false) {
+          readAllowed = false;
+        }
+        if (fsConfig['write'] == false) {
+          writeAllowed = false;
         }
       }
 
       // Network
       final netConfig = agentYaml['permissions']?['network'] as Map?;
       if (netConfig != null) {
+        networkAllowed = netConfig['allow'] == true;
         final domains = netConfig['allowed_domains'] as List?;
         if (domains != null) {
           allowedDomains.addAll(domains.cast<String>());
@@ -341,6 +389,19 @@ class AgentRunCommand extends Command {
       final shellConfig = agentYaml['permissions']?['shell'] as Map?;
       if (shellConfig != null) {
         shellAllowed = shellConfig['allow'] == true;
+        final whitelist = shellConfig['whitelist'] as List?;
+        if (whitelist != null) {
+          shellWhitelist = whitelist.cast<String>();
+        }
+        final blacklist = shellConfig['blacklist'] as List?;
+        if (blacklist != null) {
+          shellBlacklist = blacklist.cast<String>();
+        }
+        if (shellWhitelist.isNotEmpty && shellBlacklist.isNotEmpty) {
+          print(
+              '❌ Invalid manifest: shell whitelist and blacklist cannot both be set.');
+          return;
+        }
       }
 
       // MCP Dependencies
@@ -348,7 +409,30 @@ class AgentRunCommand extends Command {
       if (mcpDeps != null) {
         for (var dep in mcpDeps) {
           final name = dep['name'] as String?;
-          if (name != null) requiredMcp.add(name);
+          final required = dep['required'] == true;
+          if (name != null && required) {
+            requiredMcp.add(name);
+          } else if (name != null) {
+            optionalMcp.add(name);
+          }
+        }
+      }
+
+      // Env requirements
+      final envDefs = agentYaml['env'] as List?;
+      if (envDefs != null) {
+        for (final entry in envDefs) {
+          if (entry is! Map) continue;
+          final name = entry['name']?.toString();
+          final required = entry['required'] == true;
+          if (required && (name == null || name.isEmpty)) {
+            print('❌ Invalid manifest: env entry missing name.');
+            return;
+          }
+          if (required && Platform.environment[name] == null) {
+            print('❌ Missing required env var: $name');
+            return;
+          }
         }
       }
     }
@@ -379,14 +463,30 @@ class AgentRunCommand extends Command {
     // Load MCP Settings
     final settings = await GlobalSettings.load();
     final mcpServers = (settings['mcp_servers'] as Map?) ?? {};
+    final missingRequired = requiredMcp
+        .where((name) => !mcpServers.containsKey(name))
+        .toList();
+    if (missingRequired.isNotEmpty) {
+      print(
+          '❌ Missing required MCP servers in settings: ${missingRequired.join(', ')}');
+      return;
+    }
 
     final sys = SysCapability(
-        allowedPaths: allowedPaths.toList(), shellAllowed: shellAllowed);
-    final llm = LlmCapability(baseUrl);
-    final net = NetworkCapability(allowedDomains: allowedDomains);
+        allowedPaths: allowedPaths.toList(),
+        shellAllowed: shellAllowed,
+        readAllowed: readAllowed,
+        writeAllowed: writeAllowed,
+        shellWhitelist: shellWhitelist,
+        shellBlacklist: shellBlacklist);
+    final llm = LlmCapability(baseUrl,
+        model: backendUrl != null ? backendModel : backendName);
+    final net = NetworkCapability(
+        allowedDomains: allowedDomains, networkAllowed: networkAllowed);
     final mcp = McpCapability(
         serverConfigs: mcpServers.cast<String, dynamic>(),
-        requiredServers: requiredMcp);
+        requiredServers: requiredMcp,
+        optionalServers: optionalMcp);
 
     final sandbox = AgentSandbox(sys, llm, net, mcp);
 
@@ -418,4 +518,92 @@ String _configHome() {
   final xdg = env['XDG_CONFIG_HOME'];
   if (xdg != null && xdg.isNotEmpty) return p.join(xdg, 'hugind');
   return p.join(env['HOME'] ?? '.', '.hugind');
+}
+
+String _normalizeBaseUrl(String rawUrl) {
+  final trimmed = rawUrl.endsWith('/')
+      ? rawUrl.substring(0, rawUrl.length - 1)
+      : rawUrl;
+  if (trimmed.endsWith('/v1')) {
+    return trimmed.substring(0, trimmed.length - 3);
+  }
+  return trimmed;
+}
+
+String _resolveEnvPath(String rawPath, Directory agentDir) {
+  var expanded = rawPath;
+  final env = Platform.environment;
+  if (expanded.startsWith('~/')) {
+    final home = env['HOME'];
+    if (home != null) {
+      expanded = p.join(home, expanded.substring(2));
+    }
+  }
+  expanded = expanded.replaceAllMapped(RegExp(r'\$\{([^}]+)\}'), (match) {
+    final key = match.group(1);
+    return env[key] ?? match.group(0)!;
+  });
+  expanded = expanded.replaceAllMapped(RegExp(r'\$([A-Za-z_][A-Za-z0-9_]*)'),
+      (match) {
+    final key = match.group(1);
+    return env[key] ?? match.group(0)!;
+  });
+
+  if (!p.isAbsolute(expanded)) {
+    return p.normalize(p.join(agentDir.path, expanded));
+  }
+  return p.normalize(expanded);
+}
+
+String? _readHugindVersion() {
+  final pubspec = File(p.join(Directory.current.path, 'pubspec.yaml'));
+  if (!pubspec.existsSync()) return null;
+  try {
+    final yaml = loadYaml(pubspec.readAsStringSync());
+    return yaml['version']?.toString();
+  } catch (_) {
+    return null;
+  }
+}
+
+bool _satisfiesVersion(String current, String constraint) {
+  final match = RegExp(r'^(>=|<=|==|>|<)?\s*([0-9]+(?:\.[0-9]+){0,2})$')
+      .firstMatch(constraint.trim());
+  if (match == null) {
+    return true;
+  }
+  final op = match.group(1) ?? '==';
+  final target = match.group(2) ?? '';
+  final cmp = _compareSemver(current, target);
+
+  switch (op) {
+    case '>':
+      return cmp > 0;
+    case '>=':
+      return cmp >= 0;
+    case '<':
+      return cmp < 0;
+    case '<=':
+      return cmp <= 0;
+    case '==':
+    default:
+      return cmp == 0;
+  }
+}
+
+int _compareSemver(String a, String b) {
+  final aParts = a.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+  final bParts = b.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+  while (aParts.length < 3) {
+    aParts.add(0);
+  }
+  while (bParts.length < 3) {
+    bParts.add(0);
+  }
+  for (var i = 0; i < 3; i++) {
+    if (aParts[i] != bParts[i]) {
+      return aParts[i].compareTo(bParts[i]);
+    }
+  }
+  return 0;
 }

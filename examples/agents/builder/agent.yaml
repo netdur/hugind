@@ -1,11 +1,22 @@
 name: "agent_builder"
 version: "0.2.0"
 description: "A meta-agent that builds other agents."
+hugind_version: ">=0.6.0"
 entry_point: "main.dart"
 backend: "qwen3vl-8b"
+
 permissions:
-  shell:
-    allow: true
+  network:
+    allow: false
   filesystem:
+    read: true
+    write: true
     allowed_paths:
-      - "/Users/adel/Workspace/hugind/examples/agents"
+      - "../"
+  shell:
+    allow: false
+
+dependencies:
+  mcp: []
+
+env: []
