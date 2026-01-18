@@ -76,6 +76,9 @@ class LlamaEngine {
       if (r.promptId != null && _promptStreams.containsKey(r.promptId)) {
         _promptStreams[r.promptId]!.addError(Exception(r.errorDetails));
       }
+      if (r.promptId != null) {
+        _freeStatelessOnError(r.promptId!);
+      }
     } else if (r.status == LlamaStatus.generating) {
       if (r.promptId != null && _promptStreams.containsKey(r.promptId)) {
         if (r.text.isNotEmpty) {
@@ -110,6 +113,15 @@ class LlamaEngine {
       } else {
         _isolate!.send(LlamaSaveState(userId));
       }
+    }
+  }
+
+  void _freeStatelessOnError(String promptId) {
+    final parts = promptId.split('_');
+    if (parts.length < 2) return;
+    final userId = parts.sublist(0, parts.length - 1).join('_');
+    if (userId.startsWith('stateless-')) {
+      _isolate!.send(LlamaFreeSession(userId));
     }
   }
 
