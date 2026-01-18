@@ -32,9 +32,6 @@ class AgentSandbox {
       compiler.addPlugin(plugin);
     }
 
-    // Declare the Bridge class used to funnel host calls from the sandboxed
-    // code. This registers the external static method so dart_eval can resolve
-    // it during compilation.
     compiler.defineBridgeClass(const BridgeClassDef(
         BridgeClassType(
             BridgeTypeRef(BridgeTypeSpec('package:agent/main.dart', 'Bridge')),
@@ -222,7 +219,6 @@ class AgentSandbox {
         },
         bridge: true));
 
-    // Prelude: Bridge methods map directly to host capabilities
     final prelude = '''
       import 'dart:async';
       import 'dart:convert';
@@ -262,7 +258,7 @@ class AgentSandbox {
       class SysCapability {
         final tools = AgentToolsCapability();
 
-        Future<String> run(String executable, List<String> args, {String? workDir}) {
+        Future<String> run(String executable, List<String> args, [String? workDir]) {
            return Bridge.sysRun(executable, args, workDir);
         }
         
@@ -294,7 +290,6 @@ class AgentSandbox {
            Bridge.sysPrint(msg ?? 'null');
         }
         
-        // Convenience method for printing
         void printMsg(String msg) => this.print(msg);
       }
 
@@ -310,7 +305,6 @@ class AgentSandbox {
         }
       }
       
-      // Public Context Builder
       Map<String, dynamic> _buildContext(List<dynamic> hostArgs) {
          return {
            'args': hostArgs, 
@@ -335,10 +329,8 @@ class AgentSandbox {
         plugin.configureForRuntime(runtime);
       }
 
-      // Bridge each capability call directly to the host
       runtime.registerBridgeFunc('package:agent/main.dart', 'Bridge.sysRun',
           (rt, target, args) {
-        // Host debug logging removed.
         String unwrapString(dynamic value) {
           if (value is $Value) {
             final raw = value.$value;
@@ -371,12 +363,14 @@ class AgentSandbox {
 
         final executable = unwrapString(args[0]);
         final runArgs = unwrapStringList(args[1]);
+        // args[2] corresponds to workDir in the Bridge definition
         final workDir = unwrapStringOrNull(args[2]);
         final future = sys.run(executable, runArgs, workDir: workDir);
         final wrapped = $Future.wrap(future.then((s) => $String(s)));
         return wrapped;
       });
 
+      // ... (rest of your registration code remains the same) ...
       runtime.registerBridgeFunc('package:agent/main.dart', 'Bridge.sysConfirm',
           (rt, target, args) {
         final message = args[0] is $Value
@@ -472,7 +466,6 @@ class AgentSandbox {
       runtime.registerBridgeFunc(
           'package:agent/main.dart', 'Bridge.mcpListTools', (rt, target, args) {
         final future = mcp.listTools();
-        // Convert List<Map> to $List
         return $Future.wrap(future.then((list) {
           return $String(jsonEncode(list));
         }));
@@ -494,17 +487,14 @@ class AgentSandbox {
       });
 
       // --- Execute ---
-      // We must execute _buildContext from bridge.dart
       final boxedArgs = args.map((a) => $String(a)).toList();
       final contextResult = runtime
           .executeLib('package:agent/main.dart', '_buildContext', [boxedArgs]);
 
       if (contextResult is! $Value) {
-        // Fallback for simulation/mock if something goes wrong
         throw Exception("Context build failed.");
       }
 
-      // Then execute main from main.dart
       final result = runtime
           .executeLib('package:agent/main.dart', 'main', [contextResult]);
 

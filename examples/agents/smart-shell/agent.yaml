@@ -1,0 +1,25 @@
+name: "smart-shell"
+version: "1.0.0"
+description: "An intelligent CLI assistant that can execute commands, reasoning about safety before running them."
+entry_point: "main.dart"
+author: "adel"
+
+# ⚙️ RUNTIME
+backend: "qwen3vl-8b"
+
+# 🛡️ PERMISSIONS
+permissions:
+  # ⚠️ Critical: This allows the agent to use sys.run()
+  shell:
+    allow: true
+
+  # Optional: If you want it to act primarily in your home directory
+  # You can restrict the 'working_directory' if your runtime supports it,
+  # otherwise shell commands run from the agent's execution context.
+  filesystem:
+    read: true
+    write: true
+    # For a general assistant, you might want broad access, 
+    # or you can restrict it to specific project folders:
+    allowed_paths: 
+      - "/Users/adel/Workspace"
