@@ -18,6 +18,7 @@ Welcome to the new Hugind docs. This set focuses on practical usage, clear CLI r
 - Chat workspace and sessions: `docs/chat.md`
 - Agent runtime and security: `docs/agent.md`
 - Agent development guide: `docs/agent_dev.md`
+- Agent builder guide: `docs/agent_builder.md`
 - API reference (OpenAI-compatible endpoints): `docs/api.md`
 - Developer internals and architecture: `docs/developer.md`
 

@@ -117,15 +117,26 @@ Agents are installed like plugins. Hugind analyzes the `agent.yaml` and warns yo
 hugind agent install /path/to/stock-analyst
 ```
 
+You can also install from a GitHub tree URL:
+
+```bash
+hugind agent install https://github.com/user/repo/tree/main/agent-folder
+```
+
 **The Security Check:**
 ```text
 📦 Installing 'stock-analyst'...
-⚠️  PERMISSIONS REQUESTED:
+   • Backend URL: http://127.0.0.1:8080/v1
+   • Model: gemma-2-9b-it
    • 🌐 Network: api.stockdata.org, finance.yahoo.com
    • 📂 Filesystem: Read=✅, Write=✅
-   • 🔌 MCP: Requires filesystem
+     Allowed paths: $HOME/Downloads, ./workspace
+   • 💻 Shell (whitelist): ls, date
+   • 🔌 MCP (required): postgres-client
+   • 🔌 MCP (optional): github
+   • 🔧 Required env: STOCK_API_KEY
 
-Do you accept? [y/N]
+This is an all-or-nothing permission grant. Accept? [y/N]
 ```
 
 ### Running an Agent
@@ -146,15 +157,20 @@ name: "stock-analyst"
 version: "1.0.0"
 description: "Fetches live stock data and generates a PDF report."
 entry_point: "main.dart"
-author: "netdur"
 
-# ⚙️ RUNTIME
-backend: "metal_unified"
+# ⚠️ COMPATIBILITY
+hugind_version: ">=0.6.0"
+
+# 🔗 BACKEND CONNECTION
+backend:
+  url: "http://127.0.0.1:8080/v1"
+  model: "gemma-2-9b-it"
 
 # 🛡️ PERMISSIONS
 permissions:
   # 🌐 Network
   network:
+    allow: true
     allowed_domains:
       - "api.stockdata.org"
       - "finance.yahoo.com"
@@ -163,17 +179,29 @@ permissions:
   filesystem:
     read: true
     write: true
-    # If allowed_paths is empty, access is restricted to the agent directory.
-    allowed_paths: []
+    allowed_paths:
+      - "$HOME/Downloads"
+      - "./workspace"
 
   # 💻 Shell (Default: false)
   shell:
-    allow: false 
-  
+    allow: true
+    whitelist:
+      - "ls"
+      - "date"
+
 # 🔌 DEPENDENCIES (MCP)
 dependencies:
   mcp:
-    - name: "filesystem"
+    - name: "postgres-client"
+      required: true
+    - name: "github"
+      required: false
+
+# 🔧 ENV
+env:
+  - name: "STOCK_API_KEY"
+    required: true
 ```
 
 ---
