@@ -1,74 +1,92 @@
-# ------------------------------------------------------------------
-# 🆔 IDENTITY & METADATA
+# ==================================================================
+# 🦅 HUGIND AGENT MANIFEST
+# ==================================================================
+
+# 🆔 METADATA
 # ------------------------------------------------------------------
 name: "stock-analyst"
 version: "1.0.0"
 description: "Fetches live stock data and generates a PDF report."
 author: "netdur"
 license: "MIT"
-url: "https://github.com/netdur/hugind-agents"
 
-# ------------------------------------------------------------------
-# ⚙️ RUNTIME CONFIGURATION
-# ------------------------------------------------------------------
-entry_point: "main.dart"  # The script to run
-backend: "gemma-2-9b"                  # Default model requirements
+# ⚠️ COMPATIBILITY
+# Specifies which version of Hugind is required to run this agent.
+hugind_version: ">=0.6.0"
 
+# ⚙️ RUNTIME & ENTRY POINT
 # ------------------------------------------------------------------
+# The main Dart script that starts execution. 
+# It can be in the root or a subdirectory (e.g., bin/main.dart).
+entry_point: "main.dart"
+
+# 🔗 BACKEND CONNECTION
+# ------------------------------------------------------------------
+# Points to the HTTP API. The agent acts as a client.
+backend:
+  url: "http://127.0.0.1:8080/v1"  # Default URL (overridable via ENV)
+  model: "gemma-2-9b-it"           # Preferred model name to send in API body
+
 # 🛡️ PERMISSIONS (The Security Boundary)
 # ------------------------------------------------------------------
 permissions:
-  
-  # 🌐 NETWORK ACCESS
-  # If missing, no network access is allowed.
+
+  # 🌐 NETWORK
   network:
-    # Whitelist specific domains (subdomains included automatically)
+    allow: true
     allowed_domains:
       - "api.stockdata.org"
       - "finance.yahoo.com"
-      - "googleapis.com"
 
-  # 📂 FILESYSTEM ACCESS
-  # Defines where the agent can Read or Write.
+  # 📂 FILESYSTEM (Native)
   filesystem:
-    # Specific capabilities
     read: true
     write: true
-    
-    # If scope is "system", you must explicitly whitelist paths
-    # allowed_paths:
-    #   - "/Users/me/Documents/Reports"
+    allowed_paths:
+      - "$HOME/Downloads"
+      - "./workspace"
 
   # 💻 SHELL / PROCESS EXECUTION
-  # Ability to run system commands (ls, python, docker, etc.)
+  # --------------------------------------------------------------
+  # You can use EITHER a 'whitelist' (Strict) OR a 'blacklist' (Open).
+  # Do not use both at the same time.
+  # --------------------------------------------------------------
   shell:
-    allow: false          # Default is false
-    # If true, you can whitelist specific binaries for safety
-    allowed_commands: []  # e.g. ["ls", "grep"] or ["*"] for all
+    allow: true
+    
+    # OPTION A: WHITELIST (Recommended)
+    # Only the commands listed below are allowed. All others are blocked.
+    whitelist:
+      - "ls"
+      - "whoami"
+      - "date"
 
-  # 🧠 MEMORY / STATE
-  # Does this agent need to persist data between runs?
-  persistence:
-    store: true  # Allows key-value storage (sys.store.put)
+    # OPTION B: BLACKLIST (Risky)
+    # All commands are allowed EXCEPT the ones listed below.
+    # blacklist:
+    #   - "rm"
+    #   - "shutdown"
+    #   - "mkfs"
 
+# 🔌 DEPENDENCIES (MCP)
 # ------------------------------------------------------------------
-# 🔌 DEPENDENCIES & MCP
-# ------------------------------------------------------------------
+# Defines external Model Context Protocol servers this agent needs.
 dependencies:
-  
-  # List the MCP tools this agent expects the Host to provide.
-  # Hugind will check if these servers are configured in the user's setup.
   mcp:
-    - name: "filesystem"
+    # Example 1: A required tool
+    - name: "postgres-client"
+      version: "^1.2.0"
       required: true
-    - name: "github"
-      required: false
-      min_version: "1.0"
+      description: "Needed to fetch historical data from local DB."
 
-# ------------------------------------------------------------------
+    # Example 2: An optional tool
+    - name: "github"
+      version: ">=2.0.0"
+      required: false
+      description: "Used if the user wants to commit the report."
+
 # 🔧 ENVIRONMENT VARIABLES
 # ------------------------------------------------------------------
-# Prompts the user to input these values upon installation
 env:
   - name: "STOCK_API_KEY"
     description: "API Key for stockdata.org"

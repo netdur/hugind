@@ -1,75 +1,85 @@
-# Agent Runtime
+# Agent User Guide
 
-Agents are sandboxed Dart scripts executed by Hugind with explicit, manifest-based permissions. See `docs/cli.md` for how `<config_home>` is resolved.
+Run autonomous AI agents safely on your machine using Hugind. This guide covers how to install, run, and manage agents.
 
-## Commands
+## 1. Installing Agents
 
-### `hugind agent install <path>`
-Installs an agent from a local directory containing `agent.yaml`. (Remote URLs are not supported yet.)
+To install an agent, you can use a local directory or a GitHub URL.
 
-Behavior:
-- Validates `agent.yaml` and agent name.
-- Shows requested permissions (network, filesystem, MCP).
-- Prompts for confirmation before installation.
-- Installs to `<config_home>/agents/<agent_name>/`.
-
-### `hugind agent list`
-Lists installed agents with version and description (if present in `agent.yaml`).
-
-### `hugind agent run <agent_name> [args...]`
-Runs an installed agent.
-
-Notes:
-- You can also run a local agent by path: `hugind agent run ./my-agent`.
-- The agent connects to a server config (default `metal_unified`) unless overridden in `agent.yaml`.
-- If the first argument looks like a directory, it is added to the allowed paths for `workDir`.
-
-## Manifest (`agent.yaml`)
-
-Required fields:
-
-- `name` (alphanumeric, dash, underscore)
-- `entry_point` (defaults to `main.dart`)
-- `backend` (config name; defaults to `metal_unified`)
-
-Permissions are optional but recommended:
-
-```yaml
-name: "example-agent"
-version: "1.0.0"
-description: "Demo agent"
-entry_point: "main.dart"
-backend: "metal_unified"
-
-permissions:
-  filesystem:
-    allowed_paths:
-      - "/Users/me/projects"
-  network:
-    allowed_domains:
-      - "api.example.com"
-  shell:
-    allow: false
-
-dependencies:
-  mcp:
-    - name: "filesystem"
+### Local Installation
+```bash
+hugind agent install ./path/to/agent-folder
 ```
 
-## Capabilities Available to Agents
+### Remote Installation (GitHub)
+You can install directly from a GitHub repository. The URL must point to the tree where `agent.yaml` is located.
 
-At runtime, the agent can request access to capabilities based on the manifest:
+```bash
+hugind agent install https://github.com/user/repo/tree/main/agent-folder
+```
 
-- `sys.run(...)` executes shell commands (only if `permissions.shell.allow` is true)
-- `sys.confirm(...)` and `sys.readInput(...)` for user interaction
-- `llm.chat(...)` calls the local inference server
-- `net.fetch(...)` makes HTTP requests to allowed domains
-- MCP tools are exposed via `sys.tools.list()` and `sys.tools.call(...)`
+### Security Check (Permissions)
+When you install an agent, Hugind scans its manifest and asks you to approve the permissions it requires. **Read this carefully.**
 
-## Best Practices
+- **Filesystem**: "Read/Write" access.
+    - *Allowed paths*: The specific folders the agent can touch. By default, agents are sandboxed and cannot access your files unless explicitly allowed here.
+- **Network**: "Allow" means it can access the internet.
+    - *Allowed domains*: The specific websites it can connect to (e.g., `google.com`).
+- **Shell**: "Allow" means it can run terminal commands.
+    - *Whitelist*: Only the specific commands listed can be run (safe).
+    - *All commands*: (Risky) The agent can run any command effectively as you.
 
-- The agent directory is always allowed for filesystem access; add `allowed_paths` for extra roots.
-- Use least privilege: only allow the exact domains and paths required.
-- Keep agent code self-contained within its directory.
-- Prefer MCP tools for filesystem/database access instead of shelling out.
-- Verify the server is running before calling `hugind agent run`.
+**If an agent asks for suspicious permissions (like full shell access or access to your SSH keys), do not install it.**
+
+## 2. Running Agents
+
+Once installed, you can run an agent by its name:
+
+```bash
+hugind agent run agent-name
+```
+
+You can also run a local agent directly without installing (useful for testing):
+
+```bash
+hugind agent run ./my-agent-folder
+```
+
+### Passing Arguments
+Any arguments you pass after the agent name are sent to the agent.
+If you pass a file or folder path, **that path is automatically whitelisted** so the agent can read/write to it.
+
+```bash
+# The agent gets access to ./whitepaper.pdf
+hugind agent run summarizer ./whitepaper.pdf
+```
+
+## 3. Managing Agents
+
+List all installed agents:
+```bash
+hugind agent list
+```
+
+To remove an agent (currently), simply delete its folder in your config directory:
+- **macOS/Linux**: `~/.hugind/agents/`
+- **Windows**: `%USERPROFILE%\.hugind\agents\`
+
+## 4. Troubleshooting
+
+### "Connection Refused" / Server Error
+Agents typically need the Hugind model server to be running to "think".
+If an agent fails with a connection error, make sure you have started the server:
+
+```bash
+hugind server start metal_unified
+```
+
+(The default server config is `metal_unified`, but some agents may require specific models. Check the agent's documentation.)
+
+### "Permission Denied"
+If an agent tries to access a file or website not listed in its permissions, it will be blocked, and you will see a security error in the output. This is a safety feature.
+- To fix: You (or the developer) must add the required permission to `agent.yaml` and re-install.
+
+### Developer Info
+Are you building an agent? Check the [Developer Guide](agent_dev.md) for API details and manifest specifications.

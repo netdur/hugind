@@ -35,12 +35,26 @@ class AgentInstallCommand extends Command {
     }
 
     final sourcePath = argResults!.rest.first;
-    final sourceDir = Directory(sourcePath);
+    Directory sourceDir;
+    Directory? tempDir;
 
-    if (!sourceDir.existsSync()) {
-      print('❌ Source directory not found: $sourcePath');
-      // TODO: Support git URLs in the future
-      return;
+    if (_looksLikeUrl(sourcePath)) {
+      try {
+        tempDir = await Directory.systemTemp.createTemp('hugind-agent-');
+        sourceDir = tempDir;
+        final uri = Uri.parse(sourcePath);
+        await _downloadGitHubTreeAgent(uri, sourceDir);
+      } catch (e) {
+        print('❌ Failed to download agent from URL: $e');
+        await tempDir?.delete(recursive: true);
+        return;
+      }
+    } else {
+      sourceDir = Directory(sourcePath);
+      if (!sourceDir.existsSync()) {
+        print('❌ Source directory not found: $sourcePath');
+        return;
+      }
     }
 
     final manifestFile = File(p.join(sourceDir.path, 'agent.yaml'));
@@ -52,6 +66,10 @@ class AgentInstallCommand extends Command {
     try {
       final manifestContent = await manifestFile.readAsString();
       final yaml = loadYaml(manifestContent);
+      if (yaml is! YamlMap) {
+        print('❌ Invalid manifest: root must be a mapping.');
+        return;
+      }
 
       final agentName = yaml['name'] as String?;
       if (agentName == null) {
@@ -68,6 +86,33 @@ class AgentInstallCommand extends Command {
 
       print('📦 Installing \'$agentName\'...');
 
+      final requiredVersion = yaml['hugind_version']?.toString();
+      if (requiredVersion != null && requiredVersion.isNotEmpty) {
+        final currentVersion = _readHugindVersion();
+        if (currentVersion == null) {
+          print(
+              '⚠️  Could not determine Hugind version to verify "$requiredVersion".');
+        } else if (!_satisfiesVersion(currentVersion, requiredVersion)) {
+          print(
+              '❌ Agent requires Hugind $requiredVersion, but current version is $currentVersion.');
+          return;
+        }
+      }
+
+      final backendConfig = yaml['backend'];
+      if (backendConfig is Map) {
+        final url = backendConfig['url']?.toString();
+        final model = backendConfig['model']?.toString();
+        if (url != null && url.isNotEmpty) {
+          print('   • Backend URL: $url');
+        }
+        if (model != null && model.isNotEmpty) {
+          print('   • Model: $model');
+        }
+      } else if (backendConfig is String && backendConfig.isNotEmpty) {
+        print('   • Backend: $backendConfig');
+      }
+
       // Parse permissions for display
       final permissions = yaml['permissions'] as Map?;
       if (permissions != null) {
@@ -75,29 +120,93 @@ class AgentInstallCommand extends Command {
 
         final network = permissions['network'] as Map?;
         if (network != null) {
-          final domains =
-              (network['allowed_domains'] as List?)?.join(', ') ?? 'None';
-          print('   • 🌐 Network: $domains');
+          final allowed = network['allow'] == true;
+          final domains = (network['allowed_domains'] as List?)?.cast<String>();
+          if (!allowed) {
+            print('   • 🌐 Network: Denied');
+          } else if (domains == null || domains.isEmpty) {
+            print('   • 🌐 Network: All domains');
+          } else {
+            print('   • 🌐 Network: ${domains.join(', ')}');
+          }
         }
 
         final fs = permissions['filesystem'] as Map?;
         if (fs != null) {
           final read = fs['read'] == true;
           final write = fs['write'] == true;
+          final paths = (fs['allowed_paths'] as List?)?.cast<String>() ?? [];
           print(
               '   • 📂 Filesystem: Read=${read ? '✅' : '❌'}, Write=${write ? '✅' : '❌'}');
+          if (paths.isNotEmpty) {
+            print('     Allowed paths: ${paths.join(', ')}');
+          }
+        }
+
+        final shell = permissions['shell'] as Map?;
+        if (shell != null) {
+          final allow = shell['allow'] == true;
+          final whitelist = (shell['whitelist'] as List?)?.cast<String>() ?? [];
+          final blacklist = (shell['blacklist'] as List?)?.cast<String>() ?? [];
+          if (whitelist.isNotEmpty && blacklist.isNotEmpty) {
+            print(
+                '❌ Invalid manifest: shell whitelist and blacklist cannot both be set.');
+            return;
+          }
+          if (!allow) {
+            print('   • 💻 Shell: Denied');
+          } else if (whitelist.isNotEmpty) {
+            print('   • 💻 Shell (whitelist): ${whitelist.join(', ')}');
+          } else if (blacklist.isNotEmpty) {
+            print('   • 💻 Shell (blacklist): ${blacklist.join(', ')}');
+          } else {
+            print('   • 💻 Shell: All commands');
+          }
         }
 
         final mcp = yaml['dependencies']?['mcp'] as List?;
         if (mcp != null && mcp.isNotEmpty) {
-          final names = mcp.map((e) => e['name']).join(', ');
-          print('   • 🔌 MCP: Requires $names');
+          final required = <String>[];
+          final optional = <String>[];
+          for (final dep in mcp) {
+            if (dep is! Map) continue;
+            final name = dep['name']?.toString();
+            if (name == null || name.isEmpty) continue;
+            if (dep['required'] == true) {
+              required.add(name);
+            } else {
+              optional.add(name);
+            }
+          }
+          if (required.isNotEmpty) {
+            print('   • 🔌 MCP (required): ${required.join(', ')}');
+          }
+          if (optional.isNotEmpty) {
+            print('   • 🔌 MCP (optional): ${optional.join(', ')}');
+          }
+        }
+      }
+
+      final envDefs = yaml['env'] as List?;
+      if (envDefs != null && envDefs.isNotEmpty) {
+        final requiredEnv = <String>[];
+        for (final entry in envDefs) {
+          if (entry is! Map) continue;
+          final name = entry['name']?.toString();
+          final required = entry['required'] == true;
+          if (required && name != null && name.isNotEmpty) {
+            requiredEnv.add(name);
+          }
+        }
+        if (requiredEnv.isNotEmpty) {
+          print('   • 🔧 Required env: ${requiredEnv.join(', ')}');
         }
       }
 
       // Confirmation
       // Note: We use the Interact package if available, or simple stdin
-      stdout.write('\nDo you accept? [y/N] ');
+      stdout.write(
+          '\nThis is an all-or-nothing permission grant. Accept? [y/N] ');
       final input = stdin.readLineSync()?.toLowerCase();
       if (input != 'y' && input != 'yes') {
         print('❌ Installation cancelled.');
@@ -125,6 +234,10 @@ class AgentInstallCommand extends Command {
       print('✅ Agent \'$agentName\' installed successfully!');
     } catch (e) {
       print('❌ Failed to install agent: $e');
+    } finally {
+      if (tempDir != null) {
+        await tempDir.delete(recursive: true);
+      }
     }
   }
 
@@ -137,6 +250,68 @@ class AgentInstallCommand extends Command {
       } else if (entity is File) {
         await entity.copy(newPath);
       }
+    }
+  }
+
+  bool _looksLikeUrl(String value) {
+    return value.startsWith('http://') || value.startsWith('https://');
+  }
+
+  Future<void> _downloadGitHubTreeAgent(Uri uri, Directory dest) async {
+    if (uri.host != 'github.com') {
+      throw Exception('Only github.com URLs are supported.');
+    }
+    if (!uri.path.contains('/tree/')) {
+      throw Exception('Expected a GitHub tree URL with /tree/<branch>/path.');
+    }
+
+    final segments = uri.pathSegments;
+    final treeIndex = segments.indexOf('tree');
+    if (treeIndex < 0 || treeIndex + 1 >= segments.length) {
+      throw Exception('Invalid GitHub tree URL.');
+    }
+
+    final owner = segments[0];
+    final repo = segments[1];
+    final branch = segments[treeIndex + 1];
+    final pathSegments = segments.sublist(treeIndex + 2);
+    if (pathSegments.isEmpty) {
+      throw Exception('Missing agent path in GitHub tree URL.');
+    }
+
+    final baseRaw =
+        Uri.parse('https://raw.githubusercontent.com/$owner/$repo/$branch/');
+    final agentYamlUri = baseRaw.replace(
+        path: '${baseRaw.path}${pathSegments.join('/')}/agent.yaml');
+    final agentYamlPath = p.join(dest.path, 'agent.yaml');
+    await _downloadFile(agentYamlUri, agentYamlPath);
+
+    final yaml = loadYaml(await File(agentYamlPath).readAsString());
+    if (yaml is! YamlMap) {
+      throw Exception('agent.yaml is not a valid mapping.');
+    }
+    final entryPoint = yaml['entry_point']?.toString() ?? 'main.dart';
+    if (entryPoint.trim().isEmpty) {
+      throw Exception('agent.yaml entry_point is empty.');
+    }
+
+    final entryUri = baseRaw.replace(
+        path: '${baseRaw.path}${pathSegments.join('/')}/$entryPoint');
+    final entryPath = p.join(dest.path, entryPoint);
+    await File(p.dirname(entryPath)).create(recursive: true);
+    await _downloadFile(entryUri, entryPath);
+  }
+
+  Future<void> _downloadFile(Uri uri, String destPath) async {
+    final client = http.Client();
+    try {
+      final resp = await client.get(uri);
+      if (resp.statusCode != 200) {
+        throw Exception('Download failed (${resp.statusCode}) for $uri');
+      }
+      await File(destPath).writeAsBytes(resp.bodyBytes);
+    } finally {
+      client.close();
     }
   }
 }

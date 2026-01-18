@@ -25,7 +25,7 @@ my-agent/
 ```
 
 The entry point can be any filename you set in `agent.yaml` (for example,
-`main.drt` in the examples).
+`main.dart` in the examples).
 
 ## Entry Point API
 
@@ -34,107 +34,200 @@ The context includes arguments and capability objects.
 
 ```dart
 dynamic main(Map<String, dynamic> context) async {
+  // Extract Helper Objects
   var sys = context['capabilities']['sys'];
   var llm = context['capabilities']['llm'];
   var net = context['capabilities']['net'];
 
   sys.print('Hello from agent');
+  
+  // Use LLM
   var answer = await llm.chat('Give me a short checklist for a release.');
   sys.print(answer);
+  
+  // Use Filesystem
+  await sys.writeFile('checklist.txt', answer);
 }
 ```
 
 Available keys:
 
-- `context['args']` list of CLI args passed after the agent name/path.
-- `context['capabilities']['sys']` local IO helpers (print, confirm, readInput, run).
-- `context['capabilities']['llm']` local server chat helper.
-- `context['capabilities']['net']` HTTP fetch helper (domain allowlist).
+- `context['args']`: `List<String>` of CLI args passed after the agent name/path.
+- `context['capabilities']['sys']`: System capabilities (IO, shell, tools).
+- `context['capabilities']['llm']`: Local inference (chat).
+- `context['capabilities']['net']`: Network access (fetch).
+
+### SysCapability (`sys`)
+
+- `void print(String msg)`: Print to stdout.
+- `String readInput(String prompt)`: Read a line from stdin with a prompt.
+- `Future<bool> confirm(String msg)`: Ask for Y/N confirmation.
+- `Future<String> run(String executable, List<String> args, {String? workDir})`: Run a shell command.
+- `Future<String> readFile(String path)`: Read text file.
+- `Future<bool> writeFile(String path, String contents)`: Write text file.
+- `Future<bool> exists(String path)`: Check if file/directory exists.
+- `Future<bool> mkdir(String path, {bool recursive})`: Create directory.
+- `Future<List<Map>> tools.list()`: List available MCP tools.
+- `Future<dynamic> tools.call(String name, Map args)`: Execute an MCP tool.
+
+### LlmCapability (`llm`)
+
+- `Future<String> chat(String prompt, {String? system})`: Send a prompt to the configured model.
+
+### NetworkCapability (`net`)
+
+- `Future<String> fetch(String url)`: Perform an HTTP GET request (if allowed).
+
+## Runtime Constraints
+
+Agents run inside `dart_eval`, a secure Dart interpreter. This imposes strict limitations compared to standard Dart:
+
+1.  **NO Imports**: You cannot use `import`. All allowed classes (`String`, `List`, `Map`, `Future`, `jsonDecode`, `jsonEncode`) are pre-loaded or available via capabilities.
+2.  **No Stdout/Stdin**: Never use `print()`, `stdout`, or `stdin` directly. Use `sys.print()`, `sys.readInput()`.
+3.  **No Nested Functions**: You cannot declare helper functions *inside* `main`. All logic must be inline or in top-level classes/functions (if the interpreter supports them, but inline is safest).
+4.  **Strict Types**: Prefer explicit types (`Map<String, dynamic>`) over `var` where complex inference is needed.
+5.  **No `!` Operator**: The unary bang operator (e.g. `!isValid`) may not be supported in all contexts. Use `isValid == false`.
+6.  **Async/Await**: Always await futures (`sys.run`, `llm.chat`).
+
+## Coding Patterns
+
+### CLI Wrapper
+To run shell commands safely and print output:
+
+```dart
+var cmd = "ls -la";
+// Use sh -c to support pipes and wildcards
+var result = await sys.run("sh", ["-c", cmd]);
+sys.print(result);
+```
+
+### Infinite Loop Agent
+For agents that run until told to stop (like a chat bot):
+
+```dart
+while (true) {
+  var input = sys.readInput("You: ");
+  if (input.trim().toLowerCase() == "exit") break;
+  
+  var response = await llm.chat(input);
+  sys.print("Agent: " + response);
+}
+```
 
 ## Manifest (`agent.yaml`)
 
-Minimal example:
+The `agent.yaml` file defines your agent's identity, permissions, and dependencies.
 
 ```yaml
-name: "example-agent"
-version: "0.1.0"
-description: "Demo agent"
-entry_point: "main.dart"
-backend: "metal_unified"
-```
+# ==================================================================
+# 🦅 HUGIND AGENT MANIFEST
+# ==================================================================
 
-Notes:
+name: "stock-analyst"
+version: "1.0.0"
+description: "Fetches live stock data and generates a PDF report."
+entry_point: "main.dart"  # Default is main.dart
 
-- `name` must be alphanumeric and may include `-` or `_`.
-- `entry_point` defaults to `main.dart` if omitted.
-- `backend` is the server config name; default is `metal_unified`.
+# ⚠️ COMPATIBILITY
+hugind_version: ">=0.6.0"
 
-## Permissions
+# 🔗 BACKEND CONNECTION
+# Defines which model server this agent talks to.
+backend:
+  url: "http://127.0.0.1:8080/v1"  # Optional override
+  model: "gemma-2-9b-it"           # Model to request
 
-Permissions are optional but recommended. The runtime enforces these:
-
-- `permissions.filesystem.allowed_paths` limits file access.
-- `permissions.network.allowed_domains` limits outbound HTTP domains.
-- `permissions.shell.allow` enables `sys.run(...)`.
-
-Example:
-
-```yaml
+# 🛡️ PERMISSIONS (The Security Boundary)
 permissions:
-  filesystem:
-    allowed_paths:
-      - "/Users/me/projects"
+
+  # 🌐 NETWORK
   network:
+    allow: true
     allowed_domains:
-      - "api.example.com"
+      - "api.stockdata.org"
+      - "finance.yahoo.com"
+
+  # 📂 FILESYSTEM
+  filesystem:
+    read: true
+    write: true
+    allowed_paths:
+      - "$HOME/Downloads"
+      - "./workspace"
+
+  # 💻 SHELL / PROCESS EXECUTION
   shell:
-    allow: false
+    allow: true
+    # Use EITHER whitelist OR blacklist
+    whitelist:
+      - "ls"
+      - "date"
+    # blacklist:
+    #   - "rm"
+
+# 🔌 DEPENDENCIES (MCP)
+dependencies:
+  mcp:
+    - name: "postgres-client"
+      required: true
+    - name: "github"
+      required: false
+
+# 🔧 ENVIRONMENT VARIABLES
+env:
+  - name: "STOCK_API_KEY"
+    required: true
+    description: "API Key for stockdata.org"
 ```
 
-Notes:
+## Permissions Details
 
-- The agent directory is always allowed by default.
-- If you run an installed agent and pass a directory as the first argument,
-  that directory is also allowed for file access.
-- Keys like `filesystem.read` and `filesystem.write` are informational only.
+Permissions are denied by default. You must explicitly request them in `permissions`.
+
+- **Filesystem**:
+    - `allowed_paths`: List of directories the agent can access.
+    - `read`: Boolean to enable `sys.readFile`, `sys.exists`.
+    - `write`: Boolean to enable `sys.writeFile`, `sys.mkdir`.
+    - Note: The agent's own directory is always allowed.
+
+- **Network**:
+    - `allow`: Boolean to enable `net.fetch`.
+    - `allowed_domains`: Whitelist of domains (subdomains included).
+
+- **Shell**:
+    - `allow`: Boolean to enable `sys.run`.
+    - `whitelist`: List of allowed executables.
+    - `blacklist`: List of blocked executables.
 
 ## MCP Tools
 
-Agents can call MCP tools via `sys.tools.list()` and `sys.tools.call(...)`.
-You must configure MCP servers in `<data_home>/settings.yml` (see `docs/cli.md`):
+Agents can use Model Context Protocol (MCP) tools provided by external servers.
+Prerequisite: The user must have the MCP server configured in their `settings.yml`.
+
+In `agent.yaml`, declare the dependency:
 
 ```yaml
-mcp_servers:
-  filesystem:
-    command: "npx"
-    args: ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me/projects"]
+dependencies:
+  mcp:
+    - name: "filesystem"
+      required: true
 ```
 
-Then in your agent:
+In Dart:
 
 ```dart
-var sys = context['capabilities']['sys'];
 var tools = await sys.tools.list();
 var result = await sys.tools.call('filesystem_read_file', {'path': 'README.md'});
 ```
 
-## Running and Iterating
+## Environment Variables
 
-Local dev (fastest loop):
+You can enforce required environment variables for your agent to run (e.g., API keys).
 
-```bash
-hugind agent run ./my-agent
+```yaml
+env:
+  - name: "API_KEY"
+    required: true
 ```
 
-Install to the Hugind agent directory:
-
-```bash
-hugind agent install ./my-agent
-hugind agent run example-agent
-```
-
-Make sure the server is running with the configured backend:
-
-```bash
-hugind server start metal_unified
-```
+The runtime will check for these variables in the user's environment before starting the agent.
