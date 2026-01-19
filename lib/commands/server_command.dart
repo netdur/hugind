@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
@@ -137,13 +138,27 @@ class ServerListCommand extends Command {
         if (model.length > 28) model = '${model.substring(0, 25)}...';
       }
 
-      final url = Uri.parse('http://$host:$port/health');
-
       try {
+        final modelsUrl = Uri.parse('http://$host:$port/v1/models');
         final response =
-            await http.get(url).timeout(const Duration(milliseconds: 500));
+            await http.get(modelsUrl).timeout(const Duration(milliseconds: 500));
         if (response.statusCode == 200) {
-          status = "🟢 Running";
+          final decoded = jsonDecode(response.body);
+          final data = decoded is Map ? decoded['data'] : null;
+          final ids = <String>[];
+          if (data is List) {
+            for (final entry in data) {
+              if (entry is Map && entry['id'] is String) {
+                ids.add(entry['id'] as String);
+              }
+            }
+          }
+
+          if (ids.contains(name)) {
+            status = "🟢 Running";
+          } else {
+            status = "⚪️ Stopped";
+          }
         } else {
           status = "🔴 Error (${response.statusCode})";
         }
@@ -371,41 +386,133 @@ class ServerStopCommand extends Command {
 
     print('ℹ️  Target: $configName on $host:$port');
 
-    final url = Uri.parse('http://$host:$port/health');
-    try {
-      final response =
-          await http.get(url).timeout(const Duration(milliseconds: 500));
-      if (response.statusCode == 200) {
+    final modelIds = await _fetchModelIds(host, port);
+    if (modelIds.isNotEmpty) {
+      if (modelIds.contains(configName)) {
         print('🟢 Detected a running server on $host:$port');
       } else {
         print(
-            '⚠️ Health check returned ${response.statusCode}; server may not be running.');
+            '⚠️ Server on $host:$port is running different model(s): ${modelIds.join(', ')}');
       }
-    } catch (_) {
+    } else {
       print('⚪️ No response on $host:$port (may already be stopped).');
     }
 
-    print('\nTo stop a process on port $port:');
-    if (Platform.isMacOS) {
-      print('  lsof -i :$port');
-      print('  kill <PID>');
-    } else if (Platform.isLinux) {
-      print('  lsof -i :$port');
-      print('  kill <PID>');
-      print('  # or: fuser -k $port/tcp');
-    } else if (Platform.isWindows) {
-      print('  netstat -ano | findstr :$port');
-      print('  taskkill /PID <PID> /F');
-    } else {
-      print(
-          '  (Unknown OS) Use a port/PID lister to find and kill the process.');
+    final pids = await _pidsForPort(port);
+    if (pids.isEmpty) {
+      print('⚪️ No listening process found on port $port.');
+      return;
     }
 
-    print('\nIf you started the server in this shell, Ctrl+C will stop it.');
+    print('🧹 Stopping process(es) on port $port: ${pids.join(', ')}');
+    for (final pid in pids) {
+      final stopped = await _killPid(pid);
+      if (stopped) {
+        print('  ✓ Killed PID $pid');
+      } else {
+        print('  ⚠️ Failed to kill PID $pid (insufficient permissions?)');
+      }
+    }
   }
 }
 
 // --- Helpers ---
+
+Future<List<String>> _fetchModelIds(String host, int port) async {
+  try {
+    final modelsUrl = Uri.parse('http://$host:$port/v1/models');
+    final response =
+        await http.get(modelsUrl).timeout(const Duration(milliseconds: 500));
+    if (response.statusCode != 200) return [];
+    final decoded = jsonDecode(response.body);
+    final data = decoded is Map ? decoded['data'] : null;
+    if (data is! List) return [];
+    final ids = <String>[];
+    for (final entry in data) {
+      if (entry is Map && entry['id'] is String) {
+        ids.add(entry['id'] as String);
+      }
+    }
+    return ids;
+  } catch (_) {
+    return [];
+  }
+}
+
+Future<List<int>> _pidsForPort(int port) async {
+  if (Platform.isWindows) {
+    return _pidsForPortWindows(port);
+  }
+  return _pidsForPortUnix(port);
+}
+
+Future<List<int>> _pidsForPortUnix(int port) async {
+  try {
+    final result = await Process.run(
+      'lsof',
+      ['-n', '-iTCP:$port', '-sTCP:LISTEN', '-t'],
+    );
+    if (result.exitCode != 0) return [];
+    final lines = result.stdout.toString().split('\n');
+    final pids = <int>[];
+    for (final line in lines) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty) continue;
+      final pid = int.tryParse(trimmed);
+      if (pid != null) pids.add(pid);
+    }
+    return pids;
+  } catch (_) {
+    return [];
+  }
+}
+
+Future<List<int>> _pidsForPortWindows(int port) async {
+  try {
+    final result = await Process.run('netstat', ['-ano']);
+    if (result.exitCode != 0) return [];
+    final lines = result.stdout.toString().split('\n');
+    final pids = <int>[];
+    final matcher = RegExp(
+        r'^\s*TCP\s+\S+:' + port.toString() + r'\s+\S+\s+LISTENING\s+(\d+)\s*$');
+    for (final line in lines) {
+      final match = matcher.firstMatch(line);
+      if (match != null) {
+        final pid = int.tryParse(match.group(1) ?? '');
+        if (pid != null) pids.add(pid);
+      }
+    }
+    return pids;
+  } catch (_) {
+    return [];
+  }
+}
+
+Future<bool> _killPid(int pid) async {
+  if (Platform.isWindows) {
+    try {
+      final result =
+          await Process.run('taskkill', ['/PID', '$pid', '/F']);
+      return result.exitCode == 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  try {
+    final ok = Process.killPid(pid, ProcessSignal.sigterm);
+    if (ok) return true;
+  } catch (_) {
+    // fall through to SIGKILL
+  }
+
+  try {
+    final result = await Process.run('kill', ['-9', '$pid']);
+    return result.exitCode == 0;
+  } catch (_) {
+    return false;
+  }
+}
 
 String _configHome() {
   final env = Platform.environment;
