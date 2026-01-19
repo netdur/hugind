@@ -135,7 +135,7 @@ hugind_version: ">=0.6.0"
 # Defines which model server this agent talks to.
 backend:
   url: "http://127.0.0.1:8080/v1"  # Optional override
-  model: "gemma-2-9b-it"           # Model to request
+  config: "gemma-2-9b-it"          # Provider config name in ~/.hugind/configs
   session:
     mode: "fresh"                  # stateless | fresh | resume
     id: "stock-analyst"            # Defaults to agent name if omitted

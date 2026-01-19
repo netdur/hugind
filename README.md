@@ -164,7 +164,7 @@ hugind_version: ">=0.6.0"
 # 🔗 BACKEND CONNECTION
 backend:
   url: "http://127.0.0.1:8080/v1"
-  model: "gemma-2-9b-it"
+  config: "gemma-2-9b-it"
   session:
     mode: "fresh"                  # stateless | fresh | resume
     id: "stock-analyst"

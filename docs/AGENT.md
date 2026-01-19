@@ -54,6 +54,24 @@ If you pass a file or folder path, **that path is automatically whitelisted** so
 hugind agent run summarizer ./whitepaper.pdf
 ```
 
+### Backend Config
+Agents use `backend.config` in `agent.yaml` to select a server config from `~/.hugind/configs/<config>.yml`.
+If you set `backend.url` instead, Hugind will connect directly to that URL.
+
+### Session Behavior
+Agents are stateless by default. To opt into a persistent server session, set `backend.session` in the agent's `agent.yaml`:
+
+```yaml
+backend:
+  session:
+    mode: "resume"   # stateless | fresh | resume
+    id: "my-agent"   # Optional; defaults to agent name
+```
+
+- `stateless` omits `X-Session-ID` entirely.
+- `fresh` forces a new session on the first request, then resumes within the same run.
+- `resume` continues the prior session if it exists.
+
 ## 3. Managing Agents
 
 List all installed agents:

@@ -25,7 +25,7 @@ entry_point: "main.dart"
 # Points to the HTTP API. The agent acts as a client.
 backend:
   url: "http://127.0.0.1:8080/v1"  # Default URL (overridable via ENV)
-  model: "gemma-2-9b-it"           # Preferred model name to send in API body
+  config: "gemma-2-9b-it"          # Provider config name in ~/.hugind/configs
   session:
     mode: "fresh"                  # stateless | fresh | resume
     id: "stock-analyst"            # Defaults to agent name if omitted

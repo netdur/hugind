@@ -432,6 +432,10 @@ class AgentRunCommand extends Command {
         } else if (backendConfig is Map) {
           backendUrl = backendConfig['url']?.toString();
           backendModel = backendConfig['model']?.toString();
+          final configName = backendConfig['config']?.toString();
+          if (configName != null && configName.isNotEmpty) {
+            backendName = configName;
+          }
           final sessionConfig = backendConfig['session'];
           if (sessionConfig is Map) {
             final modeRaw = sessionConfig['mode']?.toString();
