@@ -87,23 +87,21 @@ class ChatHandler {
         );
       }
 
-      final forkHeader =
-          request.headers['X-Session-Fork'] ?? request.headers['x-session-fork'];
+      final forkHeader = request.headers['X-Session-Fork'] ??
+          request.headers['x-session-fork'];
       if (forkHeader != null && forkHeader.trim().isNotEmpty) {
         if (!isFreshSession) {
           return Response(
             400,
-            body: jsonEncode({
-              'error': 'X-Session-Fork requires X-Fresh-Session: true'
-            }),
+            body: jsonEncode(
+                {'error': 'X-Session-Fork requires X-Fresh-Session: true'}),
             headers: {'content-type': 'application/json'},
           );
         }
         if (clientSessionId == null || clientSessionId.isEmpty) {
           return Response(
             400,
-            body: jsonEncode(
-                {'error': 'X-Session-Fork requires X-Session-ID'}),
+            body: jsonEncode({'error': 'X-Session-Fork requires X-Session-ID'}),
             headers: {'content-type': 'application/json'},
           );
         }
@@ -131,6 +129,8 @@ class ChatHandler {
         try {
           File(templatePath).copySync(targetPath);
           print('   📌 Forked session from template: $templateName -> $userId');
+          // FIX: Treat this as a RESUME so the engine loads the file we just copied.
+          isFreshSession = false;
         } catch (e) {
           return Response.internalServerError(
               body: jsonEncode({'error': 'Fork failed: $e'}));
