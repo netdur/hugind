@@ -100,7 +100,7 @@ hugind chat resume <session-id>
 inside the chat:
 *   **Persistent State**: Sessions are saved to disk automatically.
 *   **Hibernation**: When you exit (Ctrl+C), the session hibernates. Resuming is instant.
-*   **Slash Commands**: Use `/help`, `/image`, `/sys`, `/clear`, `/exit`.
+*   **Slash Commands**: Use `/help`, `/image`, `/text`, `/fork`, `/clear`, `/exit`.
 
 ---
 

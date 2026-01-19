@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:shelf/shelf.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
+import 'package:path/path.dart' as p;
 
 import '../engine/engine_manager.dart';
 import '../engine/llama_engine.dart';
@@ -84,6 +85,56 @@ class ChatHandler {
               {'error': 'This server is configured for embeddings only.'}),
           headers: {'content-type': 'application/json'},
         );
+      }
+
+      final forkHeader =
+          request.headers['X-Session-Fork'] ?? request.headers['x-session-fork'];
+      if (forkHeader != null && forkHeader.trim().isNotEmpty) {
+        if (!isFreshSession) {
+          return Response(
+            400,
+            body: jsonEncode({
+              'error': 'X-Session-Fork requires X-Fresh-Session: true'
+            }),
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        if (clientSessionId == null || clientSessionId.isEmpty) {
+          return Response(
+            400,
+            body: jsonEncode(
+                {'error': 'X-Session-Fork requires X-Session-ID'}),
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        final templateName = forkHeader.trim();
+        if (p.basename(templateName) != templateName) {
+          return Response(
+            400,
+            body: jsonEncode({'error': 'Invalid template name'}),
+            headers: {'content-type': 'application/json'},
+          );
+        }
+
+        final sessionHome = engine.config.sessionHome;
+        final templatePath = p.join(sessionHome, '$templateName.bin');
+        final targetPath = p.join(sessionHome, '$userId.bin');
+
+        if (!File(templatePath).existsSync()) {
+          return Response(
+            400,
+            body: jsonEncode({'error': 'Template not found'}),
+            headers: {'content-type': 'application/json'},
+          );
+        }
+
+        try {
+          File(templatePath).copySync(targetPath);
+          print('   📌 Forked session from template: $templateName -> $userId');
+        } catch (e) {
+          return Response.internalServerError(
+              body: jsonEncode({'error': 'Fork failed: $e'}));
+        }
       }
 
       final tokenStream = engine.generateStream(userId, messages,

@@ -18,6 +18,7 @@ Base URL: `http://127.0.0.1:<port>/v1`
 - `Authorization: Bearer <api_key>` if `server.api_key` is set
 - `X-Session-ID: <id>` enables stateful sessions
 - `X-Fresh-Session: true|false` hints whether the session is new (default `false` if `X-Session-ID` is present; `true` otherwise)
+- `X-Session-Fork: <template>` (with `X-Fresh-Session: true`) copies `<template>.bin` to the new session ID before generation
 
 ## Chat Completions Example
 

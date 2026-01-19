@@ -38,7 +38,8 @@ Sessions are stored as JSON under `<data_home>/chats/` and include:
 
 - `/help` shows available slash commands.
 - `/image <path>` attaches an image to the next message.
-- `/sys <path>` injects a system prompt from a text file.
+- `/text <path>` attaches a text file to the next message.
+- `/fork <name>` saves the current session cache as a template.
 - `/clear` clears the terminal screen.
 - `/exit` or `/quit` ends the session loop.
 

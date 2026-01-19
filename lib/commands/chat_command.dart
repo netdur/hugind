@@ -5,9 +5,11 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:interact/interact.dart';
 import 'package:path/path.dart' as p;
+import 'package:yaml/yaml.dart';
 
 import 'session_repo.dart'; // Import your files
 import 'chat_service.dart';
+import '../global_settings.dart';
 
 class ChatCommand extends Command {
   @override
@@ -254,6 +256,7 @@ class ChatCommand extends Command {
 
     // State
     String? _pendingImage;
+    String? _pendingText;
 
     // Trap Ctrl+C
     final sigint = ProcessSignal.sigint.watch().listen((_) async {
@@ -266,6 +269,8 @@ class ChatCommand extends Command {
       while (true) {
         final prompt = _pendingImage != null
             ? '\n${cBold}🖼️  (Image) $cUser>>> $cReset'
+            : _pendingText != null
+                ? '\n${cBold}📄  (Text) $cUser>>> $cReset'
             : '\n$cUser>>> $cReset';
 
         stdout.write(prompt);
@@ -286,7 +291,8 @@ class ChatCommand extends Command {
             print('''
 ${cBold}Available Commands:$cReset
   /image <path>   Attach an image to the next message
-  /sys <path>     Inject a system prompt from a text file
+  /text <path>    Attach a text file to the next message
+  /fork <name>    Save current session cache as a template
   /clear          Clear the terminal screen
   /exit, /quit    Exit the chat
              ''');
@@ -296,28 +302,6 @@ ${cBold}Available Commands:$cReset
           if (cmd == '/clear') {
             print("\x1B[2J\x1B[0;0H");
             _printWelcome(id, model.toString());
-            continue;
-          }
-
-          if (cmd == '/sys') {
-            if (args.isEmpty) {
-              print('Usage: /sys <path/to/prompt.txt>');
-              continue;
-            }
-            final file = File(args);
-            if (!file.existsSync()) {
-              print('❌ File not found: ${file.path}');
-              continue;
-            }
-            try {
-              final content = await file.readAsString();
-              messages.add({'role': 'system', 'content': content});
-              await _repo.save(id, session);
-              print(
-                  '${cSys}System prompt injected (${content.length} chars).$cReset');
-            } catch (e) {
-              print('❌ Error reading file: $e');
-            }
             continue;
           }
 
@@ -351,6 +335,56 @@ ${cBold}Available Commands:$cReset
             continue;
           }
 
+          if (cmd == '/fork') {
+            final name = args.trim();
+            if (name.isEmpty) {
+              print('Usage: /fork <template-name>');
+              continue;
+            }
+            if (p.basename(name) != name) {
+              print('❌ Invalid template name. Use a simple name without paths.');
+              continue;
+            }
+            try {
+              await _service.hibernate(id, baseUrl: baseUrl);
+              final sessionHome =
+                  await _resolveSessionHome(model.toString());
+              final src = File(p.join(sessionHome, '$id.bin'));
+              if (!src.existsSync()) {
+                print('❌ Session file not found: ${src.path}');
+                continue;
+              }
+              final dest = File(p.join(sessionHome, '$name.bin'));
+              dest.parent.createSync(recursive: true);
+              src.copySync(dest.path);
+              print('✅ Forked template saved: ${dest.path}');
+            } catch (e) {
+              print('❌ Fork failed: $e');
+            }
+            continue;
+          }
+
+          if (cmd == '/text') {
+            if (args.isEmpty) {
+              print('Usage: /text <path/to/text.txt>');
+              continue;
+            }
+            final file = File(args.trim());
+            if (!file.existsSync()) {
+              print('❌ File not found: ${file.path}');
+              continue;
+            }
+
+            try {
+              final content = await file.readAsString();
+              _pendingText = content;
+              print('✅ Text attached! Type your message to send it.');
+            } catch (e) {
+              print('❌ Error reading file: $e');
+            }
+            continue;
+          }
+
           print('Unknown command: $cmd');
           continue;
         }
@@ -371,6 +405,11 @@ ${cBold}Available Commands:$cReset
             ]
           };
           _pendingImage = null; // Clear after sending
+        } else if (_pendingText != null) {
+          final merged =
+              input.isEmpty ? _pendingText! : '$input\n\n$_pendingText';
+          userMsg = {'role': 'user', 'content': merged};
+          _pendingText = null; // Clear after sending
         } else {
           userMsg = {'role': 'user', 'content': input};
         }
@@ -519,6 +558,40 @@ ${cBold}Available Commands:$cReset
       print('$prefix $preview...');
     }
     print('${cSys}----------------------$cReset');
+  }
+
+  Future<String> _resolveSessionHome(String model) async {
+    final fallback = await GlobalSettings.getSessionsPath();
+    if (model.isEmpty) return fallback;
+
+    final configDir = p.join(_configHome(), 'configs');
+    final candidates = [
+      p.join(configDir, '$model.yml'),
+      p.join(configDir, '$model.yaml'),
+    ];
+
+    for (final path in candidates) {
+      final file = File(path);
+      if (!await file.exists()) continue;
+      try {
+        final content = await file.readAsString();
+        final yaml = loadYaml(content);
+        final server = yaml['server'] as Map? ?? {};
+        final raw = server['session_home']?.toString();
+        if (raw != null && raw.isNotEmpty) {
+          return _resolvePathRelative(raw, path);
+        }
+      } catch (_) {
+        return fallback;
+      }
+    }
+
+    return fallback;
+  }
+
+  String _resolvePathRelative(String raw, String configPath) {
+    if (p.isAbsolute(raw)) return raw;
+    return p.normalize(p.join(p.dirname(configPath), raw));
   }
 }
 
