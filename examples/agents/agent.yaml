@@ -26,6 +26,9 @@ entry_point: "main.dart"
 backend:
   url: "http://127.0.0.1:8080/v1"  # Default URL (overridable via ENV)
   model: "gemma-2-9b-it"           # Preferred model name to send in API body
+  session:
+    mode: "fresh"                  # stateless | fresh | resume
+    id: "stock-analyst"            # Defaults to agent name if omitted
 
 # 🛡️ PERMISSIONS (The Security Boundary)
 # ------------------------------------------------------------------

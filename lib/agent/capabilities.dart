@@ -405,8 +405,16 @@ class McpCapability {
 class LlmCapability {
   final String baseUrl;
   final String? model;
+  final String? sessionId;
+  final bool freshOnStart;
+  bool _started = false;
 
-  LlmCapability(this.baseUrl, {this.model});
+  LlmCapability(
+    this.baseUrl, {
+    this.model,
+    this.sessionId,
+    this.freshOnStart = false,
+  });
 
   Future<String> chat(String prompt, {String? system}) async {
     final uri = Uri.parse(_chatUrl(baseUrl));
@@ -425,8 +433,17 @@ class LlmCapability {
     });
 
     try {
+      final headers = {'Content-Type': 'application/json'};
+      if (sessionId != null && sessionId!.isNotEmpty) {
+        headers['X-Session-ID'] = sessionId!;
+        if (freshOnStart && !_started) {
+          headers['X-Fresh-Session'] = 'true';
+        }
+      }
+
       final resp = await http
-          .post(uri, body: body, headers: {'Content-Type': 'application/json'});
+          .post(uri, body: body, headers: headers);
+      _started = true;
       if (resp.statusCode != 200) {
         throw Exception('LLM error ${resp.statusCode}: ${resp.body}');
       }

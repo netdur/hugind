@@ -136,6 +136,9 @@ hugind_version: ">=0.6.0"
 backend:
   url: "http://127.0.0.1:8080/v1"  # Optional override
   model: "gemma-2-9b-it"           # Model to request
+  session:
+    mode: "fresh"                  # stateless | fresh | resume
+    id: "stock-analyst"            # Defaults to agent name if omitted
 
 # 🛡️ PERMISSIONS (The Security Boundary)
 permissions:
@@ -179,6 +182,15 @@ env:
     required: true
     description: "API Key for stockdata.org"
 ```
+
+### Backend Session Settings
+
+Use `backend.session` to control the `X-Session-ID` header Hugind receives.
+
+- `mode: stateless` omits the header entirely (default).
+- `mode: fresh` sends a session ID and forces a fresh start on the first request.
+- `mode: resume` sends a session ID and resumes prior context.
+- `id` defaults to the agent name if omitted.
 
 ## Permissions Details
 

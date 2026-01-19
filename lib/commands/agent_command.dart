@@ -406,6 +406,7 @@ class AgentRunCommand extends Command {
     }
 
     final manifestFile = File(p.join(agentDir.path, 'agent.yaml'));
+    final defaultSessionId = p.basename(agentDir.path);
     if (!manifestFile.existsSync()) {
       print('❌ Agent manifest (agent.yaml) missing for "$agentName"');
       return;
@@ -415,6 +416,8 @@ class AgentRunCommand extends Command {
     var backendName = 'metal_unified';
     String? backendUrl;
     String? backendModel;
+    String? sessionId;
+    var freshOnStart = false;
     var entryPoint = 'main.dart';
     YamlMap? agentYaml;
 
@@ -429,6 +432,29 @@ class AgentRunCommand extends Command {
         } else if (backendConfig is Map) {
           backendUrl = backendConfig['url']?.toString();
           backendModel = backendConfig['model']?.toString();
+          final sessionConfig = backendConfig['session'];
+          if (sessionConfig is Map) {
+            final modeRaw = sessionConfig['mode']?.toString();
+            final idRaw = sessionConfig['id']?.toString();
+            final mode = modeRaw?.trim().toLowerCase();
+            if (mode == null || mode.isEmpty) {
+              if (idRaw != null && idRaw.isNotEmpty) {
+                sessionId = idRaw;
+              }
+            } else if (mode == 'stateless') {
+              sessionId = null;
+              freshOnStart = false;
+            } else if (mode == 'resume' || mode == 'fresh') {
+              sessionId = (idRaw != null && idRaw.isNotEmpty)
+                  ? idRaw
+                  : defaultSessionId;
+              freshOnStart = mode == 'fresh';
+            } else {
+              print(
+                  '❌ Invalid manifest: backend.session.mode must be stateless, fresh, or resume.');
+              return;
+            }
+          }
         }
         entryPoint = agentYaml['entry_point'] as String? ?? entryPoint;
         final requiredVersion = agentYaml['hugind_version']?.toString();
@@ -654,8 +680,12 @@ class AgentRunCommand extends Command {
         writeAllowed: writeAllowed,
         shellWhitelist: shellWhitelist,
         shellBlacklist: shellBlacklist);
-    final llm = LlmCapability(baseUrl,
-        model: backendUrl != null ? backendModel : backendName);
+    final llm = LlmCapability(
+      baseUrl,
+      model: backendUrl != null ? backendModel : backendName,
+      sessionId: sessionId,
+      freshOnStart: freshOnStart,
+    );
     final net = NetworkCapability(
         allowedDomains: allowedDomains, networkAllowed: networkAllowed);
     final mcp = McpCapability(
