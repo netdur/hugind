@@ -15,3 +15,9 @@ sessions/
 
 # Dependencies
 *.dylib
+
+# Ubuntu packaging
+ubuntu/
+!ubuntu/build_snap.sh
+!ubuntu/snap/
+!ubuntu/snap/**
