@@ -1,6 +1,6 @@
 name: hugind
-description: ai and agent operations server
-version: 0.6.0
+description: llm and agent operations server
+version: 0.7.0
 environment:
   sdk: '>=3.0.0 <4.0.0'
 
@@ -24,4 +24,4 @@ dependency_overrides:
   dart_eval:
     path: vendor/dart_eval
   llama_cpp_dart:
-    path: /Users/adel/Workspace/llama_cpp_dart
+    path: ../llama_cpp_dart
