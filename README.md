@@ -59,19 +59,19 @@ hugind config defaults --lib /path/to/custom/libllama.so
 ### 1. Download a Model
 Fetch GGUF files directly from Hugging Face.
 ```bash
-hugind model add google/gemma-2-9b-it-GGUF
+hugind model add gemma-3-4b-it-qat-q4_0-gguf
 ```
 
 ### 2. Create a Config
 Run the hardware probe wizard. It detects your VRAM and auto-calculates context limits.
 ```bash
-hugind config init my-assistant
+hugind config init gemma-4
 # Follow the prompts to select presets (e.g., metal_unified)
 ```
 
 ### 3. Start the Server
 ```bash
-hugind server start my-assistant
+hugind server start gemma-4
 ```
 You'll see:
 ```text
@@ -260,6 +260,11 @@ curl -H "X-Session-ID: session-a" ... -d '{"messages": [{"role": "user", "conten
 
 *(Even if Session A was evicted from VRAM to make room for others, Hugind restores it for Request 2 silently.)*
 
+### 🔖 Headers (Intent)
+- `X-Session-ID`: Identify a stateful session so KV cache can be reused.
+- `X-Fresh-Session: true`: Force a clean session, ignoring any cached state.
+- `X-Session-Fork`: When `X-Fresh-Session: true`, copy `<template>.bin` to the new `X-Session-ID` so the session boots from that template cache.
+
 ---
 
 ## 🎛️ Configuration
@@ -268,7 +273,7 @@ Configs live in `<config_home>/configs/*.yml` (see `docs/cli.md` for how paths r
 
 ```yaml
 model:
-  path: /Models/gemma-2-9b.gguf
+  path: /Models/gemma-3-4b-it-qat-q4_0.gguf
   gpu_layers: 99        # Full GPU offload
 
 context:
