@@ -1,0 +1,14 @@
+name: "git-smart"
+version: "1.0.0"
+description: "Generates commit messages from staged changes"
+entry_point: "main.dart"
+hugind_version: ">=0.6.0"
+
+backend:
+  config: "qwen3vl-8b" 
+
+permissions:
+  shell:
+    allow: true
+    whitelist:
+      - "git"
