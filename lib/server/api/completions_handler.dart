@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
@@ -63,30 +64,67 @@ class CompletionsHandler {
       final created = DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
       if (stream) {
-        final tokenStream = engine.generateStream(
-          userId,
-          [Message(role: Role.user, content: prompts.first)],
-        );
+        if (EngineManager.instance.isQueueFull) {
+          return Response(
+            429,
+            body: jsonEncode({'error': 'Queue is full'}),
+            headers: {'content-type': 'application/json'},
+          );
+        }
 
-        Stream<List<int>> sseStream() async* {
-          await for (final token in tokenStream) {
-            final chunk = {
-              'id': id,
-              'object': 'text_completion.chunk',
-              'created': created,
-              'model': model,
-              'choices': [
-                {
-                  'index': 0,
-                  'text': token,
-                  'logprobs': null,
-                  'finish_reason': null,
+        Stream<List<int>> sseStream() {
+          final controller = StreamController<List<int>>();
+          final cancelCompleter = Completer<void>();
+
+          controller.onCancel = () {
+            if (!cancelCompleter.isCompleted) {
+              cancelCompleter.complete();
+            }
+          };
+
+          controller.onListen = () {
+            () async {
+              SemaphorePermit? permit;
+              try {
+                permit = await EngineManager.instance.acquireGenerationSlot(
+                    cancelSignal: cancelCompleter.future);
+                final tokenStream = engine.generateStream(
+                  userId,
+                  [Message(role: Role.user, content: prompts.first)],
+                );
+
+                await for (final token in tokenStream) {
+                  final chunk = {
+                    'id': id,
+                    'object': 'text_completion.chunk',
+                    'created': created,
+                    'model': model,
+                    'choices': [
+                      {
+                        'index': 0,
+                        'text': token,
+                        'logprobs': null,
+                        'finish_reason': null,
+                      }
+                    ],
+                  };
+                  controller.add(utf8.encode('data: ${jsonEncode(chunk)}\n\n'));
                 }
-              ],
-            };
-            yield utf8.encode('data: ${jsonEncode(chunk)}\n\n');
-          }
-          yield utf8.encode('data: [DONE]\n\n');
+                controller.add(utf8.encode('data: [DONE]\n\n'));
+              } on QueueCancelledException {
+                // Client disconnected while waiting; do not start generation.
+              } catch (e, stack) {
+                if (!controller.isClosed) controller.addError(e, stack);
+              } finally {
+                permit?.release();
+                if (!controller.isClosed) {
+                  await controller.close();
+                }
+              }
+            }();
+          };
+
+          return controller.stream;
         }
 
         return Response.ok(
@@ -100,16 +138,29 @@ class CompletionsHandler {
         );
       }
 
+      if (EngineManager.instance.isQueueFull) {
+        return Response(
+          429,
+          body: jsonEncode({'error': 'Queue is full'}),
+          headers: {'content-type': 'application/json'},
+        );
+      }
+
       final choices = <Map<String, dynamic>>[];
-      for (var i = 0; i < prompts.length; i++) {
-        final text =
-            await _collectCompletion(engine, userId, prompts[i]);
-        choices.add({
-          'index': i,
-          'text': text,
-          'logprobs': null,
-          'finish_reason': 'stop',
-        });
+      SemaphorePermit? permit;
+      try {
+        permit = await EngineManager.instance.acquireGenerationSlot();
+        for (var i = 0; i < prompts.length; i++) {
+          final text = await _collectCompletion(engine, userId, prompts[i]);
+          choices.add({
+            'index': i,
+            'text': text,
+            'logprobs': null,
+            'finish_reason': 'stop',
+          });
+        }
+      } finally {
+        permit?.release();
       }
 
       final response = {

@@ -137,17 +137,56 @@ class ChatHandler {
         }
       }
 
-      final tokenStream = engine.generateStream(userId, messages,
-          isFreshSession: isFreshSession);
+      if (EngineManager.instance.isQueueFull) {
+        return Response(
+          429,
+          body: jsonEncode({'error': 'Queue is full'}),
+          headers: {'content-type': 'application/json'},
+        );
+      }
 
-      // Create the SSE byte stream with [DONE] signal
-      Stream<List<int>> sseStream() async* {
-        final filter = _TokenStreamFilter();
-        try {
-          await for (final token in tokenStream) {
-            final filtered = filter.process(token);
-            if (filtered.done) {
-              if (filtered.text.isNotEmpty) {
+      Stream<List<int>> sseStream() {
+        final controller = StreamController<List<int>>();
+        final cancelCompleter = Completer<void>();
+
+        controller.onCancel = () {
+          if (!cancelCompleter.isCompleted) {
+            cancelCompleter.complete();
+          }
+        };
+
+        controller.onListen = () {
+          () async {
+            final filter = _TokenStreamFilter();
+            SemaphorePermit? permit;
+            try {
+              permit = await EngineManager.instance.acquireGenerationSlot(
+                  cancelSignal: cancelCompleter.future);
+              final tokenStream = engine.generateStream(userId, messages,
+                  isFreshSession: isFreshSession);
+
+              await for (final token in tokenStream) {
+                final filtered = filter.process(token);
+                if (filtered.done) {
+                  if (filtered.text.isNotEmpty) {
+                    final chunk = {
+                      "id": "chatcmpl-${DateTime.now().millisecondsSinceEpoch}",
+                      "object": "chat.completion.chunk",
+                      "created": DateTime.now().millisecondsSinceEpoch ~/ 1000,
+                      "model": engine.config.name,
+                      "choices": [
+                        {
+                          "index": 0,
+                          "delta": {"content": filtered.text},
+                          "finish_reason": null
+                        }
+                      ]
+                    };
+                    controller.add(utf8.encode('data: ${jsonEncode(chunk)}\n\n'));
+                  }
+                  break;
+                }
+                if (filtered.text.isEmpty) continue;
                 final chunk = {
                   "id": "chatcmpl-${DateTime.now().millisecondsSinceEpoch}",
                   "object": "chat.completion.chunk",
@@ -156,55 +195,48 @@ class ChatHandler {
                   "choices": [
                     {
                       "index": 0,
-                      "delta": {"content": filtered.text},
+                      "delta": {"content": token},
                       "finish_reason": null
                     }
                   ]
                 };
-                yield utf8.encode('data: ${jsonEncode(chunk)}\n\n');
+                controller.add(utf8.encode('data: ${jsonEncode(chunk)}\n\n'));
               }
-              break;
+
+              final remainder = filter.flush();
+              if (remainder.isNotEmpty) {
+                final chunk = {
+                  "id": "chatcmpl-${DateTime.now().millisecondsSinceEpoch}",
+                  "object": "chat.completion.chunk",
+                  "created": DateTime.now().millisecondsSinceEpoch ~/ 1000,
+                  "model": engine.config.name,
+                  "choices": [
+                    {
+                      "index": 0,
+                      "delta": {"content": remainder},
+                      "finish_reason": null
+                    }
+                  ]
+                };
+                controller.add(utf8.encode('data: ${jsonEncode(chunk)}\n\n'));
+              }
+
+              controller.add(utf8.encode('data: [DONE]\n\n'));
+            } on QueueCancelledException {
+              // Client disconnected while waiting; do not start generation.
+            } catch (e, stack) {
+              if (!controller.isClosed) controller.addError(e, stack);
+            } finally {
+              permit?.release();
+              _cleanupTempFiles(tempFiles);
+              if (!controller.isClosed) {
+                await controller.close();
+              }
             }
-            if (filtered.text.isEmpty) continue;
-            final chunk = {
-              "id": "chatcmpl-${DateTime.now().millisecondsSinceEpoch}",
-              "object": "chat.completion.chunk",
-              "created": DateTime.now().millisecondsSinceEpoch ~/ 1000,
-              "model": engine.config.name,
-              "choices": [
-                {
-                  "index": 0,
-                  "delta": {"content": token},
-                  "finish_reason": null
-                }
-              ]
-            };
-            yield utf8.encode('data: ${jsonEncode(chunk)}\n\n');
-          }
+          }();
+        };
 
-          final remainder = filter.flush();
-          if (remainder.isNotEmpty) {
-            final chunk = {
-              "id": "chatcmpl-${DateTime.now().millisecondsSinceEpoch}",
-              "object": "chat.completion.chunk",
-              "created": DateTime.now().millisecondsSinceEpoch ~/ 1000,
-              "model": engine.config.name,
-              "choices": [
-                {
-                  "index": 0,
-                  "delta": {"content": remainder},
-                  "finish_reason": null
-                }
-              ]
-            };
-            yield utf8.encode('data: ${jsonEncode(chunk)}\n\n');
-          }
-
-          // OpenAI Spec: Signal end of stream
-          yield utf8.encode('data: [DONE]\n\n');
-        } finally {
-          _cleanupTempFiles(tempFiles);
-        }
+        return controller.stream;
       }
 
       outboundStream = sseStream();
