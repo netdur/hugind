@@ -18,6 +18,7 @@ class AgentCommand extends Command {
     addSubcommand(AgentRunCommand());
     addSubcommand(AgentListCommand());
     addSubcommand(AgentInstallCommand());
+    addSubcommand(AgentRemoveCommand());
   }
 }
 
@@ -290,19 +291,45 @@ class AgentInstallCommand extends Command {
     if (yaml is! YamlMap) {
       throw Exception('agent.yaml is not a valid mapping.');
     }
-    final entryPoint = yaml['entry_point']?.toString() ?? 'main.dart';
-    if (entryPoint.trim().isEmpty) {
+    final entryPointRaw = yaml['entry_point']?.toString() ?? 'main.dart';
+    final entryPoint = entryPointRaw.trim();
+    if (entryPoint.isEmpty) {
       throw Exception('agent.yaml entry_point is empty.');
+    }
+    if (entryPoint == '.' ||
+        entryPoint == '..' ||
+        entryPoint.endsWith(p.separator)) {
+      throw Exception(
+          'agent.yaml entry_point must be a file path, got "$entryPointRaw".');
     }
 
     final entryUri = baseRaw.replace(
         path: '${baseRaw.path}${pathSegments.join('/')}/$entryPoint');
     final entryPath = p.join(dest.path, entryPoint);
-    await File(p.dirname(entryPath)).create(recursive: true);
+    if (Directory(entryPath).existsSync()) {
+      throw Exception(
+          'agent.yaml entry_point must be a file path, got "$entryPointRaw".');
+    }
+    await Directory(p.dirname(entryPath)).create(recursive: true);
     await _downloadFile(entryUri, entryPath);
   }
 
   Future<void> _downloadFile(Uri uri, String destPath) async {
+    // If the destination path is a directory, append the URL filename.
+    final isDirPath = Directory(destPath).existsSync() ||
+        destPath.endsWith(p.separator);
+    if (isDirPath) {
+      var fileName = p.basename(uri.path);
+      if (fileName.isEmpty || fileName == p.separator) {
+        fileName = '';
+      }
+      if (fileName.isNotEmpty) {
+        destPath = p.join(destPath, fileName);
+      } else {
+        throw Exception('Download destination is a directory: $destPath');
+      }
+    }
+    await Directory(p.dirname(destPath)).create(recursive: true);
     final client = http.Client();
     try {
       final resp = await client.get(uri);
@@ -360,6 +387,48 @@ class AgentListCommand extends Command {
       }
     }
     print('');
+  }
+}
+
+class AgentRemoveCommand extends Command {
+  @override
+  final String name = 'remove';
+  @override
+  final String description = 'Remove an installed agent.';
+
+  @override
+  Future<void> run() async {
+    if (argResults!.rest.isEmpty) {
+      print('Usage: hugind agent remove <agent_name>');
+      return;
+    }
+
+    final agentName = argResults!.rest.first;
+    if (agentName.contains(p.separator) || agentName.startsWith('.')) {
+      print('❌ Remove expects an installed agent name, not a path.');
+      return;
+    }
+
+    final agentsDir = Directory(p.join(_configHome(), 'agents'));
+    final agentDir = Directory(p.join(agentsDir.path, agentName));
+    if (!agentDir.existsSync()) {
+      print('❌ Agent "$agentName" not found in ${agentsDir.path}');
+      return;
+    }
+
+    stdout.write('Remove "$agentName"? [y/N] ');
+    final input = stdin.readLineSync()?.toLowerCase();
+    if (input != 'y' && input != 'yes') {
+      print('❌ Removal cancelled.');
+      return;
+    }
+
+    try {
+      await agentDir.delete(recursive: true);
+      print('✅ Agent "$agentName" removed.');
+    } catch (e) {
+      print('❌ Failed to remove agent "$agentName": $e');
+    }
   }
 }
 

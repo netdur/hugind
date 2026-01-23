@@ -11,8 +11,6 @@ permissions:
   filesystem:
     read: true
     write: true
-    allowed_paths:
-      - "../"
   shell:
     allow: false
 
