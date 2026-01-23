@@ -407,7 +407,7 @@ ${cBold}Available Commands:$cReset
           _pendingImage = null; // Clear after sending
         } else if (_pendingText != null) {
           final merged =
-              input.isEmpty ? _pendingText! : '$input\n\n$_pendingText';
+              input.isEmpty ? _pendingText : '$input\n\n$_pendingText';
           userMsg = {'role': 'user', 'content': merged};
           _pendingText = null; // Clear after sending
         } else {

@@ -558,9 +558,9 @@ class AgentRunCommand extends Command {
     }
 
     print('🚀 Launching agent: $agentName');
-    if (backendUrl != null && backendUrl!.isNotEmpty) {
+    if (backendUrl != null && backendUrl.isNotEmpty) {
       print('   • Backend URL: $backendUrl');
-      if (backendModel != null && backendModel!.isNotEmpty) {
+      if (backendModel != null && backendModel.isNotEmpty) {
         print('   • Model: $backendModel');
       }
     } else {
@@ -570,8 +570,8 @@ class AgentRunCommand extends Command {
 
     // 3. Resolve Backend
     String baseUrl;
-    if (backendUrl != null && backendUrl!.isNotEmpty) {
-      baseUrl = _normalizeBaseUrl(backendUrl!);
+    if (backendUrl != null && backendUrl.isNotEmpty) {
+      baseUrl = _normalizeBaseUrl(backendUrl);
       print('ℹ️  Agent "$agentName" connecting to $baseUrl ...');
     } else {
       final configPath = p.join(_configHome(), 'configs', '$backendName.yml');
