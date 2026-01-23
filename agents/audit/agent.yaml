@@ -1,4 +1,4 @@
-name: "agent-auditor"
+name: "agent_auditor"
 version: "0.1.0"
 description: "Security-focused audit of a Hugind agent against its manifest."
 entry_point: "main.dart"
