@@ -1,0 +1,18 @@
+name: "simple-math-agent"
+version: "0.1.0"
+entry_point: "main.dart"
+backend: "qwen3vl-8b"
+permissions:
+  network:
+    allow: false
+    allowed_domains: []
+  filesystem:
+    read: false
+    write: false
+    allowed_paths: []
+  shell:
+    allow: false
+    whitelist: []
+dependencies:
+  mcp: []
+env: []
