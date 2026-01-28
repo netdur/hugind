@@ -114,6 +114,7 @@ class ServiceChild {
       } else if (command is LlamaLoadSession) {
         await _handleLoadSession(command);
       } else if (command is LlamaFreeSession) {
+        print('   🔧 freeSession(${command.sessionId})');
         _service?.freeSession(command.sessionId);
         _knownSessions.remove(command.sessionId);
         // We could send confirmation, but free is usually fire-and-forget or sync-enough
@@ -199,6 +200,8 @@ class ServiceChild {
       if (cmd is LlamaLoadExtended) {
         print(
             "DEBUG: LlamaLoadExtended received with maxSystemRamMb: ${cmd.maxSystemRamMb}");
+        print(
+            "DEBUG: Context nSeqMax=${cmd.contextParams.nSeqMax} nCtx=${cmd.contextParams.nCtx} nBatch=${cmd.contextParams.nBatch}");
       }
 
       _service = LlamaService(
@@ -264,6 +267,10 @@ class ServiceChild {
     // Auto-create session if it's new (required by LlamaService)
     final isStateless = sessionId.startsWith('stateless-');
     final needsCreate = !_knownSessions.contains(sessionId);
+    print(
+        '   🔧 Session=${sessionId} stateless=$isStateless needsCreate=$needsCreate clearHistory=$clearHistory images=${images?.length ?? 0}');
+    print(
+        '   🔧 Sessions active=${_knownSessions.length} subs=${_subscriptions.length}');
 
     // With nSeqMax > 1 (Batching), we don't need complex retry logic for slots.
     // LlamaService internally manages slots based on nSeqMax.
@@ -271,15 +278,18 @@ class ServiceChild {
     if (needsCreate) {
       try {
         if (isStateless) {
+          print('   🔧 createSession($sessionId)');
           await (_service as dynamic).createSession(sessionId);
         } else {
           // Stateful handling (try create, ignore exists if it was implicitly created)
           try {
+            print('   🔧 createSession($sessionId)');
             await (_service as dynamic).createSession(sessionId);
           } catch (_) {}
         }
         _knownSessions.add(sessionId);
       } catch (e) {
+        print('   ❌ createSession failed for $sessionId: $e');
         parentSendPort.send(LlamaResponse.error(
             "Session creation failed for $sessionId: $e", pid));
         return;
@@ -292,6 +302,7 @@ class ServiceChild {
       // This allows explicit control over clearHistory.
 
       if (images != null && images.isNotEmpty) {
+        print('   🔧 generateWithMedia($sessionId)');
         stream = _service!.generateWithMedia(
           sessionId,
           prompt,
@@ -321,6 +332,7 @@ class ServiceChild {
       } else {
         // Text Only: Use the explicit control pattern
         // 1. Get Stream
+        print('   🔧 generateText($sessionId)');
         stream = _service!.generateText(sessionId);
 
         // 2. Subscribe FIRST (Matching user example)
@@ -344,11 +356,13 @@ class ServiceChild {
         _subscriptions[pid] = sub;
 
         // 3. Set Prompt (Triggers generation)
+        print('   🔧 setPrompt($sessionId, clearHistory=$clearHistory)');
         await _service!
             .setPrompt(sessionId, prompt, clearHistory: clearHistory);
         _waitForCompletion(sessionId, pid);
       }
     } catch (e) {
+      print('   ❌ Generation start failed for $sessionId: $e');
       parentSendPort
           .send(LlamaResponse.error("Generation start failed: $e", pid));
     }

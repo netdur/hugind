@@ -115,11 +115,13 @@ CompilationUnit _parse(String source, DiagnosticMode diagnosticMode) {
               diagnosticMode == DiagnosticMode.throwIfErrorOrWarning ||
               diagnosticMode == DiagnosticMode.throwErrorPrintWarnings ||
               diagnosticMode == DiagnosticMode.throwErrorPrintAll)) {
-        throw CompileError('Parsing error: ${error.message}');
+        throw CompileError(
+            'Parsing error: ${error.message}', null, null, null, error.offset);
       }
       if (error.severity == Severity.warning &&
           diagnosticMode == DiagnosticMode.throwIfErrorOrWarning) {
-        throw CompileError('Parsing warning: ${error.message}');
+        throw CompileError('Parsing warning: ${error.message}', null, null,
+            null, error.offset);
       }
       if (error.severity == Severity.error &&
           diagnosticMode != DiagnosticMode.ignore) {

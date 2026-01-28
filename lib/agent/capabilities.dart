@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'dart:async';
-import 'package:interact/interact.dart';
+
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:path/path.dart' as p;
@@ -55,9 +55,12 @@ class SysCapability {
 
   Future<bool> confirm(String message) async {
     try {
-      return Confirm(prompt: message, defaultValue: true).interact();
+      stdout.write('$message [y/N] ');
+      final input = stdin.readLineSync();
+      if (input == null) return false;
+      final lower = input.toLowerCase().trim();
+      return lower == 'y' || lower == 'yes';
     } catch (_) {
-      // Fallback if not interactive (fail closed)
       return false;
     }
   }
@@ -116,6 +119,14 @@ class SysCapability {
     }
     await Directory(path).create(recursive: recursive);
     return true;
+  }
+
+  dynamic jsonDecodeValue(String source) {
+    return jsonDecode(source);
+  }
+
+  String jsonEncodeValue(dynamic value) {
+    return jsonEncode(value);
   }
 
   bool _isAllowed(String path) {
@@ -186,7 +197,8 @@ class NetworkCapability {
   final List<String> allowedDomains;
   final bool networkAllowed;
 
-  NetworkCapability({this.allowedDomains = const [], this.networkAllowed = true});
+  NetworkCapability(
+      {this.allowedDomains = const [], this.networkAllowed = true});
 
   Future<String> fetch(String url) async {
     if (!networkAllowed) {
@@ -441,8 +453,7 @@ class LlmCapability {
         }
       }
 
-      final resp = await http
-          .post(uri, body: body, headers: headers);
+      final resp = await http.post(uri, body: body, headers: headers);
       _started = true;
       if (resp.statusCode != 200) {
         throw Exception('LLM error ${resp.statusCode}: ${resp.body}');

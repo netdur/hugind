@@ -21,7 +21,9 @@ import 'offset_tracker.dart';
 abstract class AbstractScopeContext {
   int get scopeFrameOffset;
 
-  set scopeFrameOffset(int s);
+  set scopeFrameOffset(int s) {
+    // print('scopeFrameOffset -> $s');
+  }
 
   List<Map<String, Variable>> get locals;
 
@@ -36,7 +38,17 @@ abstract class AbstractScopeContext {
 
 mixin ScopeContext on Object implements AbstractScopeContext {
   @override
-  int scopeFrameOffset = 0;
+  int _scopeFrameOffset = 0;
+
+  @override
+  int get scopeFrameOffset => _scopeFrameOffset;
+
+  @override
+  set scopeFrameOffset(int s) {
+    // print('ScopeContext offset: $_scopeFrameOffset -> $s');
+    _scopeFrameOffset = s;
+  }
+
   @override
   List<Map<String, Variable>> locals = [];
   @override
@@ -84,14 +96,26 @@ mixin ScopeContext on Object implements AbstractScopeContext {
 
   Variable setLocal(String name, Variable v, {int? frame}) {
     if (frame != null) {
-      return locals[frame][name] = v
+      final assigned = locals[frame][name] = v
         ..name = name
         ..frameIndex = frame;
+      if (this is CompilerContext &&
+          (this as CompilerContext).debugAsyncFrameLayout) {
+        // print(
+        //     '[dart_eval][async] local $name -> L${assigned.scopeFrameOffset} (frame $frame)');
+      }
+      return assigned;
     }
 
-    return locals.last[name] = v
+    final assigned = locals.last[name] = v
       ..name = name
       ..frameIndex = locals.length - 1;
+    if (this is CompilerContext &&
+        (this as CompilerContext).debugAsyncFrameLayout) {
+      // print(
+      //    '[dart_eval][async] local $name -> L${assigned.scopeFrameOffset} (frame ${locals.length - 1})');
+    }
+    return assigned;
   }
 
   Variable? lookupLocal(String name) {
@@ -203,6 +227,7 @@ class CompilerContext with ScopeContext {
   final List<Variable> caughtExceptions = [];
   PrescanContext? preScan;
   int nearestAsyncFrame = -1;
+  bool debugAsyncFrameLayout = false;
   int globalIndex = 0;
   String? version;
 
@@ -275,12 +300,37 @@ class CompilerContext with ScopeContext {
   }
 
   @override
+  int endAllocScopeQuiet({bool popValues = true, int popAdjust = 0}) {
+    final inAsync =
+        nearestAsyncFrame != -1 && (locals.length - 1) >= nearestAsyncFrame;
+    if (inAsync) {
+      locals.removeLast();
+      final nestCount = allocNest.removeLast();
+      return nestCount;
+    }
+    return super.endAllocScopeQuiet(popValues: popValues, popAdjust: popAdjust);
+  }
+
+  @override
   int endAllocScope({bool popValues = true, int popAdjust = 0}) {
-    if (preScan?.closedFrames.contains(locals.length - 1) ?? false) {
+    final inAsync =
+        nearestAsyncFrame != -1 && (locals.length - 1) >= nearestAsyncFrame;
+
+    if (!inAsync &&
+        (preScan?.closedFrames.contains(locals.length - 1) ?? false)) {
       pushOp(PopScope.make(), PopScope.LEN);
       popValues = false;
     }
+
     scopeDoesClose.removeLast();
+    if (inAsync) {
+      // Preserve stack slots in async functions to avoid register reuse.
+      if (!popValues) {
+        locals.removeLast();
+        final nestCount = allocNest.removeLast();
+        return nestCount;
+      }
+    }
     return super.endAllocScope(popValues: popValues, popAdjust: popAdjust);
   }
 

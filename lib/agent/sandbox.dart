@@ -9,7 +9,80 @@ import 'package:dart_eval/src/eval/shared/stdlib/collection.dart'
 import 'package:dart_eval/src/eval/shared/stdlib/convert.dart'
     as dart_eval_convert;
 import 'package:dart_eval/src/eval/shared/stdlib/core.dart' as dart_eval_core;
+import 'package:dart_eval/src/eval/compiler/errors.dart';
 import 'capabilities.dart';
+
+String _normalizeRawStrings(String source) {
+  bool isIdentChar(int codeUnit) {
+    if (codeUnit >= 0x30 && codeUnit <= 0x39) return true; // 0-9
+    if (codeUnit >= 0x41 && codeUnit <= 0x5A) return true; // A-Z
+    if (codeUnit >= 0x61 && codeUnit <= 0x7A) return true; // a-z
+    return codeUnit == 0x5F; // _
+  }
+
+  String repeatChar(String ch, int count) {
+    var out = '';
+    for (var i = 0; i < count; i++) {
+      out += ch;
+    }
+    return out;
+  }
+
+  int findDelimiter(String s, int start, String quote, int len) {
+    if (len == 1) {
+      return s.indexOf(quote, start);
+    }
+    var i = start;
+    while (i <= s.length - len) {
+      if (s.substring(i, i + 1) == quote) {
+        if (s.substring(i, i + len) == repeatChar(quote, len)) {
+          return i;
+        }
+      }
+      i += 1;
+    }
+    return -1;
+  }
+
+  final buf = StringBuffer();
+  var i = 0;
+  while (i < source.length) {
+    final ch = source.substring(i, i + 1);
+    if ((ch == 'r' || ch == 'R') && i + 1 < source.length) {
+      final next = source.substring(i + 1, i + 2);
+      final prevIdent = i > 0 && isIdentChar(source.codeUnitAt(i - 1));
+      if (!prevIdent && (next == '\'' || next == '"')) {
+        var delimLen = 1;
+        if (i + 3 < source.length) {
+          final n2 = source.substring(i + 2, i + 3);
+          final n3 = source.substring(i + 3, i + 4);
+          if (n2 == next && n3 == next) {
+            delimLen = 3;
+          }
+        }
+
+        final startContent = i + 1 + delimLen;
+        final end = findDelimiter(source, startContent, next, delimLen);
+        if (end >= 0) {
+          final rawContent = source.substring(startContent, end);
+          final escaped =
+              rawContent.replaceAll('\\', '\\\\').replaceAll(r'$', r'\$');
+          final delim = repeatChar(next, delimLen);
+          buf.write(delim);
+          buf.write(escaped);
+          buf.write(delim);
+          i = end + delimLen;
+          continue;
+        }
+      }
+    }
+
+    buf.write(ch);
+    i += 1;
+  }
+
+  return buf.toString();
+}
 
 class AgentSandbox {
   final SysCapability sys;
@@ -147,6 +220,20 @@ class AgentSandbox {
                   ],
                   namedParams: []),
               isStatic: true),
+          'sysJsonDecode': BridgeMethodDef(
+              BridgeFunctionDef(
+                  returns: BridgeTypeAnnotation(
+                      BridgeTypeRef(CoreTypes.object, []),
+                      nullable: true),
+                  params: [
+                    BridgeParameter(
+                        'source',
+                        BridgeTypeAnnotation(
+                            BridgeTypeRef(CoreTypes.string, [])),
+                        false)
+                  ],
+                  namedParams: []),
+              isStatic: true),
           'sysPrint': BridgeMethodDef(
               BridgeFunctionDef(
                   returns: BridgeTypeAnnotation(
@@ -230,7 +317,9 @@ class AgentSandbox {
          external static Future<String> sysReadFile(String path);
          external static Future<bool> sysWriteFile(String path, String contents);
          external static Future<bool> sysExists(String path);
+
          external static Future<bool> sysMkdir(String path);
+         external static dynamic sysJsonDecode(String source);
          external static void sysPrint(String message);
          external static Future<String> llmChat(String prompt);
          external static Future<String> netFetch(String url);
@@ -285,6 +374,10 @@ class AgentSandbox {
         Future<bool> mkdir(String path) {
            return Bridge.sysMkdir(path);
         }
+
+        dynamic jsonDecode(String source) {
+           return Bridge.sysJsonDecode(source);
+        }
         
         void print(String? msg) {
            Bridge.sysPrint(msg ?? 'null');
@@ -317,7 +410,7 @@ class AgentSandbox {
       }
     ''';
 
-    final fullSource = '$prelude\n$sourceCode';
+    final fullSource = _normalizeRawStrings('$prelude\n$sourceCode');
 
     try {
       final program = compiler.compile({
@@ -388,8 +481,8 @@ class AgentSandbox {
         return $String(sys.readInput(prompt));
       });
 
-      runtime.registerBridgeFunc('package:agent/main.dart', 'Bridge.sysReadFile',
-          (rt, target, args) {
+      runtime.registerBridgeFunc(
+          'package:agent/main.dart', 'Bridge.sysReadFile', (rt, target, args) {
         final path = args[0] is $Value
             ? (args[0] as $Value).$value as String
             : args[0] as String;
@@ -427,6 +520,39 @@ class AgentSandbox {
         return $Future.wrap(future.then((v) => $bool(v)));
       });
 
+      runtime
+          .registerBridgeFunc('package:agent/main.dart', 'Bridge.sysJsonDecode',
+              (rt, target, args) {
+        $Value wrap(dynamic value) {
+          if (value == null) return $null();
+          if (value is String) return $String(value);
+          if (value is int) return $int(value);
+          if (value is double) return $double(value);
+          if (value is bool) return $bool(value);
+          if (value is List) {
+            return $List.wrap(value.map(wrap).toList());
+          }
+          if (value is Map) {
+            return $Map.wrap(value.map((k, v) => MapEntry(wrap(k), wrap(v))));
+          }
+          return $String(value.toString());
+        }
+
+        final source = args[0] is $Value
+            ? (args[0] as $Value).$value as String
+            : args[0] as String;
+        // Use Future.sync to handle both synchronous and asynchronous results if SysCapability changes
+        // But jsonDecodeValue is currently synchronous in SysCapability.
+        // However, the bridge definition says Future<dynamic>.
+        // We will wrap result in Future.
+        try {
+          final result = sys.jsonDecodeValue(source);
+          return wrap(result);
+        } catch (e) {
+          throw e;
+        }
+      });
+
       runtime.registerBridgeFunc('package:agent/main.dart', 'Bridge.sysPrint',
           (rt, target, args) {
         String coerceString(dynamic value) {
@@ -441,24 +567,67 @@ class AgentSandbox {
           return value?.toString() ?? '';
         }
 
-        sys.printMsg(coerceString(args[0]));
+        if (args.isEmpty) {
+          sys.printMsg('null');
+          return null;
+        }
+        final a0 = args[0];
+        sys.printMsg(coerceString(a0));
         return null;
       });
 
       runtime.registerBridgeFunc('package:agent/main.dart', 'Bridge.llmChat',
           (rt, target, args) {
-        final prompt = args[0] is $Value
-            ? (args[0] as $Value).$value as String
-            : args[0] as String;
+        String unwrapString(dynamic value) {
+          if (value is $Value) {
+            final raw = value.$value;
+            if (raw is String) return raw;
+            final reified = value.$reified;
+            if (reified is String) return reified;
+            return reified?.toString() ?? raw?.toString() ?? '';
+          }
+          if (value is String) return value;
+          return value?.toString() ?? '';
+        }
+
+        if (args.isNotEmpty) {
+          final a0 = args[0];
+          final rawType = a0 is $Value
+              ? (a0 as $Value).$value?.runtimeType
+              : a0?.runtimeType;
+          sys.printMsg(
+              '[bridge] llmChat arg0 type: ${a0.runtimeType}, raw type: $rawType');
+        }
+
+        final prompt = unwrapString(args.isNotEmpty ? args[0] : null);
         final future = llm.chat(prompt);
         return $Future.wrap(future.then((s) => $String(s)));
       });
 
       runtime.registerBridgeFunc('package:agent/main.dart', 'Bridge.netFetch',
           (rt, target, args) {
-        final url = args[0] is $Value
-            ? (args[0] as $Value).$value as String
-            : args[0] as String;
+        String unwrapString(dynamic value) {
+          if (value is $Value) {
+            final raw = value.$value;
+            if (raw is String) return raw;
+            final reified = value.$reified;
+            if (reified is String) return reified;
+            return reified?.toString() ?? raw?.toString() ?? '';
+          }
+          if (value is String) return value;
+          return value?.toString() ?? '';
+        }
+
+        if (args.isNotEmpty) {
+          final a0 = args[0];
+          final rawType = a0 is $Value
+              ? (a0 as $Value).$value?.runtimeType
+              : a0?.runtimeType;
+          sys.printMsg(
+              '[bridge] netFetch arg0 type: ${a0.runtimeType}, raw type: $rawType');
+        }
+
+        final url = unwrapString(args.isNotEmpty ? args[0] : null);
         final future = net.fetch(url);
         return $Future.wrap(future.then((s) => $String(s)));
       });
@@ -501,8 +670,75 @@ class AgentSandbox {
       if (result is $Future) {
         await result.$value;
       }
+    } on CompileError catch (e) {
+      var message = e.message;
+      var line = -1;
+
+      if (e.node != null || e.offset != null) {
+        final offset = e.offset ?? e.node!.offset;
+        final preludeLines = '\n'.allMatches(prelude).length +
+            1; // +1 for the \n between prelude and source
+
+        // Find line number in fullSource
+        var fullLine = 1;
+        for (var i = 0; i < fullSource.length; i++) {
+          if (i == offset) break;
+          if (fullSource[i] == '\n') {
+            fullLine++;
+          }
+        }
+
+        if (fullLine > preludeLines) {
+          line = fullLine - preludeLines;
+          message = "$message at line $line";
+        } else {
+          message = "$message (in prelude)";
+        }
+      }
+
+      throw Exception("Sandbox Compilation Error: $message");
     } catch (e, st) {
-      throw Exception("Sandbox Error: $e\n$st");
+      // Attempt to adjust stack trace for runtime exceptions
+      var stackStr = st.toString();
+      var errorStr = e.toString();
+      try {
+        final preludeLines = '\n'.allMatches(prelude).length + 1;
+
+        String adjustOffsets(String input) {
+          final lines = input.split('\n');
+          for (var i = 0; i < lines.length; i++) {
+            final line = lines[i];
+            if (line.contains('package:agent/main.dart:')) {
+              final regex = RegExp(r'package:agent/main.dart:(\d+)');
+              final match = regex.firstMatch(line);
+              if (match != null) {
+                final rawOffset = int.parse(match.group(1)!);
+                // We need to convert this raw offset to a line number in user code
+                if (rawOffset > prelude.length) {
+                  var userOffset = rawOffset -
+                      prelude.length -
+                      1; // -1 for newline separator
+                  // Find line number for this userOffset in sourceCode
+                  var lineNum = 1;
+                  for (var k = 0;
+                      k < userOffset && k < sourceCode.length;
+                      k++) {
+                    if (sourceCode[k] == '\n') lineNum++;
+                  }
+                  lines[i] = line.replaceFirst(
+                      match.group(0)!, 'package:agent/main.dart:$lineNum');
+                }
+              }
+            }
+          }
+          return lines.join('\n');
+        }
+
+        stackStr = adjustOffsets(stackStr);
+        errorStr = adjustOffsets(errorStr);
+      } catch (_) {}
+
+      throw Exception("Sandbox Error: $errorStr\n$stackStr");
     } finally {
       await mcp.stopAll();
     }

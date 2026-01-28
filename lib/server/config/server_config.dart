@@ -12,6 +12,7 @@ class ServerConfig {
   final String systemPrompt;
   final bool embeddingsEnabled;
   final String sessionHome;
+  final bool verbose;
 
   // Engine ID
   final String name;
@@ -42,5 +43,6 @@ class ServerConfig {
     required this.contextParams,
     required this.samplerParams,
     this.chatFormat,
+    this.verbose = false,
   });
 }

@@ -1,6 +1,7 @@
 // ignore_for_file: non_constant_identifier_names, constant_identifier_names
 
 import 'package:dart_eval/dart_eval_bridge.dart';
+import 'package:dart_eval/src/eval/runtime/exception.dart';
 import 'package:dart_eval/stdlib/core.dart';
 
 /// dart_eval [$Instance] representation of an [Object]
@@ -135,7 +136,7 @@ class $Object implements $Instance {
         return $int($value.hashCode);
     }
 
-    throw UnimplementedError();
+    throw EvalUnknownPropertyException(identifier);
   }
 
   /// dart_eval implementation of [Object.hash]

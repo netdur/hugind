@@ -116,6 +116,10 @@ class Runtime {
         bridgeEnumMappings = program.enumMappings,
         globalInitializers = program.globalInitializers,
         overrideMap = program.overrideMap {
+    _libraryIndexMap.addAll({
+      for (final entry in program.bridgeLibraryMappings.entries)
+        entry.value: entry.key
+    });
     declarations = program.topLevelDeclarations;
     constantPool.addAll(program.constantPool);
     program.instanceDeclarations.forEach((file, $class) {
@@ -203,6 +207,10 @@ class Runtime {
 
     _bridgeLibraryMappings =
         (json.decode(encodedBridgeLibraryMappings) as Map).cast();
+
+    _libraryIndexMap.addAll({
+      for (final entry in _bridgeLibraryMappings.entries) entry.value: entry.key
+    });
 
     bridgeFuncMappings = (json.decode(encodedBridgeFuncMappings) as Map)
         .cast<String, Map>()
@@ -711,6 +719,14 @@ class Runtime {
   /// Scope name stack
   final scopeNameStack = <String>[];
 
+  /// Scope file stack
+  final scopeFileStack = <int>[];
+
+  /// Scope offset stack
+  final scopeOffsetStack = <int>[];
+
+  final _libraryIndexMap = <int, String>{};
+
   /// The current frame (usually stack.last)
   List<Object?> frame = [];
 
@@ -808,6 +824,8 @@ class Runtime {
       catchStack.add([]);
       while (true) {
         final op = pr[_prOffset++];
+        // print(
+        //     '[TRACE] Op: $op | Offset: $offset | FrameOffset: ${op is EvcOp ? _scopeFrameOffset : 0}');
         op.run(this);
       }
     } on ProgramExit catch (_) {
@@ -974,8 +992,20 @@ class RuntimeException implements Exception {
       }
     }
 
+    var stackTraceStr = stackTrace.toString().split("\n").take(3).join('\n');
+    final scriptStack = <String>[
+      if (runtime.scopeFileStack.isNotEmpty)
+        for (var i = runtime.scopeFileStack.length - 1; i >= 0; i--)
+          '${runtime._libraryIndexMap[runtime.scopeFileStack[i]] ?? 'unknown source'}'
+              ':${runtime.scopeOffsetStack[i]}'
+    ];
+    if (scriptStack.isNotEmpty) {
+      stackTraceStr =
+          '$stackTraceStr\nScript Stack:\n${scriptStack.take(10).join('\n')}';
+    }
+
     return 'dart_eval runtime exception: $caughtException\n'
-        '${stackTrace.toString().split("\n").take(3).join('\n')}\n'
+        '$stackTraceStr\n'
         '$scopeNames\n'
         'RUNTIME STATE\n'
         '=============\n'

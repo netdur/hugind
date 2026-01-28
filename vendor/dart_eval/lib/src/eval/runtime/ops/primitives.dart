@@ -197,7 +197,21 @@ class BoxInt implements EvcOp {
   @override
   void run(Runtime runtime) {
     final reg = _reg;
-    runtime.frame[reg] = $int(runtime.frame[reg] as int);
+    final value = runtime.frame[reg];
+    if (value is $int) return;
+    if (value is $Value) {
+      final raw = value.$value;
+      if (raw is int) {
+        runtime.frame[reg] = $int(raw);
+        return;
+      }
+      final reified = value.$reified;
+      if (reified is int) {
+        runtime.frame[reg] = $int(reified);
+        return;
+      }
+    }
+    runtime.frame[reg] = $int(value as int);
   }
 
   @override
@@ -216,7 +230,21 @@ class BoxDouble implements EvcOp {
   @override
   void run(Runtime runtime) {
     final reg = _reg;
-    runtime.frame[reg] = $double(runtime.frame[reg] as double);
+    final value = runtime.frame[reg];
+    if (value is $double) return;
+    if (value is $Value) {
+      final raw = value.$value;
+      if (raw is double) {
+        runtime.frame[reg] = $double(raw);
+        return;
+      }
+      final reified = value.$reified;
+      if (reified is double) {
+        runtime.frame[reg] = $double(reified);
+        return;
+      }
+    }
+    runtime.frame[reg] = $double(value as double);
   }
 
   @override
@@ -235,7 +263,21 @@ class BoxNum implements EvcOp {
   @override
   void run(Runtime runtime) {
     final reg = _reg;
-    runtime.frame[reg] = $num(runtime.frame[reg] as num);
+    final value = runtime.frame[reg];
+    if (value is $num) return;
+    if (value is $Value) {
+      final raw = value.$value;
+      if (raw is num) {
+        runtime.frame[reg] = $num(raw);
+        return;
+      }
+      final reified = value.$reified;
+      if (reified is num) {
+        runtime.frame[reg] = $num(reified);
+        return;
+      }
+    }
+    runtime.frame[reg] = $num(value as num);
   }
 
   @override
@@ -263,8 +305,9 @@ class BoxString implements EvcOp {
         return;
       }
       final reified = value.$reified;
-      runtime.frame[reg] = $String(
-          (reified is String) ? reified : (reified?.toString() ?? raw?.toString() ?? ''));
+      runtime.frame[reg] = $String((reified is String)
+          ? reified
+          : (reified?.toString() ?? raw?.toString() ?? ''));
       return;
     }
     if (value is String) {
@@ -290,7 +333,50 @@ class BoxList implements EvcOp {
   @override
   void run(Runtime runtime) {
     final reg = _reg;
-    runtime.frame[reg] = $List.wrap(<$Value>[...(runtime.frame[reg] as List)]);
+    final value = runtime.frame[reg];
+    if (value is $List) return;
+    if (value is $Value) {
+      final raw = value.$value;
+      if (raw is List) {
+        runtime.frame[reg] = $List.wrap(<$Value>[...raw]);
+        return;
+      }
+      final reified = value.$reified;
+      if (reified is List) {
+        runtime.frame[reg] = $List.wrap(<$Value>[...reified]);
+        return;
+      }
+      if (reified is Iterable) {
+        runtime.frame[reg] = $List.wrap(<$Value>[...reified]);
+        return;
+      }
+    }
+    if (value is List) {
+      runtime.frame[reg] = $List.wrap(<$Value>[...value]);
+      return;
+    }
+    if (value is Iterable) {
+      runtime.frame[reg] = $List.wrap(<$Value>[...value]);
+      return;
+    }
+    try {
+      final start = reg - 3;
+      final end = reg + 3;
+      final buf = StringBuffer();
+      for (var i = start; i <= end; i++) {
+        if (i < 0 || i >= runtime.frame.length) continue;
+        final v = runtime.frame[i];
+        buf.write('L$i=');
+        buf.write(v?.runtimeType);
+        buf.write(' ');
+      }
+      print('[dart_eval] BoxList type mismatch at L$reg: '
+          '${value?.runtimeType} ($value). Nearby: ${buf.toString().trim()}');
+    } catch (_) {
+      // ignore tracing errors
+    }
+    throw Exception(
+        'Runtime Error: Expected a List, but found ${value?.runtimeType} ($value) at register $reg.');
   }
 
   @override
@@ -328,8 +414,26 @@ class BoxMap implements EvcOp {
   @override
   void run(Runtime runtime) {
     final reg = _reg;
-    runtime.frame[reg] =
-        $Map.wrap(<$Value, $Value>{...(runtime.frame[reg] as Map)});
+    final value = runtime.frame[reg];
+    if (value is $Map) return;
+    if (value is $Value) {
+      final raw = value.$value;
+      if (raw is Map) {
+        runtime.frame[reg] = $Map.wrap(<$Value, $Value>{...raw});
+        return;
+      }
+      final reified = value.$reified;
+      if (reified is Map) {
+        runtime.frame[reg] = $Map.wrap(<$Value, $Value>{...reified});
+        return;
+      }
+    }
+    if (value is Map) {
+      runtime.frame[reg] = $Map.wrap(<$Value, $Value>{...value});
+      return;
+    }
+    throw Exception(
+        'Runtime Error: Expected a Map, but found ${value?.runtimeType} ($value) at register $reg.');
   }
 
   @override
@@ -348,7 +452,34 @@ class BoxSet implements EvcOp {
   @override
   void run(Runtime runtime) {
     final reg = _reg;
-    runtime.frame[reg] = $Set.wrap(<$Value>{...(runtime.frame[reg] as Set)});
+    final value = runtime.frame[reg];
+    if (value is $Set) return;
+    if (value is $Value) {
+      final raw = value.$value;
+      if (raw is Set) {
+        runtime.frame[reg] = $Set.wrap(<$Value>{...raw});
+        return;
+      }
+      final reified = value.$reified;
+      if (reified is Set) {
+        runtime.frame[reg] = $Set.wrap(<$Value>{...reified});
+        return;
+      }
+      if (reified is Iterable) {
+        runtime.frame[reg] = $Set.wrap(<$Value>{...reified});
+        return;
+      }
+    }
+    if (value is Set) {
+      runtime.frame[reg] = $Set.wrap(<$Value>{...value});
+      return;
+    }
+    if (value is Iterable) {
+      runtime.frame[reg] = $Set.wrap(<$Value>{...value});
+      return;
+    }
+    throw Exception(
+        'Runtime Error: Expected a Set, but found ${value?.runtimeType} ($value) at register $reg.');
   }
 
   @override

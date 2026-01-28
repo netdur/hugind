@@ -87,7 +87,7 @@ sampling:
 - `server.session_home` defaults to `<data_home>/sessions/` unless overridden.
 - `model.path` is required; Hugind resolves `~` and relative paths.
 - `context.nSeqMax` is derived from `server.max_slots` in code.
-- `chat.format` supports `auto`, `chatml`, `qwen3`, `gemma`, `alpaca`, `harmony`.
+- `chat.format` supports `none`, `chatml`, `chatmlThinking`, `qwen3`, `gemma`, `alpaca`, `harmony`.
 - `embeddings: true` enables only `/v1/embeddings` and disables chat/completions.
 - Only `sampling.temp`, `sampling.top_k`, `sampling.top_p`, `sampling.min_p`, and `sampling.dry_multiplier` are consumed today.
 

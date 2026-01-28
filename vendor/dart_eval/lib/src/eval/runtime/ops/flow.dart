@@ -45,6 +45,8 @@ class PushScope implements EvcOp {
     final frame = List<Object?>.filled(255, null);
     runtime.stack.add(frame);
     runtime.scopeNameStack.add(frName);
+    runtime.scopeFileStack.add(sourceFile);
+    runtime.scopeOffsetStack.add(sourceOffset);
     runtime.frame = frame;
     runtime.frameOffsetStack.add(runtime.frameOffset);
     runtime.frameOffset = runtime.args.length;
@@ -89,6 +91,8 @@ class PopScope implements EvcOp {
   void run(Runtime runtime) {
     runtime.stack.removeLast();
     runtime.scopeNameStack.removeLast();
+    runtime.scopeFileStack.removeLast();
+    runtime.scopeOffsetStack.removeLast();
     if (runtime.stack.isNotEmpty) {
       runtime.frame = runtime.stack.last;
       runtime.frameOffset = runtime.frameOffsetStack.removeLast();
@@ -200,6 +204,8 @@ class Return implements EvcOp {
 
     runtime.stack.removeLast();
     runtime.scopeNameStack.removeLast();
+    runtime.scopeFileStack.removeLast();
+    runtime.scopeOffsetStack.removeLast();
     if (runtime.stack.isNotEmpty) {
       runtime.frame = runtime.stack.last;
       runtime.frameOffset = runtime.frameOffsetStack.removeLast();
@@ -244,6 +250,8 @@ class ReturnAsync implements EvcOp {
 
     runtime.stack.removeLast();
     runtime.scopeNameStack.removeLast();
+    runtime.scopeFileStack.removeLast();
+    runtime.scopeOffsetStack.removeLast();
     if (runtime.stack.isNotEmpty) {
       runtime.frame = runtime.stack.last;
       runtime.frameOffset = runtime.frameOffsetStack.removeLast();
@@ -425,6 +433,8 @@ class PushFinally implements EvcOp {
     runtime.catchStack.add([]);
     runtime.stack.add(runtime.stack.last);
     runtime.scopeNameStack.add(runtime.scopeNameStack.last);
+    runtime.scopeFileStack.add(runtime.scopeFileStack.last);
+    runtime.scopeOffsetStack.add(runtime.scopeOffsetStack.last);
     runtime.frameOffsetStack.add(runtime.frameOffsetStack.last);
     runtime._prOffset = _tryOffset;
   }

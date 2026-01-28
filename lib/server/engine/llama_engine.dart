@@ -49,7 +49,7 @@ class LlamaEngine {
       contextParams: config.contextParams
         ..nSeqMax = config.maxSlots, // Use max slots from config
       samplingParams: config.samplerParams,
-      verbose: true, // debug
+      verbose: config.verbose,
       mmprojPath: config.mmprojPath,
       sessionHome: config.sessionHome,
       maxSystemRamMb: 65536, // Disable RAM Pressure janitor (set to 64GB)
@@ -109,8 +109,10 @@ class LlamaEngine {
       // userId might contain underscores, so we join all but last
       final userId = parts.sublist(0, parts.length - 1).join('_');
       if (userId.startsWith('stateless-')) {
+        print('   🔧 finishPrompt: freeing session $userId');
         _isolate!.send(LlamaFreeSession(userId));
       } else {
+        print('   🔧 finishPrompt: saving session $userId');
         _isolate!.send(LlamaSaveState(userId));
       }
     }
@@ -137,7 +139,7 @@ class LlamaEngine {
     if (_embeddingsOnly) throw StateError("Embeddings only mode");
 
     // Prepare prompt
-    final format = config.chatFormat ?? ChatFormat.chatml;
+    final format = config.chatFormat;
     final history = ChatHistory();
     for (var m in messages)
       history.addMessage(role: m.role, content: m.content, images: m.images);
@@ -151,7 +153,7 @@ class LlamaEngine {
     // user 'clear' logic is tricky in multi-user service.
     // For now, we just append. (Limitation of this refactor without clear-session support).
 
-    if (isFreshSession) {
+    if (config.chatFormat != null && isFreshSession) {
       if (history.messages.isEmpty ||
           history.messages.first.role != Role.system) {
         history.messages.insert(
@@ -175,7 +177,15 @@ class LlamaEngine {
     String prompt;
     List<LlamaImage>? inputs;
 
-    if (hasImages) {
+    if (format == null) {
+      // Raw / None mode: Just join content
+      prompt = history.messages.map((m) => m.content).join('\n');
+      if (hasImages) {
+        inputs = history.images
+            .map((path) => LlamaImage.fromFile(File(path)))
+            .toList();
+      }
+    } else if (hasImages) {
       final exported =
           history.exportWithMedia(format, leaveLastAssistantOpen: true);
       prompt = exported.$1;

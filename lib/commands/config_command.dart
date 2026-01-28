@@ -145,14 +145,15 @@ class InitCommand extends Command {
 
     // --- F. Chat Format ---
     final chatFormats = [
-      'auto',
+      'none',
       'chatml',
+      'chatmlThinking',
       'qwen3',
       'gemma',
       'alpaca',
-      'harmony'
+      'harmony',
     ];
-    String detectedFormat = 'auto';
+    String detectedFormat = 'none';
     final mLower = p.basename(modelPath).toLowerCase();
     if (mLower.contains('gemma'))
       detectedFormat = 'gemma';

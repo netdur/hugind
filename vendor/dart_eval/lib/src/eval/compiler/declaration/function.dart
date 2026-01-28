@@ -99,13 +99,14 @@ void compileFunctionDeclaration(FunctionDeclaration d, CompilerContext ctx) {
   if (!(stInfo.willAlwaysReturn || stInfo.willAlwaysThrow)) {
     if (b.isAsynchronous) {
       asyncComplete(ctx, -1);
-      return;
     }
   }
 
   ctx.endAllocScope();
 
   if (!(stInfo.willAlwaysReturn || stInfo.willAlwaysThrow)) {
-    ctx.pushOp(Return.make(-1), Return.LEN);
+    if (!b.isAsynchronous) {
+      ctx.pushOp(Return.make(-1), Return.LEN);
+    }
   }
 }

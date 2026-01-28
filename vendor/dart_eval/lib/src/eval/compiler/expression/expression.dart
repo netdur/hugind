@@ -106,6 +106,9 @@ Variable? compileExpressionAndDiscardResult(Expression e, CompilerContext ctx,
     compileExpressionAsReference(e, ctx, cascadeTarget: cascadeTarget);
     return null;
   } else {
-    return compileExpression(e, ctx, bound);
+    ctx.beginAllocScope();
+    final v = compileExpression(e, ctx, bound);
+    ctx.endAllocScope();
+    return v;
   }
 }

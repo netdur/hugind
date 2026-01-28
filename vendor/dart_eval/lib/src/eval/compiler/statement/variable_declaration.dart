@@ -31,6 +31,7 @@ void compileVariableDeclarationList(
     final init = li.initializer;
 
     if (init != null) {
+      final startOffset = ctx.scopeFrameOffset;
       var res = compileExpression(init, ctx, type);
       if (type != null &&
           !res.type.resolveTypeChain(ctx).isAssignableTo(ctx, type)) {
@@ -40,6 +41,15 @@ void compileVariableDeclarationList(
       }
       if (!((type ?? res.type).isUnboxedAcrossFunctionBoundaries)) {
         res = res.boxIfNeeded(ctx);
+      }
+
+      if (res.name == null && ctx.scopeFrameOffset > startOffset + 1) {
+        final diff = ctx.scopeFrameOffset - startOffset;
+        ctx.pushOp(
+            CopyValue.make(startOffset, res.scopeFrameOffset), CopyValue.LEN);
+        ctx.pushOp(Pop.make(diff - 1), Pop.LEN);
+        ctx.scopeFrameOffset -= (diff - 1);
+        res = res.copyWith(scopeFrameOffset: startOffset);
       }
       if (res.name != null) {
         final type0 = type ?? res.type;

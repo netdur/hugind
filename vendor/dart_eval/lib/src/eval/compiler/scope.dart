@@ -23,4 +23,6 @@ void setupAsyncFunction(CompilerContext ctx) {
   ctx.setLocal(
       '#completer', Variable.alloc(ctx, AsyncTypes.completer.ref(ctx)));
   ctx.nearestAsyncFrame = ctx.locals.length - 1;
+  ctx.debugAsyncFrameLayout = true;
+  // print('[dart_eval][async] enable frame debug at frame ${ctx.nearestAsyncFrame}');
 }

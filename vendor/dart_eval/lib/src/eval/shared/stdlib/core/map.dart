@@ -174,6 +174,15 @@ class $Map<K, V> implements Map<K, V>, $Instance {
       Runtime runtime, $Value? target, List<$Value?> args) {
     final idx = args[0]!;
     final map = target!.$value as Map;
+    if (map.containsKey(idx)) {
+      return map[idx];
+    }
+    if (idx is $Value) {
+      final raw = idx.$value;
+      if (map.containsKey(raw)) {
+        return map[raw];
+      }
+    }
     return map[idx];
   }
 
@@ -183,7 +192,20 @@ class $Map<K, V> implements Map<K, V>, $Instance {
       Runtime runtime, $Value? target, List<$Value?> args) {
     final idx = args[0]!;
     final value = args[1]!;
-    return (target!.$value as Map)[idx] = value;
+    final map = target!.$value as Map;
+    if (map.containsKey(idx)) {
+      map[idx] = value;
+      return value;
+    }
+    if (idx is $Value) {
+      final raw = idx.$value;
+      if (map.containsKey(raw)) {
+        map[raw] = value;
+        return value;
+      }
+    }
+    map[idx] = value;
+    return value;
   }
 
   static const $Function __addAll = $Function(_addAll);

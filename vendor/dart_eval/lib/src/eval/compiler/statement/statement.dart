@@ -16,6 +16,7 @@ import 'package:dart_eval/src/eval/compiler/statement/variable_declaration.dart'
 import 'package:dart_eval/src/eval/compiler/statement/while.dart';
 import 'package:dart_eval/src/eval/compiler/statement/continue.dart';
 import 'package:dart_eval/src/eval/compiler/type.dart';
+import 'package:dart_eval/src/eval/runtime/runtime.dart';
 
 import 'block.dart';
 
@@ -30,6 +31,9 @@ StatementInfo compileStatement(
     if (V != null && V.type == CoreTypes.never.ref(ctx)) {
       return StatementInfo(-1, willAlwaysThrow: true);
     }
+    // We do not pop here because of potential stack drift if the expression
+    // pushes more/less than expected. Instead, we rely on VariableDeclaration
+    // cleanup to resync the stack.
     return StatementInfo(-1);
   } else if (s is ReturnStatement) {
     return compileReturn(ctx, s, expectedReturnType);

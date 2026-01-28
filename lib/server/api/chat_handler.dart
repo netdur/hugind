@@ -50,8 +50,19 @@ class ChatHandler {
         // Use a round-robin pool for stateless IDs.
         // FIX: Use sequential counter instead of Random to prevent collisions
         // under high concurrency (e.g. 2 requests picking same random slot).
+        final poolSize = (() {
+          try {
+            final engine =
+                EngineManager.instance.getEngineForUser('stateless-0');
+            final maxSlots = engine.config.maxSlots;
+            if (maxSlots > 0 && maxSlots < 32) return maxSlots;
+          } catch (_) {
+            // Fall back to default pool size if engine is not ready.
+          }
+          return 32;
+        })();
         final n = _statelessCounter++;
-        final slot = n % 32;
+        final slot = n % poolSize;
         userId = 'stateless-$slot';
 
         // SECURITY CRITICAL: Always force fresh for random slots to prevent

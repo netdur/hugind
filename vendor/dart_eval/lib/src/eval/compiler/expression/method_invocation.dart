@@ -304,7 +304,7 @@ Variable _invokeWithTarget(
         ctx.offsetTracker.setOffset(loc, offset);
       }
     }
-  } else if (L.concreteTypes.length == 1 && !dec0!.isBridge) {
+  } else if (L.concreteTypes.length == 1 && dec0 != null && !dec0.isBridge) {
     // If the concrete type is known we can use a static call
     final actualType = L.concreteTypes[0];
     final offset = DeferredOrOffset(

@@ -314,8 +314,17 @@ class $String implements $Instance {
   static $Value? _concat(
       final Runtime runtime, final $Value? target, final List<$Value?> args) {
     target as $String;
-    final other = args[0] as $String;
-    return $String(target.$value + other.$value);
+    final other = args[0];
+    String otherStr;
+    if (other is $String) {
+      otherStr = other.$value;
+    } else if (other is $Value) {
+      otherStr =
+          other.$reified?.toString() ?? other.$value?.toString() ?? "null";
+    } else {
+      otherStr = other?.toString() ?? "null";
+    }
+    return $String(target.$value + otherStr);
   }
 
   static const $Function __index = $Function(_index);
@@ -475,8 +484,8 @@ class $String implements $Instance {
       final Runtime runtime, final $Value? target, final List<$Value?> args) {
     target as $String;
     final pattern = _coercePattern(args.isNotEmpty ? args[0] : null);
-    return $List.wrap(
-        target.$value.split(pattern).map((e) => $String(e)).toList());
+    return $List
+        .wrap(target.$value.split(pattern).map((e) => $String(e)).toList());
   }
 
   static const $Function __substring = $Function(_substring);

@@ -77,6 +77,12 @@ class ConfigLoader {
       ..vocabOnly = model['vocab_only'] ?? false;
 
     final context = yaml['context'] ?? {};
+    int maxSlots = server['max_slots'] ?? 4;
+    if (mmprojPath != null && maxSlots > 1) {
+      print(
+          '⚠️  Vision model detected: forcing max_slots=1 (context swapping is not supported).');
+      maxSlots = 1;
+    }
     int batchSize = context['batch_size'] ?? (mmprojPath != null ? 8192 : 2048);
     if (mmprojPath != null && batchSize < 8192) {
       print(
@@ -89,7 +95,7 @@ class ConfigLoader {
       ..nBatch = batchSize
       ..nUbatch = context['ubatch_size'] ?? 512
       // CRITICAL: Set nSeqMax to max_slots to allow concurrency!
-      ..nSeqMax = server['max_slots'] ?? 4
+      ..nSeqMax = maxSlots
       ..nThreads = context['threads'] ?? 8
       ..nThreadsBatch = context['threads_batch'] ?? 8
       ..flashAttention = _parseFlashAttn(context['flash_attention'])
@@ -112,10 +118,11 @@ class ConfigLoader {
     final formatStr = chat['format']?.toString().toLowerCase();
 
     ChatFormat? chatFormat;
-    if (formatStr != null && formatStr != 'auto') {
+    if (formatStr != null && formatStr != 'auto' && formatStr != 'none') {
       try {
         // Match string "gemma" to ChatFormat.gemma
-        chatFormat = ChatFormat.values.firstWhere((e) => e.name == formatStr);
+        chatFormat = ChatFormat.values
+            .firstWhere((e) => e.name.toLowerCase() == formatStr.toLowerCase());
       } catch (_) {
         print(
             "⚠️ Warning: Unknown chat format '$formatStr'. Using auto-detection.");
@@ -129,7 +136,7 @@ class ConfigLoader {
       libraryPath: libPath,
       apiKey: apiKey,
       concurrency: server['concurrency'] ?? 1,
-      maxSlots: server['max_slots'] ?? 4,
+      maxSlots: maxSlots,
       timeoutSeconds: server['timeout_seconds'] ?? 600,
       systemPrompt: systemPrompt,
       embeddingsEnabled: embeddingsEnabled,
@@ -140,6 +147,7 @@ class ConfigLoader {
       contextParams: contextParams,
       samplerParams: samplerParams,
       chatFormat: chatFormat,
+      verbose: server['verbose'] ?? false,
     );
   }
 

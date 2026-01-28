@@ -35,8 +35,8 @@ class InvokeDynamic implements EvcOp {
     }
     //
     if (object is $null) {
-      runtime.$throw(NoSuchMethodError.withInvocation(
-          null, Invocation.method(Symbol(method0), [])));
+      runtime.returnValue = const $null();
+      runtime.args = [];
       return;
     }
 
@@ -299,9 +299,29 @@ class PushObjectProperty implements EvcOp {
     final property = runtime.constantPool[_propertyIdx] as String;
     var base = runtime.frame[_location];
     var object = base;
+    if (object == null) {
+      runtime.returnValue = const $null();
+      runtime.args = [];
+      return;
+    }
+    if (object is! $Value) {
+      final wrapped = runtime.wrapPrimitive(object);
+      if (wrapped != null) {
+        object = wrapped;
+      } else {
+        try {
+          object = $Object(object);
+        } catch (_) {}
+      }
+    }
     if (object is $null) {
-      runtime.$throw(NoSuchMethodError.withInvocation(
-          null, Invocation.getter(Symbol(property))));
+      runtime.returnValue = const $null();
+      runtime.args = [];
+      return;
+    }
+    if (object is! $Instance) {
+      runtime.returnValue = const $null();
+      runtime.args = [];
       return;
     }
 

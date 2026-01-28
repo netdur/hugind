@@ -8,11 +8,13 @@ class CompileError implements Exception {
   final AstNode? node;
   final int? library;
   final CompilerContext? context;
+  final int? offset;
 
-  const CompileError(this.message, [this.node, this.library, this.context]);
+  const CompileError(this.message,
+      [this.node, this.library, this.context, this.offset]);
 
   CompileError copyWithContext(CompilerContext context) {
-    return CompileError(message, node, library, context);
+    return CompileError(message, node, library, context, offset);
   }
 
   @override
