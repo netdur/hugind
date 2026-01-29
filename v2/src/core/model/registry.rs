@@ -97,4 +97,40 @@ impl RepoManager {
         files.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(files)
     }
+    pub fn get_repo_dir(repo: &str) -> PathBuf {
+        let parts: Vec<&str> = repo.split('/').collect();
+        if parts.len() == 2 {
+            paths::data_home().join(parts[0]).join(parts[1])
+        } else {
+             paths::data_home().join(repo)
+        }
+    }
+
+    pub fn repo_exists(repo: &str) -> bool {
+        Self::get_repo_dir(repo).exists()
+    }
+
+    pub fn delete_repo(repo: &str) -> Result<()> {
+        let dir = Self::get_repo_dir(repo);
+        if dir.exists() {
+            fs::remove_dir_all(&dir)?;
+        }
+        // Cleanup parent if empty
+        if let Some(parent) = dir.parent() {
+            if let Ok(entries) = fs::read_dir(parent) {
+                if entries.count() == 0 {
+                    let _ = fs::remove_dir(parent);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn delete_file(repo: &str, filename: &str) -> Result<()> {
+        let path = Self::get_repo_dir(repo).join(filename);
+        if path.exists() {
+            fs::remove_file(path)?;
+        }
+        Ok(())
+    }
 }

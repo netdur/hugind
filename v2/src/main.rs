@@ -36,5 +36,18 @@ async fn main() {
                 std::process::exit(1);
             }
         }
+        Commands::Model { command } => {
+            let result = match command {
+                hugind::cli::args::ModelCommand::List => hugind::cli::model::list(),
+                hugind::cli::args::ModelCommand::Add { repo } => hugind::cli::model::add(repo).await,
+                hugind::cli::args::ModelCommand::Show { repo } => hugind::cli::model::show(repo),
+                hugind::cli::args::ModelCommand::Remove { repo } => hugind::cli::model::remove(repo),
+            };
+
+            if let Err(e) = result {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
     }
 }

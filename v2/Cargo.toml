@@ -10,11 +10,13 @@ anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 tokio = { version = "1.0", features = ["full"] }
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.11", features = ["json", "stream"] }
 serde_json = "1.0"
 dirs = "6.0.0"
 sysinfo = "0.38.0"
 inquire = "0.9.2"
+indicatif = "0.18.3"
+futures-util = "0.3.31"
 
 [dev-dependencies]
 tempfile = "3.24.0"

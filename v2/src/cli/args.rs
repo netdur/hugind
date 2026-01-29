@@ -19,6 +19,11 @@ pub enum Commands {
         #[command(subcommand)]
         command: ConfigCommand,
     },
+    /// Manage AI models
+    Model {
+        #[command(subcommand)]
+        command: ModelCommand,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -71,4 +76,25 @@ pub enum AgentCommand {
     Install,
     /// Remove an agent
     Remove,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ModelCommand {
+    /// List local model repositories
+    List,
+    /// Download models from Hugging Face
+    Add {
+        /// Hugging Face repository (user/repo)
+        repo: Option<String>,
+    },
+    /// Show local files in a repository
+    Show {
+         /// Model repository (user/repo)
+         repo: String,
+    },
+    /// Remove a repository or specific files
+    Remove {
+         /// Model repository (user/repo)
+         repo: Option<String>,
+    },
 }
