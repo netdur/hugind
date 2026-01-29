@@ -14,6 +14,47 @@ pub enum Commands {
         #[command(subcommand)]
         command: AgentCommand,
     },
+    /// Manage configuration
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommand,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ConfigCommand {
+    /// List saved configurations
+    List,
+    /// Validate configuration
+    Validate {
+         /// Path to config file (optional)
+        #[arg(default_value = "config.yaml")]
+        path: String,
+    },
+    /// Show system hardware info
+    Info,
+    /// Initialize a new config
+    Init {
+        /// Name of the config to create
+        name: String,
+        /// Path to model file (optional skip interactive picker)
+        #[arg(short, long)]
+        model: Option<String>,
+    },
+    /// Remove a saved config
+    Remove {
+        /// Name of the config to remove
+        name: String,
+    },
+    /// Set global defaults
+    Defaults {
+        /// Set default library path
+        #[arg(long)]
+        lib: Option<String>,
+        /// Set Hugging Face token
+        #[arg(long)]
+        hf_token: Option<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -22,6 +63,9 @@ pub enum AgentCommand {
     Run {
         /// Path to the agent entry module
         path: String,
+        /// Additional arguments passed to the agent
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
     /// Install an agent
     Install,

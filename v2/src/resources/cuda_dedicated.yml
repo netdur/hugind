@@ -1,0 +1,7 @@
+model:
+  gpu_layers: 99
+  split_mode: layer
+
+context:
+  flash_attention: true
+  offload_kqv: true

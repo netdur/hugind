@@ -1,0 +1,9 @@
+model:
+  gpu_layers: 99
+  split_mode: layer
+  use_mmap: true
+
+context:
+  batch_size: 2048
+  threads: 4
+  offload_kqv: true

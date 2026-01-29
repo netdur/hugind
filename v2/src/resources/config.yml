@@ -1,0 +1,41 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+  api_key: ""
+  embeddings: false
+  concurrency: 1
+  max_slots: 4
+  timeout_seconds: 600
+  system_prompt_file: "prompts/coding_assistant.txt"
+  library_path: ""
+
+model:
+  path: "@PLACEHOLDER"
+  mmproj_path: ""
+  gpu_layers: 99
+  split_mode: layer
+  main_gpu: 0
+  use_mmap: true
+  use_mlock: false
+  vocab_only: false
+
+context:
+  size: 4096
+  batch_size: 2048
+  ubatch_size: 512
+  threads: 8
+  threads_batch: 8
+  flash_attention: false
+  cache_type_k: f16
+  cache_type_v: f16
+  offload_kqv: true
+
+chat:
+  format: auto
+
+sampling:
+  temp: 0.7
+  top_k: 40
+  top_p: 0.95
+  min_p: 0.05
+  dry_multiplier: 0.0
