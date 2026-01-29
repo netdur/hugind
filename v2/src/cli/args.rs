@@ -24,6 +24,11 @@ pub enum Commands {
         #[command(subcommand)]
         command: ModelCommand,
     },
+    /// Interactive AI workspace
+    Chat {
+        #[command(subcommand)]
+        command: Option<ChatCommand>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -97,4 +102,30 @@ pub enum ModelCommand {
          /// Model repository (user/repo)
          repo: Option<String>,
     },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ChatCommand {
+    /// Start a new chat session
+    Start {
+        /// Config name to use (e.g. "my-agent")
+        #[arg(default_value = "")]
+        config: String,
+    },
+    /// Resume an existing chat session
+    Resume {
+        /// Session ID to resume
+        #[arg(default_value = "")]
+        id: String,
+    },
+    /// List all chat sessions
+    List,
+    /// Delete a chat session
+    Delete {
+        /// Session ID to delete (optional, interactive if missing)
+        id: Option<String>,
+    },
+    /// Direct entry (wrapper for start/resume)
+    #[command(external_subcommand)]
+    Default(Vec<String>),
 }

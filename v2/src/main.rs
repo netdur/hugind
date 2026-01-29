@@ -49,5 +49,31 @@ async fn main() {
                 std::process::exit(1);
             }
         }
+        Commands::Chat { command } => {
+            let result = match command {
+                Some(hugind::cli::args::ChatCommand::Start { config }) => hugind::cli::chat::run_start(config).await,
+                Some(hugind::cli::args::ChatCommand::Resume { id }) => hugind::cli::chat::run_resume(id).await,
+                Some(hugind::cli::args::ChatCommand::List) => hugind::cli::chat::run_list(),
+                Some(hugind::cli::args::ChatCommand::Delete { id }) => hugind::cli::chat::run_delete(id).await,
+                Some(hugind::cli::args::ChatCommand::Default(args)) => {
+                     if args.is_empty() {
+                         hugind::cli::chat::run_interactive_wizard().await
+                     } else {
+                         let target = &args[0];
+                         if hugind::core::chat::session::SessionRepo::exists(target) {
+                             hugind::cli::chat::run_resume(target.clone()).await
+                         } else {
+                             hugind::cli::chat::run_start(target.clone()).await
+                         }
+                     }
+                },
+                None => hugind::cli::chat::run_interactive_wizard().await,
+            };
+            
+            if let Err(e) = result {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
     }
 }
