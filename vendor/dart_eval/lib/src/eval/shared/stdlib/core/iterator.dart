@@ -43,7 +43,15 @@ class $Iterator<E> implements Iterator<E>, $Instance {
       case 'moveNext':
         return __moveNext;
       case 'current':
-        return $value.current as $Value?;
+        try {
+          final cur = $value.current;
+          if (cur == null) {
+            return const $null();
+          }
+          return cur is $Value ? cur : $Object(cur);
+        } catch (_) {
+          return const $null();
+        }
       default:
         return _superclass.$getProperty(runtime, identifier);
     }

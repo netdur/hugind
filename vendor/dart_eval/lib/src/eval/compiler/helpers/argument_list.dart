@@ -345,6 +345,15 @@ Pair<List<Variable>, Map<String, Variable>> compileArgumentListWithDynamic(
       arg0 = arg0.unboxIfNeeded(ctx);
     }
 
+    // Force a fresh slot for dynamic args to avoid stale values in async frames.
+    if (arg0.name != null) {
+      final tmp = Variable.alloc(ctx, arg0.type);
+      ctx.pushOp(PushNull.make(), PushNull.LEN);
+      ctx.pushOp(CopyValue.make(tmp.scopeFrameOffset, arg0.scopeFrameOffset),
+          CopyValue.LEN);
+      arg0 = tmp;
+    }
+
     if (arg0.type == CoreTypes.function.ref(ctx) &&
         arg0.scopeFrameOffset == -1) {
       arg0 = arg0.tearOff(ctx);

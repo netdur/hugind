@@ -14,7 +14,11 @@ class PushArg implements EvcOp {
   // Set value at position to constant
   @override
   void run(Runtime runtime) {
-    runtime.args.add(runtime.frame[_location]);
+    final value = runtime.frame[_location];
+    if (runtime.debugTraceArgs) {
+      print('[dart_eval][PushArg] L$_location -> ${value?.runtimeType}: $value');
+    }
+    runtime.args.add(value);
   }
 
   @override
@@ -32,6 +36,11 @@ class Pop implements EvcOp {
 
   @override
   void run(Runtime runtime) {
+    if (runtime.debugTraceArgs) {
+      final before = runtime.frameOffset;
+      final after = before - _amount;
+      print('[dart_eval][Pop] -$_amount frameOffset $before -> $after');
+    }
     runtime.frameOffset -= _amount;
   }
 
@@ -51,6 +60,10 @@ class PushReturnValue implements EvcOp {
     final offset = runtime.frameOffset++;
     if (runtime.returnValue is $Future || runtime.returnValue is Future) {
       runtime.lastFutureValue = runtime.returnValue;
+    }
+    if (runtime.debugTraceArgs) {
+      final rv = runtime.returnValue;
+      print('[dart_eval][PushReturnValue] L$offset <- ${rv?.runtimeType}: $rv');
     }
     runtime.frame[offset] = runtime.returnValue;
   }
@@ -93,6 +106,9 @@ class CopyValue implements EvcOp {
   @override
   void run(Runtime runtime) {
     final from = runtime.frame[_from];
+    if (runtime.debugTraceArgs) {
+      print('[dart_eval][CopyValue] L$_to <- L$_from (${from?.runtimeType}: $from)');
+    }
     runtime.frame[_to] = from;
   }
 

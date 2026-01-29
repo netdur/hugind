@@ -10,6 +10,7 @@ import 'package:dart_eval/src/eval/compiler/reference.dart';
 import 'package:dart_eval/src/eval/compiler/statement/statement.dart';
 import 'package:dart_eval/src/eval/compiler/statement/variable_declaration.dart';
 import 'package:dart_eval/src/eval/compiler/type.dart';
+import 'package:dart_eval/src/eval/compiler/variable.dart';
 
 StatementInfo compileForStatement(
     ForStatement s, CompilerContext ctx, AlwaysReturnType? expectedReturnType) {
@@ -28,6 +29,7 @@ StatementInfo compileForStatement(
         : itype.specifiedTypeArgs[0];
 
     var iterator = iterable.getProperty(ctx, 'iterator');
+
     late Reference loopVariable;
 
     return macroLoop(ctx, expectedReturnType,

@@ -301,36 +301,17 @@ class CompilerContext with ScopeContext {
 
   @override
   int endAllocScopeQuiet({bool popValues = true, int popAdjust = 0}) {
-    final inAsync =
-        nearestAsyncFrame != -1 && (locals.length - 1) >= nearestAsyncFrame;
-    if (inAsync) {
-      locals.removeLast();
-      final nestCount = allocNest.removeLast();
-      return nestCount;
-    }
     return super.endAllocScopeQuiet(popValues: popValues, popAdjust: popAdjust);
   }
 
   @override
   int endAllocScope({bool popValues = true, int popAdjust = 0}) {
-    final inAsync =
-        nearestAsyncFrame != -1 && (locals.length - 1) >= nearestAsyncFrame;
-
-    if (!inAsync &&
-        (preScan?.closedFrames.contains(locals.length - 1) ?? false)) {
+    if (preScan?.closedFrames.contains(locals.length - 1) ?? false) {
       pushOp(PopScope.make(), PopScope.LEN);
       popValues = false;
     }
 
     scopeDoesClose.removeLast();
-    if (inAsync) {
-      // Preserve stack slots in async functions to avoid register reuse.
-      if (!popValues) {
-        locals.removeLast();
-        final nestCount = allocNest.removeLast();
-        return nestCount;
-      }
-    }
     return super.endAllocScope(popValues: popValues, popAdjust: popAdjust);
   }
 

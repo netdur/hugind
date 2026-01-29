@@ -107,8 +107,14 @@ Variable? compileExpressionAndDiscardResult(Expression e, CompilerContext ctx,
     return null;
   } else {
     ctx.beginAllocScope();
+    final startOffset = ctx.scopeFrameOffset;
     final v = compileExpression(e, ctx, bound);
     ctx.endAllocScope();
+    final diff = ctx.scopeFrameOffset - startOffset;
+    if (diff > 0) {
+      ctx.popN(diff);
+      ctx.scopeFrameOffset -= diff;
+    }
     return v;
   }
 }

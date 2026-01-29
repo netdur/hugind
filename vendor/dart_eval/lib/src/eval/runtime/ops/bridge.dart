@@ -99,6 +99,19 @@ class InvokeExternal implements EvcOp {
     final args = runtime.args;
     final argsLen = args.length;
 
+    if (runtime.debugTraceArgs) {
+      final buf = StringBuffer();
+      for (var i = 0; i < argsLen; i++) {
+        final v = args[i];
+        buf.write('[$i]=');
+        buf.write(v?.runtimeType);
+        buf.write(':');
+        buf.write(v);
+        if (i + 1 < argsLen) buf.write(' ');
+      }
+      print('[dart_eval][InvokeExternal] Ex#$_function args: $buf');
+    }
+
     final mappedArgs = List<$Value?>.filled(argsLen, null);
     for (var i = 0; i < argsLen; i++) {
       final arg = args[i];
@@ -190,10 +203,32 @@ class Await implements EvcOp {
       Completer completer) async {
     try {
       final result = await future.$value;
-      runtime.returnValue = result;
+      final wrapped = result is $Value ? result : runtime.wrapAlways(result);
+      // Store awaited value in the original future slot so resumed code reads it
+      continuation.frame[_futureOffset] = wrapped;
+      runtime.returnValue = wrapped;
       runtime.catchStack.add(continuation.catchStack);
       runtime.stack.add(continuation.frame);
       runtime.scopeNameStack.add('<asynchronous gap>');
+      runtime.frame = continuation.frame;
+      if (runtime.debugTraceArgs) {
+        final buf = StringBuffer();
+        var count = 0;
+        for (var i = 0; i < continuation.frame.length && count < 12; i++) {
+          final v = continuation.frame[i];
+          if (v != null) {
+            buf.write('L$i=');
+            buf.write(v.runtimeType);
+            buf.write(' ');
+            count++;
+          }
+        }
+        print('[dart_eval][AwaitResume] frameOffset=${continuation.frameOffset} '
+            'nonNull: ${buf.toString().trim()}');
+      }
+      runtime.frameOffsetStack.add(continuation.frameOffset);
+      runtime.frameOffset = continuation.frameOffset;
+      runtime.args = continuation.args;
 
       runtime.bridgeCall(continuation.programOffset, continuation.catchStack);
     } catch (e) {

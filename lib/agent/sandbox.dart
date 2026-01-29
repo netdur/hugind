@@ -234,6 +234,25 @@ class AgentSandbox {
                   ],
                   namedParams: []),
               isStatic: true),
+          'sysJsonExtractField': BridgeMethodDef(
+              BridgeFunctionDef(
+                  returns: BridgeTypeAnnotation(
+                      BridgeTypeRef(CoreTypes.object, []),
+                      nullable: true),
+                  params: [
+                    BridgeParameter(
+                        'source',
+                        BridgeTypeAnnotation(
+                            BridgeTypeRef(CoreTypes.string, [])),
+                        false),
+                    BridgeParameter(
+                        'key',
+                        BridgeTypeAnnotation(
+                            BridgeTypeRef(CoreTypes.string, [])),
+                        false)
+                  ],
+                  namedParams: []),
+              isStatic: true),
           'sysPrint': BridgeMethodDef(
               BridgeFunctionDef(
                   returns: BridgeTypeAnnotation(
@@ -308,7 +327,7 @@ class AgentSandbox {
 
     final prelude = '''
       import 'dart:async';
-      import 'dart:convert';
+      import 'dart:convert' as dart_convert;
       
       class Bridge {
          external static Future<String> sysRun(String executable, List<String> args, String? workDir);
@@ -320,6 +339,7 @@ class AgentSandbox {
 
          external static Future<bool> sysMkdir(String path);
          external static dynamic sysJsonDecode(String source);
+         external static dynamic sysJsonExtractField(String source, String key);
          external static void sysPrint(String message);
          external static Future<String> llmChat(String prompt);
          external static Future<String> netFetch(String url);
@@ -327,16 +347,30 @@ class AgentSandbox {
          external static Future<String> mcpCallTool(String name, Map<String, dynamic> args);
       }
       
+      dynamic _toPlain(dynamic value) {
+        if (value is Map) {
+          final out = <String, dynamic>{};
+          for (final key in value.keys) {
+            out[key.toString()] = _toPlain(value[key]);
+          }
+          return out;
+        }
+        if (value is List) {
+          return value.map(_toPlain).toList();
+        }
+        return value;
+      }
+
       class AgentToolsCapability {
         Future<List<Map<String, dynamic>>> list() async {
            final jsonStr = await Bridge.mcpListTools();
-           final decoded = jsonDecode(jsonStr) as List;
+           final decoded = dart_convert.jsonDecode(jsonStr) as List;
            return decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
         }
         
         Future<dynamic> call(String name, Map<String, dynamic> args) async {
            final jsonStr = await Bridge.mcpCallTool(name, args);
-           final decoded = jsonDecode(jsonStr);
+           final decoded = dart_convert.jsonDecode(jsonStr);
            if (decoded is Map) {
               return Map<String, dynamic>.from(decoded);
            }
@@ -376,9 +410,13 @@ class AgentSandbox {
         }
 
         dynamic jsonDecode(String source) {
-           return Bridge.sysJsonDecode(source);
+           return _toPlain(dart_convert.jsonDecode(source));
         }
-        
+
+        dynamic jsonExtractField(String source, String key) {
+           return Bridge.sysJsonExtractField(source, key);
+        }
+
         void print(String? msg) {
            Bridge.sysPrint(msg ?? 'null');
         }
@@ -418,6 +456,7 @@ class AgentSandbox {
       });
 
       final runtime = Runtime.ofProgram(program);
+      runtime.debugTraceArgs = true;
       for (final plugin in plugins) {
         plugin.configureForRuntime(runtime);
       }
@@ -551,6 +590,41 @@ class AgentSandbox {
         } catch (e) {
           throw e;
         }
+      });
+
+      runtime.registerBridgeFunc(
+          'package:agent/main.dart', 'Bridge.sysJsonExtractField',
+          (rt, target, args) {
+        $Value wrap(dynamic value) {
+          if (value == null) return $null();
+          if (value is String) return $String(value);
+          if (value is int) return $int(value);
+          if (value is double) return $double(value);
+          if (value is bool) return $bool(value);
+          if (value is List) {
+            return $List.wrap(value.map(wrap).toList());
+          }
+          if (value is Map) {
+            return $Map.wrap(value.map((k, v) => MapEntry(wrap(k), wrap(v))));
+          }
+          return $String(value.toString());
+        }
+
+        String unwrapString(dynamic value) {
+          if (value is $Value) {
+            final raw = value.$value;
+            if (raw is String) return raw;
+            final reified = value.$reified;
+            if (reified is String) return reified;
+            return reified?.toString() ?? raw?.toString() ?? '';
+          }
+          return value?.toString() ?? '';
+        }
+
+        final source = unwrapString(args[0]);
+        final key = unwrapString(args[1]);
+        final result = sys.jsonExtractField(source, key);
+        return wrap(result);
       });
 
       runtime.registerBridgeFunc('package:agent/main.dart', 'Bridge.sysPrint',

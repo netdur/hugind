@@ -6,9 +6,8 @@ void main(Map<String, dynamic> context) async {
 
   while (true) {
     // 1. INPUT
-    // final input = sys.readInput('\n❓ Ask a question (or "exit"): ');
-    // final rawQuery = input.toString().trim();
-    final rawQuery = "messi"; // keep for testing
+    final input = sys.readInput('\n❓ Ask a question (or "exit"): ');
+    final rawQuery = input.toString().trim();
     if (rawQuery.toLowerCase() == 'exit') break;
     if (rawQuery.isEmpty) continue;
 
@@ -36,36 +35,45 @@ Output (query only):
         'https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=$encodedQuery&format=json&srlimit=3';
     sys.print('🌐 Searching Wikipedia for: "$searchTerm"... $url');
 
-    // final searchJson = (await net.fetch(url)).toString();
-    final searchJson = r'''
-{"batchcomplete":"","continue":{"sroffset":3,"continue":"-||"},"query":{"searchinfo":{"totalhits":1956,"suggestion":"lionel mes","suggestionsnippet":"lionel mes"},"search":[{"ns":0,"title":"Lionel Messi","pageid":2150841,"size":317675,"wordcount":25060,"snippet":"<span class=\"searchmatch\">Lionel</span> Andr\u00e9s &quot;Leo&quot; <span class=\"searchmatch\">Messi</span> (born 24 June 1987) is an Argentine professional footballer who plays as a forward for and captains both Major League Soccer","timestamp":"2026-01-27T09:33:55Z"},{"ns":0,"title":"Career of Lionel Messi","pageid":76266203,"size":333701,"wordcount":32149,"snippet":"<span class=\"searchmatch\">Lionel</span> <span class=\"searchmatch\">Messi</span> is an Argentine professional footballer who plays as a forward for and captains both Major League Soccer club Inter Miami and the Argentina","timestamp":"2026-01-27T23:51:30Z"},{"ns":0,"title":"Messi\u2013Ronaldo rivalry","pageid":43992506,"size":156045,"wordcount":9110,"snippet":"football propelled by the media and fans that involves Argentine footballer <span class=\"searchmatch\">Lionel</span> <span class=\"searchmatch\">Messi</span> and Portuguese footballer Cristiano Ronaldo, mainly for being contemporaries","timestamp":"2026-01-27T03:35:09Z"}]}}
-''';
-    sys.print('📄 Search Results: $searchJson');
+    final searchJson = (await net.fetch(url)).toString();
 
     if (searchJson.isEmpty) {
       sys.print("getTitlesFromSearch: empty JSON");
       continue;
     }
 
-    // Get titles
-    var titles = extractSearchTitles(searchJson, sys);
-    print(titles.toString());
-    // var titlesStr = titles.join(', ');
-    // sys.print('📚 Titles: ${titles.toString()}');
+    // Get titles using robust native extraction (inlined)
+    final query = sys.jsonExtractField(searchJson, 'query');
+    final search = sys.jsonExtractField(query, 'search');
+    final titles = sys.jsonExtractField(search, 'title');
 
-    // 4. EXTRACT KEY INFO PER PAGE
-    // Use recursive helper to avoid loop variable stack issues
-    // final keyInfo = <String, String>{};
-    // await processTitles(0, titles, keyInfo, context, rawQuery);
+    // Check if titles is a valid list
+    if (titles is! List || titles.isEmpty) {
+      sys.print('❌ No relevant articles found.');
+      continue;
+    }
+
+    // Manual join to avoid List cast issues
+    final sb = StringBuffer();
+    for (final t in titles) {
+      if (sb.isNotEmpty) sb.write(', ');
+      sb.write(t);
+    }
+    sys.print('📚 Titles: ${sb.toString()}');
 
     /*
+    // 4. EXTRACT KEY INFO PER PAGE
+    final keyInfo = <String, String>{};
+    for (final title in titles) {
+      await processTitle(title.toString(), keyInfo, context, rawQuery);
+    }
+
     if (keyInfo.isEmpty) {
       sys.print('❌ No relevant information found.');
-      break;
+      continue;
     }
 
     // 5. SYNTHESIZE ANSWER
-    // Pass the key information to llm and ask it to generate a response
     sys.print('🧠 Synthesizing final answer...');
     final synthesisPrompt = '''
 SYSTEM: Answer the user question based on the provided extracted information.
@@ -80,26 +88,17 @@ Output (Final Answer):
     final finalAnswer = await llm.chat(synthesisPrompt);
     sys.print('\n📝 Final Answer:\n$finalAnswer');
     */
-    break;
   }
 }
 
-// Recursive helper to process titles one by one
-Future<void> processTitles(
-    int index,
-    List<String> titles,
-    Map<String, String> keyInfo,
-    Map<String, dynamic> context,
-    String rawQuery) async {
-  if (index >= titles.length) return;
-
+Future<void> processTitle(String title, Map<String, String> keyInfo,
+    Map<String, dynamic> context, String rawQuery) async {
   final sys = context['capabilities']['sys'];
   final net = context['capabilities']['net'];
   final llm = context['capabilities']['llm'];
-  final title = titles[index];
 
   sys.print("📄 Reading: $title");
-  /*
+
   final encodedTitle = Uri.encodeComponent(title);
   final contentUrl =
       'https://en.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext&titles=$encodedTitle&format=json';
@@ -108,20 +107,17 @@ Future<void> processTitles(
   try {
     contentJson = (await net.fetch(contentUrl)).toString();
   } catch (e) {
-    sys.print('❌ Read Error: $e');
-    await processTitles(index + 1, titles, keyInfo, context, rawQuery);
+    sys.print('❌ Read Error for $title: $e');
     return;
   }
 
   final extract = extractWikipediaExtract(contentJson, sys);
   if (extract.isEmpty) {
     sys.print('⚠️ Empty extract for $title');
-    await processTitles(index + 1, titles, keyInfo, context, rawQuery);
     return;
   }
 
   sys.print("🤖 Extracting info from $title...");
-  // rawQuery is passed as an argument.
 
   final extractionPrompt = '''
 SYSTEM: Extract specific facts and key information relevant to the user query from the provided text.
@@ -134,49 +130,29 @@ Output (Bullet points of key facts only):
   final extractedInfo = await llm.chat(extractionPrompt);
   keyInfo[title] = extractedInfo;
   sys.print('✅ Extracted facts from $title');
-
-  await processTitles(index + 1, titles, keyInfo, context, rawQuery);
-  */
 }
 
 // --- HELPERS ---
 
-List<String> extractSearchTitles(String jsonText, dynamic sys) {
-  var titles = <String>[];
-  try {
-    final decoded = sys.jsonDecode(jsonText) as Map;
-    final query = decoded['query'];
-    if (query is Map) {
-      final search = query['search'];
-      if (search is List) {
-        for (final item in search) {
-          final mapItem = item as Map;
-          titles.add("${mapItem['title']}");
-        }
-      }
-    }
-    sys.print("Titles: ${titles.length}");
-  } catch (e) {
-    sys.print("Error parsing titles: $e");
-  }
-  return titles;
-}
-
 String extractWikipediaExtract(String jsonText, dynamic sys) {
   try {
-    final decoded = sys.jsonDecode(jsonText) as Map;
-    final query = decoded['query'];
-    if (query is Map) {
-      final pages = query['pages'];
-      if (pages is Map && pages.isNotEmpty) {
-        final page = pages.values.first as Map;
-        if (page['extract'] != null) {
-          return page['extract'].toString();
-        }
+    // Robust extraction: query -> pages -> * -> extract
+    final query = sys.jsonExtractField(jsonText, 'query');
+    final pages = sys.jsonExtractField(query, 'pages');
+
+    // pages is a valid JSON string (of a map) if successful.
+    // We can't iterate keys easily in dart_eval due to bugs.
+    // But we can try to decode it as a Map and take values.first.
+    // If that fails, we might need a `jsonExtractFirstValue` capability, but let's try standard decode first.
+    final decodedPages = sys.jsonDecode(pages) as Map;
+    if (decodedPages.isNotEmpty) {
+      final page = decodedPages.values.first as Map;
+      if (page['extract'] != null) {
+        return page['extract'].toString();
       }
     }
   } catch (e) {
-    // silently fail or return empty
+    // fail silently
   }
   return '';
 }

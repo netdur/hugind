@@ -129,6 +129,40 @@ class SysCapability {
     return jsonEncode(value);
   }
 
+  dynamic jsonExtractField(String source, String key) {
+    dynamic current = jsonDecode(source);
+
+    if (current is Map) {
+      if (current.containsKey(key)) {
+        current = current[key];
+      } else {
+        return '';
+      }
+    }
+
+    if (current is List) {
+      final out = <String>[];
+      var allMaps = true;
+      for (final item in current) {
+        if (item is Map && item.containsKey(key)) {
+          out.add(item[key].toString());
+        } else {
+          allMaps = false;
+        }
+      }
+      if (allMaps) {
+        return out;
+      }
+      return jsonEncode(current);
+    }
+
+    if (current is Map) {
+      return jsonEncode(current);
+    }
+
+    return current?.toString() ?? '';
+  }
+
   bool _isAllowed(String path) {
     try {
       // 1. Resolve the allowed paths (roots) to their true physical paths

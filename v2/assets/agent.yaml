@@ -1,0 +1,96 @@
+# ==================================================================
+# 🦅 HUGIND AGENT MANIFEST
+# ==================================================================
+
+# 🆔 METADATA
+# ------------------------------------------------------------------
+name: "stock-analyst"
+version: "1.0.0"
+description: "Fetches live stock data and generates a PDF report."
+author: "netdur"
+license: "MIT"
+
+# ⚠️ COMPATIBILITY
+# Specifies which version of Hugind is required to run this agent.
+hugind_version: ">=0.6.0"
+
+# ⚙️ RUNTIME & ENTRY POINT
+# ------------------------------------------------------------------
+# The main Dart script that starts execution. 
+# It can be in the root or a subdirectory (e.g., bin/main.dart).
+entry_point: "main.dart"
+
+# 🔗 BACKEND CONNECTION
+# ------------------------------------------------------------------
+# Points to the HTTP API. The agent acts as a client.
+backend:
+  url: "http://127.0.0.1:8080/v1"  # Default URL (overridable via ENV)
+  config: "gemma-2-9b-it"          # Provider config name in ~/.hugind/configs
+  session:
+    mode: "fresh"                  # stateless | fresh | resume
+    id: "stock-analyst"            # Defaults to agent name if omitted
+
+# 🛡️ PERMISSIONS (The Security Boundary)
+# ------------------------------------------------------------------
+permissions:
+
+  # 🌐 NETWORK
+  network:
+    allow: true
+    allowed_domains:
+      - "api.stockdata.org"
+      - "finance.yahoo.com"
+
+  # 📂 FILESYSTEM (Native)
+  filesystem:
+    read: true
+    write: true
+    allowed_paths:
+      - "$HOME/Downloads"
+      - "./workspace"
+
+  # 💻 SHELL / PROCESS EXECUTION
+  # --------------------------------------------------------------
+  # You can use EITHER a 'whitelist' (Strict) OR a 'blacklist' (Open).
+  # Do not use both at the same time.
+  # --------------------------------------------------------------
+  shell:
+    allow: true
+    
+    # OPTION A: WHITELIST (Recommended)
+    # Only the commands listed below are allowed. All others are blocked.
+    whitelist:
+      - "ls"
+      - "whoami"
+      - "date"
+
+    # OPTION B: BLACKLIST (Risky)
+    # All commands are allowed EXCEPT the ones listed below.
+    # blacklist:
+    #   - "rm"
+    #   - "shutdown"
+    #   - "mkfs"
+
+# 🔌 DEPENDENCIES (MCP)
+# ------------------------------------------------------------------
+# Defines external Model Context Protocol servers this agent needs.
+dependencies:
+  mcp:
+    # Example 1: A required tool
+    - name: "postgres-client"
+      version: "^1.2.0"
+      required: true
+      description: "Needed to fetch historical data from local DB."
+
+    # Example 2: An optional tool
+    - name: "github"
+      version: ">=2.0.0"
+      required: false
+      description: "Used if the user wants to commit the report."
+
+# 🔧 ENVIRONMENT VARIABLES
+# ------------------------------------------------------------------
+env:
+  - name: "STOCK_API_KEY"
+    description: "API Key for stockdata.org"
+    required: true

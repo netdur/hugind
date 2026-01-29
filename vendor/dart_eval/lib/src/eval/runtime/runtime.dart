@@ -142,6 +142,9 @@ class Runtime {
     pr.addAll(program.ops);
   }
 
+  /// Debug: emit trace logs for argument passing and bridge calls.
+  bool debugTraceArgs = false;
+
   void _load() {
     final m1 = _readUint8(),
         m2 = _readUint8(),

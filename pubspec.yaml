@@ -13,7 +13,7 @@ dependencies:
   llama_cpp_dart: ^0.2.2
   shelf: ^1.4.0
   shelf_router: ^1.1.0
-  dart_eval: ^0.8.2
+  dart_eval: ^0.8.4
 
 executables:
   hugind:

@@ -33,7 +33,12 @@ class PushConstant implements EvcOp {
   // Set value at position to constant
   @override
   void run(Runtime runtime) {
-    runtime.frame[runtime.frameOffset++] = runtime.constantPool[_const];
+    final idx = runtime.frameOffset;
+    final value = runtime.constantPool[_const];
+    if (runtime.debugTraceArgs) {
+      print('[dart_eval][PushConstant] L$idx <- ${value.runtimeType}: $value');
+    }
+    runtime.frame[runtime.frameOffset++] = value;
   }
 
   @override

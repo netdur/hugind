@@ -30,12 +30,14 @@ StatementInfo compileTryStatement(
   final tryOp = ctx.pushOp(Try.make(-1), Try.LEN);
 
   final initialState = ctx.saveState();
+  final initialOffset = ctx.scopeFrameOffset;
 
   ctx.beginAllocScope();
   ctx.labels.add(SimpleCompilerLabel());
   final bodyInfo = compileBlock(s.body, expectedReturnType, ctx);
   ctx.labels.removeLast();
   ctx.endAllocScope();
+  ctx.scopeFrameOffset = initialOffset;
 
   ctx.resolveBranchStateDiscontinuity(initialState);
 

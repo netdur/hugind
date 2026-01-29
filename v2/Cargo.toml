@@ -1,0 +1,15 @@
+[package]
+name = "hugind"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rquickjs = { version = "0.6", features = ["loader", "futures", "classes", "macro"] }
+clap = { version = "4.5", features = ["derive"] }
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+tokio = { version = "1.0", features = ["full"] }
+reqwest = { version = "0.11", features = ["json"] }
+serde_json = "1.0"
+

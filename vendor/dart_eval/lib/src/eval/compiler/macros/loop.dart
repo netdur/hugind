@@ -53,8 +53,6 @@ StatementInfo macroLoop(
   });
 
   final label = CompilerLabel(LabelType.loop, loopStart, (ctx) {
-    ctx.endAllocScopeQuiet();
-
     /// Box/unbox variables that were declared outside the loop and changed in
     /// the loop body to match the save state
     ctx.resolveBranchStateDiscontinuity(save);

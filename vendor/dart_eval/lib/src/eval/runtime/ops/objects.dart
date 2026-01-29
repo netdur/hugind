@@ -456,7 +456,20 @@ class IsType implements EvcOp {
 
   @override
   void run(Runtime runtime) {
-    final value = runtime.frame[_objectOffset] as $Value;
+    var object = runtime.frame[_objectOffset];
+    if (object is! $Value) {
+      final wrapped = runtime.wrapPrimitive(object);
+      if (wrapped != null) {
+        object = wrapped;
+      } else if (object != null) {
+        try {
+          object = $Object(object);
+        } catch (_) {}
+      } else {
+        object = const $null();
+      }
+    }
+    final value = object as $Value;
     final type = value.$getRuntimeType(runtime);
     if (type < 0) {
       final result = type == _type;
