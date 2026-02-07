@@ -6,7 +6,7 @@ use axum::{
 };
 use std::sync::Arc;
 use tokio::sync::mpsc;
-// use futures::StreamExt;
+
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::server::state::AppState;
@@ -134,8 +134,8 @@ pub async fn chat_completions(
     params.max_output_tokens = payload.max_tokens.map(|n| n as i32).unwrap_or(1024);
     params.sampling.temp = payload.temperature.unwrap_or(0.8);
     params.sampling.top_p = payload.top_p.unwrap_or(0.9);
-    // Map OpenAI params to Llama params.
-    // If user provides frequency_penalty, apply a simple deterministic mapping.
+    
+    
     if let Some(fp) = payload.frequency_penalty {
         params.sampling.penalty_repeat = 1.0 + fp.max(0.0);
     }
@@ -149,7 +149,7 @@ pub async fn chat_completions(
         }
     }
     
-    // Session priority: Headers only (Standard OpenAI JSON compatibility)
+    
     params.session_id = headers.get("x-session-id")
         .and_then(|h| h.to_str().ok())
         .map(|s| s.to_string())
@@ -189,7 +189,7 @@ pub async fn chat_completions(
                             choices: vec![ChatCompletionChunkChoice {
                                 index: 0,
                                 delta: ChatCompletionChunkDelta {
-                                    role: None, // Only first chunk? OpenAI specs say role can be omitted
+                                    role: None, 
                                     content: Some(text),
                                 },
                                 finish_reason: None,
@@ -220,13 +220,13 @@ pub async fn chat_completions(
                             Ok(data) => yield Ok(SseEvent::default().data(data)),
                             Err(_) => break,
                         }
-                        // Send [DONE]
+                        
                         yield Ok(SseEvent::default().data("[DONE]"));
                         break;
                     }
                      EventKind::Error { message, .. } => {
-                         // SSE error?
-                         // Ideally send json error then close
+                         
+                         
                          yield Ok(SseEvent::default().event("error").data(message));
                          break;
                      }
@@ -237,7 +237,7 @@ pub async fn chat_completions(
         
         Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default()).into_response()
     } else {
-        // Non-streaming: buffer everything
+        
         let mut full_text = String::new();
         let mut finish_reason = None;
         let mut req_id = String::new();
@@ -283,7 +283,7 @@ pub async fn list_models() -> Json<ModelList> {
     Json(ModelList {
         object: "list".to_string(),
         data: vec![ModelInfo {
-            id: "gemma-3-4b-it".to_string(), // TODO: Get actual model name
+            id: "gemma-3-4b-it".to_string(), 
             object: "model".to_string(),
             created: 1677652288,
             owned_by: "system".to_string(),
@@ -292,7 +292,7 @@ pub async fn list_models() -> Json<ModelList> {
 }
 
 pub async fn monitor(State(state): State<Arc<AppState>>) -> Json<MonitorStats> {
-    // Read from shared KV Manager
+    
     let sessions = state.kv_manager.sessions.read();
     let vram_count = sessions.values().filter(|s| s.tier == crate::engine::kv_cache::CacheTier::Vram).count();
     let ram_count = sessions.values().filter(|s| s.tier == crate::engine::kv_cache::CacheTier::Ram).count();
@@ -323,12 +323,12 @@ pub async fn save_state(
 ) -> impl IntoResponse {
     let mut sessions = state.kv_manager.sessions.write();
     if let Some(session) = sessions.get_mut(&payload.session_id) {
-        // Path logic: use template_id as filename in cache dir?
-        // Let's assume ./cache/ exists or needs creation
-        // For MVP, just use relative path
+        
+        
+        
         let path = format!("cache/{}.bin", payload.template_id);
         
-        // Ensure cache dir exists
+        
         let _ = std::fs::create_dir_all("cache");
         
         session.pending_action = Some(crate::engine::kv_cache::Action::Save { path });

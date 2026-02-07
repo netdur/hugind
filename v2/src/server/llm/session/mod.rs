@@ -16,7 +16,7 @@ impl Session {
         }
     }
 
-    /// Prepare a batch with the provided tokens for this session
+    
     pub fn feed_prompt(&mut self, batch: &mut Batch, tokens: &[Token], logits_last: bool) -> Result<()> {
         for (i, &tok) in tokens.iter().enumerate() {
             let is_last = i == tokens.len() - 1;

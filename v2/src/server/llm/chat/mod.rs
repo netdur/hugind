@@ -23,7 +23,7 @@ impl Message {
 }
 
 pub fn template(model: &Model, prompt: &str) -> Result<String> {
-    // Single message user prompt wrapper
+    
     let messages = vec![
         Message::new("user", prompt),
     ];
@@ -36,11 +36,11 @@ pub fn apply_template(model: &Model, messages: &[Message]) -> Result<String> {
         None
     } else {
         Some(CString::new(tmpl_str)?)
-        // Note: passing the template string itself to llama_chat_apply_template 
-        // as the first argument.
+        
+        
     };
     
-    // Convert messages to C struct
+    
     let c_roles: Vec<CString> = messages.iter()
         .map(|m| CString::new(m.role.clone()).unwrap())
         .collect();
@@ -60,16 +60,16 @@ pub fn apply_template(model: &Model, messages: &[Message]) -> Result<String> {
         None => std::ptr::null(),
     };
     
-    // Allocate buffer
-    // First call to get length?
-    // llama_chat_apply_template returns length.
     
-    // We assume the symbol exists in llama_cpp crate
-    // If not, we might need FFI declaration here if not exposed by crate
     
-    // Check if llama_cpp exposes it. If not, we declare it.
-    // Based on previous files, we use `llama_cpp::function_name`.
-    // If it fails to compile, we add FFI block.
+    
+    
+    
+    
+    
+    
+    
+    
     
     let mut buf = vec![0u8; 4096];
     
@@ -78,7 +78,7 @@ pub fn apply_template(model: &Model, messages: &[Message]) -> Result<String> {
             tmpl_ptr,
             c_messages.as_ptr() as *const _,
             c_messages.len(),
-            true, // add_ass
+            true, 
             buf.as_mut_ptr() as *mut i8,
             buf.len() as i32,
         )
@@ -90,7 +90,7 @@ pub fn apply_template(model: &Model, messages: &[Message]) -> Result<String> {
     
     let len = res as usize;
     if len > buf.len() {
-        // Resize
+        
         buf.resize(len + 1, 0);
         let res2 = unsafe {
             llama_cpp::llama_chat_apply_template(
@@ -107,9 +107,9 @@ pub fn apply_template(model: &Model, messages: &[Message]) -> Result<String> {
         }
     }
     
-    // Remove null terminator?
-    // llama_chat_apply_template returns string length not including null?
-    // It writes to buf.
+    
+    
+    
     let c_str = unsafe { std::ffi::CStr::from_ptr(buf.as_ptr() as *const i8) };
     Ok(c_str.to_string_lossy().into_owned())
 }

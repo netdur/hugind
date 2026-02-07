@@ -35,7 +35,7 @@ pub async fn run_interactive_wizard() -> Result<()> {
 pub async fn run_start(config: String) -> Result<()> {
     let mut config_name = config;
     if config_name.is_empty() {
-        // Wizard
+        
         let configs = list_configs();
         if configs.is_empty() {
              config_name = Text::new("Enter Config Name manually:").with_default("my-assistant").prompt()?;
@@ -72,7 +72,7 @@ pub async fn run_resume(id: String) -> Result<()> {
         }).collect();
 
         let selection = Select::new("Select a session to resume:", options).prompt()?;
-        // Reverse lookup ID (simplistic)
+        
         let idx = sessions.iter().position(|s| format!("{} ({}) - {}", s.title, s.model, format_time(s.last_active)) == selection).unwrap();
         session_id = sessions[idx].id.clone();
     }
@@ -141,7 +141,7 @@ fn format_time(dt: chrono::DateTime<chrono::Utc>) -> String {
     }
 }
 
-// MAIN LOOP
+
 
 pub async fn start_chat_loop(session_id: String) -> Result<()> {
     let mut session = SessionRepo::load(&session_id)?;
@@ -153,7 +153,7 @@ pub async fn start_chat_loop(session_id: String) -> Result<()> {
     println!("   Model:   {}", session.model);
     println!("   Type /help for commands.\n");
 
-    // Print Context
+    
     if !session.messages.is_empty() {
         println!("\x1B[90m--- Recent Context ---\x1B[0m");
         for msg in session.messages.iter().rev().take(6).rev() {
@@ -183,7 +183,7 @@ pub async fn start_chat_loop(session_id: String) -> Result<()> {
         io::stdout().flush()?;
 
         let mut input = String::new();
-        if io::stdin().read_line(&mut input).is_err() { break; } // EOF
+        if io::stdin().read_line(&mut input).is_err() { break; } 
         let input = input.trim();
 
         if input.is_empty() && pending_image.is_none() { continue; }
@@ -214,7 +214,7 @@ pub async fn start_chat_loop(session_id: String) -> Result<()> {
                     match fs::read(arg) {
                         Ok(bytes) => {
                              let b64 = general_purpose::STANDARD.encode(&bytes);
-                             // Simple mime detection
+                             
                              let mime = if arg.to_lowercase().ends_with(".png") { "image/png" } else { "image/jpeg" };
                              pending_image = Some(format!("data:{};base64,{}", mime, b64));
                              println!("✅ Image attached!");
@@ -242,7 +242,7 @@ pub async fn start_chat_loop(session_id: String) -> Result<()> {
             }
         }
 
-        // Construct Message
+        
         let new_msg = if let Some(img_data) = pending_image.take() {
             Message {
                 role: "user".to_string(),
@@ -258,7 +258,7 @@ pub async fn start_chat_loop(session_id: String) -> Result<()> {
              Message { role: "user".to_string(), content: Value::String(input.to_string()) }
         };
 
-        // UI Spinner
+        
         let pb = ProgressBar::new_spinner();
         pb.set_style(ProgressStyle::default_spinner().template("{spinner:.cyan} Thinking...")?);
         pb.enable_steady_tick(Duration::from_millis(80));
@@ -282,7 +282,7 @@ pub async fn start_chat_loop(session_id: String) -> Result<()> {
                     continue;
                 }
 
-                print!("\x1B[36m"); // Cyan AI
+                print!("\x1B[36m"); 
                 let mut buffer = String::new();
                 let mut stream = resp.bytes_stream();
                 
@@ -313,11 +313,11 @@ pub async fn start_chat_loop(session_id: String) -> Result<()> {
                 }
                 println!("\x1B[0m\n");
 
-                // Save
+                
                 session.messages.push(new_msg);
                 session.messages.push(Message { role: "assistant".to_string(), content: Value::String(buffer) });
 
-                // Title Gen (1st turn)
+                
                 if session.messages.len() == 2 {
                     print!("\x1B[90mGenerating title...\x1B[0m");
                     io::stdout().flush()?;

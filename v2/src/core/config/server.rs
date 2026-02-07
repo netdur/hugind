@@ -37,13 +37,13 @@ pub struct ServerConfig {
     #[serde(default)]
     pub verbose: bool,
 
-    // Model Config
+    
     pub model_path: PathBuf,
     pub mmproj_path: Option<PathBuf>,
     #[serde(default)]
     pub model_name: Option<String>,
 
-    // Llama Parameters
+    
     #[serde(default)]
     pub model_params: ModelParams,
     
@@ -101,7 +101,7 @@ pub struct ContextParams {
     #[serde(default = "default_ubatch_size")]
     pub n_ubatch: u32,
     
-    // n_seq_max is driven by max_slots in logic, but can be defaulted here
+    
     #[serde(default = "default_max_slots")] 
     pub n_seq_max: u32,
     
@@ -232,17 +232,17 @@ pub enum ChatFormat {
     Openchat,
     Deepseek,
     Qwen3,
-    // Add others as needed from dart
+    
 }
 
-// Defaults
+
 fn default_host() -> String { "0.0.0.0".to_string() }
 fn default_port() -> u16 { 8080 }
 fn default_concurrency() -> u32 { 1 }
 fn default_max_slots() -> u32 { 4 }
 fn default_timeout() -> u64 { 600 }
 fn default_system_prompt() -> String { "You are a helpful assistant.".to_string() }
-fn default_session_home() -> PathBuf { "sessions".into() } // Logic will handle resolving this
+fn default_session_home() -> PathBuf { "sessions".into() } 
 fn default_gpu_layers() -> u32 { 99 }
 fn default_true() -> bool { true }
 fn default_n_ctx() -> u32 { 4096 }

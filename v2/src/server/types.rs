@@ -75,7 +75,7 @@ pub struct ChatCompletionChoice {
 #[derive(Debug, Serialize)]
 pub struct ChatCompletionChoiceMessage {
     pub role: String,
-    pub content: String, // Response is usually just text
+    pub content: String, 
 }
 
 #[derive(Debug, Serialize)]
@@ -85,7 +85,7 @@ pub struct Usage {
     pub total_tokens: u32,
 }
 
-// Streaming Chunk
+
 #[derive(Debug, Serialize)]
 pub struct ChatCompletionChunk {
     pub id: String,
@@ -108,7 +108,7 @@ pub struct ChatCompletionChunkDelta {
     pub content: Option<String>,
 }
 
-// Models
+
 #[derive(Debug, Serialize)]
 pub struct ModelList {
     pub object: String,
@@ -123,7 +123,7 @@ pub struct ModelInfo {
     pub owned_by: String,
 }
 
-// Monitor
+
 #[derive(Debug, Serialize)]
 pub struct MonitorStats {
     pub server_state: String,
@@ -154,11 +154,11 @@ pub struct CacheStats {
     pub ram_sessions: usize,
 }
 
-// State Management
+
 #[derive(Debug, Deserialize)]
 pub struct StateSaveRequest {
     pub session_id: String,
-    pub template_id: String, // Made mandatory if saving as template? Or optional.
+    pub template_id: String, 
 }
 
 #[derive(Debug, Deserialize)]
@@ -166,7 +166,7 @@ pub struct StateIdleRequest {
     pub session_id: String,
 }
 
-// Embeddings
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct EmbeddingRequest {
     pub model: String,

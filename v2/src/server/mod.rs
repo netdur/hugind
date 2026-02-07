@@ -24,7 +24,7 @@ pub async fn run_server(
     port: u16,
     api_key: Option<String>,
 ) {
-    // tracing_subscriber::fmt::init(); // Should be initialized in main ideally
+    
 
     let state = Arc::new(state::AppState {
         engine_tx,
@@ -35,17 +35,17 @@ pub async fn run_server(
     });
 
     let app = Router::new()
-        // OpenAI Compatible Endpoints
+        
         .route("/v1/chat/completions", post(routes::chat_completions))
         .route("/v1/models", get(routes::list_models))
-        // Custom Hugind Endpoints
+        
         .route("/v1/monitor", get(routes::monitor))
         .route("/v1/state/save", post(routes::save_state))
         .route("/v1/state/idle", post(routes::idle_state))
         .route("/v1/state/:id", axum::routing::delete(routes::delete_state))
         .route("/v1/embeddings", post(routes::embeddings))
         
-        // Middleware
+        
         .layer(axum::middleware::from_fn_with_state(state.clone(), auth_middleware))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())

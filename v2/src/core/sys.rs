@@ -38,14 +38,14 @@ impl SystemInspector {
             (acc_t + d.total_space(), acc_a + d.available_space())
         });
 
-        // GPU Detection (Naive for now, relying on command line tools or crate limitations)
-        // sysinfo doesn't fully support GPU details cross-platform yet like lshw/system_profiler.
-        // We will try running nvidia-smi if available, or just return empty/generic.
-        // For macOS (Metal), we can assume Apple Silicon if arch is aarch64-apple-darwin
+        
+        
+        
+        
         
         let mut gpus = Vec::new();
         if cfg!(target_os = "macos") {
-             // quick check if apple silicon
+             
              if std::env::consts::ARCH == "aarch64" {
                  gpus.push(GpuInfo { name: "Apple M-Series GPU".to_string(), memory: None });
              }
@@ -83,7 +83,7 @@ impl SystemInspector {
             return "cuda_dedicated";
         }
         if info.os.to_lowercase().contains("macos") || info.arch == "aarch64" {
-            // Assume Metal on mac
+            
             return "metal_unified";
         }
         "cpu_only"

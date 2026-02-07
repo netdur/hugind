@@ -9,19 +9,19 @@ pub async fn execute(path: String, args_vec: Vec<String>) -> anyhow::Result<()> 
     })?;
 
     if target_path.is_file() && target_path.extension().and_then(|s| s.to_str()) == Some("yaml") {
-        // Check if it's a workflow
+        
         if let Ok(workflow) = crate::core::config::workflow::WorkflowConfig::load_from_file(&target_path) {
             return run_workflow(workflow, target_path.parent().unwrap().to_path_buf(), args_vec).await;
         }
     }
 
     let (agent_root, entry_path, config) = if target_path.is_dir() {
-        // It's an agent directory, look for agent.yaml
+        
         let config = crate::core::config::agent::AgentConfig::load_from_dir(&target_path)?;
         let entry = target_path.join(&config.entry_point);
         (target_path, entry, config)
     } else {
-        // It's a direct file path (legacy/simple mode)
+        
         let root = target_path
             .parent()
             .ok_or_else(|| anyhow::anyhow!("Invalid entry path"))?
@@ -29,9 +29,9 @@ pub async fn execute(path: String, args_vec: Vec<String>) -> anyhow::Result<()> 
         (root, target_path, crate::core::config::agent::AgentConfig::default())
     };
 
-    // Server Health Check - logic duplicated from CLI for now, could be moved to shared/utils
-    // ideally the orchestrator shouldn't know about HTTP checks unless it's an explicit step, 
-    // but preserving behavior for now.
+    
+    
+    
     let backend = resolve_backend(&config)?;
     println!("Checking server health at {}...", backend.health_url);
     if let Err(_) = reqwest::get(&backend.health_url).await.and_then(|r| r.error_for_status()) {

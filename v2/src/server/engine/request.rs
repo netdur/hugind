@@ -21,11 +21,11 @@ pub enum RequestState {
 
 #[derive(Debug, Clone)]
 pub struct RequestParams {
-    pub id: String, // User provided or auto-generated
+    pub id: String, 
     pub prompt: String,
-    pub images: Vec<Vec<u8>>, // Placeholders for multimodal
+    pub images: Vec<Vec<u8>>, 
     pub sampling: SamplingConfig,
-    /// Max output tokens. Use -1 for no cap.
+    
     pub max_output_tokens: i32,
     pub n_keep: usize,
     pub n_discard: usize,
@@ -55,14 +55,14 @@ pub struct Request {
     pub params: RequestParams,
     pub state: RequestState,
     pub cancel_flag: Arc<AtomicBool>,
-    pub(crate) prompt_tokens: Vec<Token>, // Tokenized prompt
+    pub(crate) prompt_tokens: Vec<Token>, 
     pub(crate) multimodal_chunks: HashMap<usize, Chunk>,
     pub(crate) multimodal_meta: Vec<ChunkMeta>,
     pub(crate) pending_mm_start: Option<usize>,
     
-    // Runtime state
+    
     pub(crate) generated_tokens: Vec<Token>,
-    pub(crate) _buffer: VecDeque<u8>, // For detokenization streaming
+    pub(crate) _buffer: VecDeque<u8>, 
     pub(crate) pos_offset: usize, 
     pub response_tx: Option<tokio::sync::mpsc::UnboundedSender<crate::engine::types::Event>>,
 }

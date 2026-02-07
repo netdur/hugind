@@ -38,7 +38,7 @@ impl RemoteClient {
 
         let info: ModelInfo = response.json().await?;
         
-        // Filter for .gguf files
+        
         let files: Vec<String> = info.siblings
             .into_iter()
             .map(|s| s.rfilename)

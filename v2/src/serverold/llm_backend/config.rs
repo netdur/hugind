@@ -2,8 +2,8 @@ use std::num::NonZeroU32;
 use llama_cpp_2::context::params::{LlamaContextParams, KvCacheType, RopeScalingType, LlamaPoolingType};
 use llama_cpp_2::model::params::{LlamaModelParams, LlamaSplitMode};
 
-/// Configuration for the LlamaContext.
-/// Defaults match llama.cpp defaults where possible.
+
+
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct ContextParams {
@@ -80,7 +80,7 @@ impl From<&ContextParams> for LlamaContextParams {
     }
 }
 
-/// Configuration for the LlamaModel.
+
 #[derive(Debug, Clone)]
 pub struct ModelParams {
     pub model_path: String,
@@ -121,7 +121,7 @@ impl From<&ModelParams> for LlamaModelParams {
     }
 }
 
-/// Configuration for Sampling.
+
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct SamplerParams {

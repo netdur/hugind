@@ -21,9 +21,9 @@ pub struct ServerManager {
     sampler_params: backend_config::SamplerParams,
 }
 
-// SAFETY: Manager holds llama.cpp objects that are not marked Send/Sync.
-// We serialize access through the service's internal mutexes and treat
-// the manager as a single-instance global for the process.
+
+
+
 unsafe impl Send for ServerManager {}
 unsafe impl Sync for ServerManager {}
 
@@ -40,8 +40,8 @@ impl ServerManager {
             backend.void_logs();
         }
 
-        // NOTE: LlamaService holds references to backend/model. We leak them to give the service
-        // a stable lifetime for the process duration (server-style usage).
+        
+        
         let backend = Box::leak(Box::new(backend));
 
         let model_params = map_model_params(&config);

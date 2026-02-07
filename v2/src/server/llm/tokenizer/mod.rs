@@ -7,13 +7,13 @@ use crate::llm::error::{Error, Result};
 use std::ffi::CString;
 
 pub struct Tokenizer<'a> {
-    model: *const llama_cpp::llama_model, // borrowed from Model
+    model: *const llama_cpp::llama_model, 
     vocab: *const llama_cpp::llama_vocab,
     _marker: std::marker::PhantomData<&'a ()>,
 }
 
 impl<'a> Tokenizer<'a> {
-    /// Safe construction is usually done via Model::tokenizer()
+    
     pub unsafe fn new(model: *const llama_cpp::llama_model) -> Self {
         let vocab = unsafe { llama_cpp::llama_model_get_vocab(model) };
         Self {
@@ -25,7 +25,7 @@ impl<'a> Tokenizer<'a> {
 
     pub fn tokenize(&self, text: &str, add_special: bool, parse_special: bool) -> Result<Vec<Token>> {
         let c_text = CString::new(text)?;
-        // Upper bound: 1 token per byte + padding
+        
         let mut output = vec![0i32; text.len() + 16];
         
         let n = unsafe {
@@ -41,9 +41,9 @@ impl<'a> Tokenizer<'a> {
         };
 
         if n < 0 {
-            // If negative, it means output buffer was too small (ret value is -n_needed)
-            // or other error. Retry with larger buffer if it was size issue?
-            // For now, simpler error.
+            
+            
+            
             return Err(Error::TokenizeFailed); 
         }
 
@@ -59,11 +59,11 @@ impl<'a> Tokenizer<'a> {
                 token.0,
                 buf.as_mut_ptr() as *mut i8,
                 buf.len() as i32,
-                0,    // lstrip (optional, usually 0)
-                true, // special
+                0,    
+                true, 
             );
             if n < 0 {
-                // Buffer too small, returns -n
+                
                 let needed = -n;
                 buf.resize(needed as usize, 0);
                 let n2 = llama_cpp::llama_token_to_piece(

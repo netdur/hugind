@@ -22,7 +22,7 @@ impl Downloader {
         let final_path = repo_dir.join(filename);
         let part_path = repo_dir.join(format!("{}.part", filename));
 
-        // Cleanup partial if exists (simplification: restart download)
+        
         if part_path.exists() {
             fs::remove_file(&part_path)?;
         }
@@ -64,7 +64,7 @@ impl Downloader {
 
         pb.finish_with_message(format!("Downloaded {}", filename));
         
-        // Atomic rename
+        
         if final_path.exists() {
             fs::remove_file(&final_path)?;
         }

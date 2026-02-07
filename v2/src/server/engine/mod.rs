@@ -58,8 +58,8 @@ pub struct LlmEngine<'a> {
     batch: Batch,
     pending_events: Vec<Event>,
     
-    // New components
-    pub input_rx: tokio::sync::mpsc::Receiver<Request>, // Server -> Engine (Request Input)
+    
+    pub input_rx: tokio::sync::mpsc::Receiver<Request>, 
     pub request_queue: crate::engine::queue::RequestQueue,
     pub kv_manager: Arc<crate::engine::kv_cache::KvCacheManager>,
     pub engine_stats: Arc<RwLock<EngineStats>>,
@@ -193,7 +193,7 @@ impl<'a> LlmEngine<'a> {
         let response_tx = req.response_tx.clone();
         let mut submission_error = None;
 
-        // Tokenization Logic
+        
         if self.mmproj.is_some() && !req.params.images.is_empty() {
             req.state = RequestState::Preparing;
             let job = PrepJob {
@@ -257,7 +257,7 @@ impl<'a> LlmEngine<'a> {
     pub fn pull(&mut self) -> Result<Vec<Event>> {
         let mut events = Vec::new();
 
-        // 0. Drain new requests from server
+        
         while let Ok(req) = self.input_rx.try_recv() {
             self.push(req);
         }
@@ -266,7 +266,7 @@ impl<'a> LlmEngine<'a> {
         
         let mut abort_seqs = Vec::new();
 
-        // Drain multimodal preparation results (non-blocking)
+        
         for prep in self.prep_rx.try_iter() {
             if let Some(req) = self.requests.get_mut(&prep.request_id) {
                 match prep.result {
@@ -296,19 +296,19 @@ impl<'a> LlmEngine<'a> {
             }
         }
 
-        // 0.5 Process State Actions
+        
         self.process_state_actions();
 
-        // 1. Assign Slots
+        
         self.schedule_requests();
 
-        // 1.5 Apply context shift
+        
         self.apply_context_shifts(&mut events)?;
 
-        // 2. Prepare Batch
+        
         self.batch.clear();
         
-        // Track where each slot's "logit token" is in the batch
+        
         let mut slot_batch_idx = HashMap::new(); 
         let mut eval_tokens: HashMap<i32, Vec<Token>> = HashMap::new();
         {
@@ -318,7 +318,7 @@ impl<'a> LlmEngine<'a> {
         let n_batch = self.n_batch;
         let n_ubatch = self.n_ubatch;
 
-        // 2.a Add decode tokens first (continuous batching parity)
+        
         for (&seq_id, slot) in slots.iter_mut() {
             let req = match requests.get_mut(&slot.request_id) {
                 Some(req) => req,
@@ -332,7 +332,7 @@ impl<'a> LlmEngine<'a> {
                 }
             };
             
-            // Check cancellation
+            
             if req.cancel_flag.load(Ordering::Acquire) {
                  req.state = RequestState::Finished;
                  abort_seqs.push(seq_id);
@@ -374,10 +374,10 @@ impl<'a> LlmEngine<'a> {
             slot_batch_idx.insert(seq_id, idx);
         }
 
-        // 2.b Fill remaining capacity with prompt prefill
-        // We limit by n_ubatch (physical batch limit) or n_batch (logical limit), whichever is smaller/relevant.
-        // Usually we want to fill up to n_batch, but if n_ubatch affects memory buffering, we might limit.
-        // Let's use the stricter of n_batch or n_ubatch for the *current* step's fill.
+        
+        
+        
+        
         let batch_limit = n_batch.min(n_ubatch);
         let mut prefill_budget = batch_limit.saturating_sub(batch.handle.n_tokens as usize);
         for (&seq_id, slot) in slots.iter_mut() {
@@ -397,7 +397,7 @@ impl<'a> LlmEngine<'a> {
                 }
             };
             
-            // Check cancellation
+            
             if req.cancel_flag.load(Ordering::Acquire) {
                  req.state = RequestState::Finished;
                  abort_seqs.push(seq_id);
@@ -433,12 +433,12 @@ impl<'a> LlmEngine<'a> {
                 continue;
             }
 
-            // Removed "Prompt too large" check. We rely on chunking loop below.
+            
 
             while processed < total_len && prefill_budget > 0 {
                 let tok_idx = processed;
 
-                // Multimodal chunk at this position
+                
                 if req.multimodal_chunks.get(&tok_idx).is_some() {
                     req.pending_mm_start = Some(tok_idx);
                     break;
@@ -483,13 +483,13 @@ impl<'a> LlmEngine<'a> {
             return Ok(events);
         }
 
-        // 3. Decode
+        
         if self._model.has_encoder() && !self._model.has_decoder() {
             self.ctx.encode(&mut self.batch)?;
         } else {
             if let Err(e) = self.ctx.decode(&mut self.batch) {
                 eprintln!("[Step] Decode FAILED: {}", e);
-                // Dump Batch state
+                
                 unsafe {
                     eprintln!("[Step] Batch n_tokens: {}", self.batch.handle.n_tokens);
                     if self.batch.handle.n_tokens > 0 {
@@ -502,7 +502,7 @@ impl<'a> LlmEngine<'a> {
             }
         }
         
-        // Commit evaluated tokens to kv_head and session history after a successful decode.
+        
         if !eval_tokens.is_empty() {
             for (seq_id, tokens) in eval_tokens.drain() {
                 if let Some(slot) = self.slots.get(&seq_id) {
@@ -523,7 +523,7 @@ impl<'a> LlmEngine<'a> {
         let mut finished_seqs = Vec::new();
         let mut embedding_seqs = Vec::new(); 
 
-        // 3.5 Extract Embeddings
+        
         for (&seq_id, &batch_idx) in &slot_batch_idx {
              if let Some(slot) = self.slots.get(&seq_id) {
                  if let Some(req) = self.requests.get(&slot.request_id) {
@@ -541,7 +541,7 @@ impl<'a> LlmEngine<'a> {
                              let slice = unsafe { std::slice::from_raw_parts(emb_ptr, n_embd) };
                              let mut embedding = slice.to_vec();
 
-                             // Normalization (L2) - common for embedding models
+                             
                              let mut sum = 0.0f32;
                              for &v in &embedding {
                                  sum += v * v;
@@ -558,7 +558,7 @@ impl<'a> LlmEngine<'a> {
                                  request: RequestHandle::new(req.params.id.clone(), req.cancel_flag.clone()),
                              });
                              
-                             // Send Finish for clean close
+                             
                              Self::emit_event(&mut events, req, EventKind::Finish {
                                  request: RequestHandle::new(req.params.id.clone(), req.cancel_flag.clone()),
                                  reason: StopReason::Eos,
@@ -587,22 +587,22 @@ impl<'a> LlmEngine<'a> {
             finished_seqs.push(*seq_id);
         }
         
-        // 4. Sample
+        
         let sampled_tokens = self.sample_batch(&slot_batch_idx, &mut events, &mut finished_seqs);
         
-        // 4.5 Post-sample multimodal eval (cap = 1 per tick)
+        
         self.eval_one_pending_mm(&mut events, &mut abort_seqs)?;
         
-        // 5. Cleanup finished
+        
         for seq_id in finished_seqs {
             if let Some(slot) = self.slots.remove(&seq_id) {
-                // Request remains in map as Finished, or remove?
-                // Typically user wants to poll until finish, then we can drop.
-                // But map grows indefinitely if we don't drop.
-                // Let's remove from requests too? 
-                // Or let user 'ack'?
-                // For simplicity, we keep it in requests map but state is Finished.
-                // Cleanup separate method?
+                
+                
+                
+                
+                
+                
+                
                 self.requests.remove(&slot.request_id);
             }
         }
@@ -615,7 +615,7 @@ impl<'a> LlmEngine<'a> {
             }
         }
         
-        // Update shared stats for /v1/monitor
+        
         self.update_stats(sampled_tokens as f64, Instant::now());
 
         Ok(events)
@@ -673,11 +673,11 @@ impl<'a> LlmEngine<'a> {
                 }
             };
             
-            // Sample
+            
             let next_token = slot.sampler.sample(&self.ctx, batch_idx);
             slot.sampler.accept(next_token);
             
-            // Check Stop
+            
             let mut stop_reason = None;
             let is_eog = self._model.is_eog_token(next_token.0);
             if is_eog {
@@ -700,7 +700,7 @@ impl<'a> LlmEngine<'a> {
                     }
                 }
 
-                // Decode piece
+                
                 let piece = self.tokenizer.decode(&[next_token]).unwrap_or_default();
 
                 Self::emit_event(events, req, EventKind::Text {
@@ -722,11 +722,11 @@ impl<'a> LlmEngine<'a> {
     }
 
     fn schedule_requests(&mut self) {
-        // Collect free slots (not currently processing)
-        // We will alloc from this set if we can't reuse.
-        // But we won't eagerly pop.
         
-        // Very basic simple scheduler: FIFO 
+        
+        
+        
+        
         if self.request_queue.is_empty() { return; }
 
         loop {
@@ -744,7 +744,7 @@ impl<'a> LlmEngine<'a> {
             if !should_schedule {
                 continue;
             }
-            // Extract necessary data to avoid borrowing self.requests while mutating
+            
             let (session_id, parent_id, mut prompt_tokens, n_keep, sampling) = {
                 let req = match self.requests.get(&req_id) {
                     Some(req) => req,
@@ -762,10 +762,10 @@ impl<'a> LlmEngine<'a> {
                 )
             };
 
-            // 1. Determine Target Slot
+            
             let mut target_seq_id = None;
             
-            // Priority A: Reuse existing VRAM sequence for this session
+            
             if let Some(sid) = &session_id {
                 let sessions = self.kv_manager.sessions.read();
                 if let Some(sess) = sessions.get(sid) {
@@ -777,7 +777,7 @@ impl<'a> LlmEngine<'a> {
                 }
             }
             
-            // Priority B: Any free slot
+            
             if target_seq_id.is_none() {
                 for seq_id in 0..self.n_seq_max {
                     if !self.slots.contains_key(&seq_id) {
@@ -794,7 +794,7 @@ impl<'a> LlmEngine<'a> {
             
             let seq_id = target_seq_id.unwrap();
             
-            // CRITICAL: Evict ownership of this sequence from ANYONE ELSE (preserve state)
+            
             match self.kv_manager.evict_seq_owner(&mut self.ctx, seq_id, session_id.as_deref()) {
                 Ok(Some(owner_id)) => {
                     eprintln!("[State] Evicted session {} from seq {} to preserve state", owner_id, seq_id);
@@ -808,14 +808,14 @@ impl<'a> LlmEngine<'a> {
             }
             
             
-            // Check if we need to restore state or fork
+            
             let mut restored = false;
             let mut restored_token_count = 0;
             let mut delta_mode = false;
 
-            // 1. Forking?
+            
             if let Some(pid) = &parent_id {
-                // Check if parent is in VRAM
+                
                 if let Some(parent_slot) = self.slots.values().find(|s| s.request_id == *pid) {
                      let parent_seq_id = self.slots.iter()
                         .find(|(_, s)| s.request_id == *pid)
@@ -833,21 +833,21 @@ impl<'a> LlmEngine<'a> {
                 }
             }
             
-            // 2. Resuming session? (Self)
+            
             if !restored {
                if let Some(sid) = &session_id {
-                   // Register session (ensure it exists in manager)
+                   
                     self.kv_manager.register_session(sid.clone(), prompt_tokens.clone(), n_keep);
                    
-                   // Check VRAM HIT
+                   
                    let mut reused_vram = false;
                    {
                        let sessions = self.kv_manager.sessions.read();
                        if let Some(s) = sessions.get(sid) {
                            if s.vram_seq_id == Some(seq_id) {
                                reused_vram = true;
-                               // CRITICAL: Use kv_head (verified state), NOT tokens.len() (intent)
-                               // If we reuse VRAM, what is there is exactly what we evaluated.
+                               
+                               
                                restored_token_count = s.kv_head;
                            }
                        }
@@ -857,7 +857,7 @@ impl<'a> LlmEngine<'a> {
                        restored = true;
                        self.kv_manager.touch(sid);
                    } else {
-                       // Try restore (Unified/RAM/Disk)
+                       
                        match self.kv_manager.restore(&mut self.ctx, seq_id, sid) {
                            Ok(n_restored) => {
                                restored = true;
@@ -866,15 +866,15 @@ impl<'a> LlmEngine<'a> {
                            Err(_) => {
                                 let filename = format!("cache/{}.bin", sid);
                                 if std::path::Path::new(&filename).exists() {
-                                     // Legacy: ignore for now.
+                                     
                                 }
                            }
                        }
                    }
                    
-                   // STRICT STATEFUL LOGIC:
-                   // If we successfully restored a session (RAM/Disk/VRAM), the new request IS a Delta (Append).
-                   // There is no "Full History" check. User supplies ID -> We append to that ID's state.
+                   
+                   
+                   
                    if restored {
                         let session_len = {
                             let sessions = self.kv_manager.sessions.read();
@@ -885,9 +885,9 @@ impl<'a> LlmEngine<'a> {
                             }
                         };
                         
-                        // Delta Mode: Append
-                        // We must strip BOS if present in new tokens, to avoid [BOS, Hello, ... BOS, New]
-                        // This corresponds to the user input "Where is Paris?" when context already has "Hello".
+                        
+                        
+                        
                         if !prompt_tokens.is_empty() && prompt_tokens[0].0 == self._model.token_bos() {
                              prompt_tokens.remove(0);
                         }
@@ -897,10 +897,10 @@ impl<'a> LlmEngine<'a> {
                             req_mut.pos_offset = session_len;
                         }
                         
-                        // Prevent truncation of the existing (restored) state.
-                        // We are logically processing ONLY the new tokens, so the "restored" match count 
-                        // for the purpose of the *current request's prompt* is technically 0 relative to the new tokens.
-                        // (The context is handled via pos_offset).
+                        
+                        
+                        
+                        
                         delta_mode = true;
                         restored_token_count = 0; 
                    }
@@ -908,22 +908,22 @@ impl<'a> LlmEngine<'a> {
             }
 
             if !restored {
-                 // Clear just in case we stole a dirty slot
+                 
                  self.ctx.kv_cache_seq_rm(seq_id, -1, -1);
                  restored_token_count = 0;
                  
-                 // If we have a session, assume ownership of this empty slot
+                 
                  if let Some(sid) = &session_id {
                      let _ = self.kv_manager.set_vram_seq(sid, seq_id);
                  }
             }
             
             if let Ok(sampler) = Sampler::new(&sampling, Some(self._model.vocab())) {
-                 // Calculate n_prompt_processed based on prefix match
+                 
                  let req_tokens_len = prompt_tokens.len();
                  let n_past = std::cmp::min(restored_token_count, req_tokens_len);
                  
-                 // Only truncate in Full prompt mode. Delta mode must not touch restored KV.
+                 
                  if !delta_mode && restored_token_count > n_past {
                      self.ctx.kv_cache_seq_rm(seq_id, n_past as i32, -1);
                  }
@@ -1047,7 +1047,7 @@ impl<'a> LlmEngine<'a> {
                 }
             }
             
-            // Clear pending action
+            
             {
                 let mut sessions = self.kv_manager.sessions.write();
                  if let Some(s) = sessions.get_mut(&session_id) {
@@ -1180,7 +1180,7 @@ impl<'a> LlmEngine<'a> {
             let start = n_keep;
             let end = n_keep + n_discard;
 
-            // Update session token history if available (full history).
+            
             if let Some(sid) = &req.params.session_id {
                 let mut sessions = self.kv_manager.sessions.write();
                 if let Some(s) = sessions.get_mut(sid) {
@@ -1201,7 +1201,7 @@ impl<'a> LlmEngine<'a> {
                 req.prompt_tokens = combined;
                 req.generated_tokens.clear();
             } else {
-                // Treat context as: [restored (pos_offset)] + [prompt] + [generated]
+                
                 let restored_len = req.pos_offset;
                 let mut remaining = n_discard;
 
@@ -1226,7 +1226,7 @@ impl<'a> LlmEngine<'a> {
                         }
                     }
                 } else {
-                    // start is within prompt or generated
+                    
                     let start_in_prompt = start.saturating_sub(restored_len);
                     let end_in_prompt = end.saturating_sub(restored_len);
 
@@ -1253,7 +1253,7 @@ impl<'a> LlmEngine<'a> {
                     }
                 }
 
-                // Recompute pos_offset from session history if available.
+                
                 if let Some(sid) = &req.params.session_id {
                     let sessions = self.kv_manager.sessions.read();
                     if let Some(s) = sessions.get(sid) {
@@ -1369,7 +1369,7 @@ impl<'a> LlmEngine<'a> {
 
 impl<'a> Drop for LlmEngine<'a> {
     fn drop(&mut self) {
-        // Close the prep worker channel so recv() exits.
+        
         self.prep_tx.take();
 
         if let Some(handle) = self._prep_handle.take() {

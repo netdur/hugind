@@ -9,7 +9,7 @@ use crate::shared::paths;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Message {
     pub role: String,
-    pub content: serde_json::Value, // Can be string or array (multimodal)
+    pub content: serde_json::Value, 
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -101,9 +101,9 @@ impl SessionRepo {
                 if let Ok(content) = fs::read_to_string(&path) {
                     match serde_json::from_str::<Session>(&content) {
                         Ok(session) => {
-                            // Title Logic
+                            
                             let title = session.title.clone().unwrap_or_else(|| {
-                                // Try to find first user message
+                                
                                 session.messages.iter()
                                     .find(|m| m.role == "user")
                                     .map(|m| {
@@ -118,7 +118,7 @@ impl SessionRepo {
                                     .unwrap_or_else(|| "New Chat".to_string())
                             });
 
-                             // Date Logic (Handle RFC3339 or Naive)
+                             
                              let last_active = Self::parse_date(&session.last_active).unwrap_or_else(|_| Utc::now());
 
                             sessions.push(SessionInfo {
@@ -133,19 +133,19 @@ impl SessionRepo {
                 }
             }
         }
-        // Sort newest first
+        
         sessions.sort_by(|a, b| b.last_active.cmp(&a.last_active));
         Ok(sessions)
     }
 
     fn parse_date(s: &str) -> Result<DateTime<Utc>> {
-        // Try RFC3339/ISO8601 with offset
+        
         if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
             return Ok(dt.with_timezone(&Utc));
         }
-        // Try Naive (assume UTC or Local?)
-        // Dart's naive format often: "2026-01-12T22:00:30.065888"
-        // Try to append Z?
+        
+        
+        
         if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f") {
              return Ok(DateTime::from_naive_utc_and_offset(dt, Utc));
         }

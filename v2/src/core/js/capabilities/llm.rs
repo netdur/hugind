@@ -1,5 +1,5 @@
 use rquickjs::{AsyncContext, Class, Result};
-use rquickjs::class::Trace; // Import Trace for manual impl usage (Wait, trait Trace is in class module?)
+use rquickjs::class::Trace; 
 use crate::core::config::agent::AgentConfig;
 use crate::core::config::backend::resolve_backend;
 
@@ -13,12 +13,12 @@ pub struct Llm {
 
 impl<'js> Trace<'js> for Llm {
     fn trace<'a>(&self, _tracer: rquickjs::class::Tracer<'a, 'js>) {
-        // No JS values held, so nothing to trace
+        
     }
 }
 
 
-// Rust-only methods
+
 impl Llm {
     pub fn new(config: &AgentConfig) -> Self {
         let resolved = resolve_backend(config)
@@ -70,7 +70,7 @@ impl Llm {
         let body_text = res.text().await
              .map_err(|e| rquickjs::Error::new_loading_message("Response Read Error", e.to_string()))?;
 
-        // 1. Try parsing as standard OpenAI JSON
+        
         if let Ok(data) = serde_json::from_str::<serde_json::Value>(&body_text) {
              if let Some(content) = data.get("choices")
                 .and_then(|choices| choices.get(0))
@@ -80,12 +80,12 @@ impl Llm {
             {
                 return Ok(content.to_string());
             }
-            // If it parses as JSON but doesn't match standard schema, 
-            // we return the raw body text (which happens to be JSON), 
-            // allowing the agent to handle custom schemas if needed.
+            
+            
+            
         }
 
-        // 2. Helper to extract JSON from markdown block
+        
         let extract_markdown_json = |text: &str| -> Option<String> {
              let start_marker = "```json";
              let end_marker = "```";
@@ -98,7 +98,7 @@ impl Llm {
              None
         };
 
-        // 3. Check for JSON wrapped in markdown
+        
         if let Some(json_str) = extract_markdown_json(&body_text) {
             if let Ok(data) = serde_json::from_str::<serde_json::Value>(&json_str) {
                  if let Some(content) = data.get("choices")
@@ -112,8 +112,8 @@ impl Llm {
             }
         }
 
-        // 4. Check for SSE Stream (data: {...})
-        // If the server ignores stream=false, we might get an SSE stream.
+        
+        
         if body_text.starts_with("data: ") {
             let mut full_content = String::new();
             for line in body_text.lines() {
@@ -139,7 +139,7 @@ impl Llm {
             }
         }
 
-        // 5. Fallback: Return raw body text
+        
         Ok(body_text)
     }
 }

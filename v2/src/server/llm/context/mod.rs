@@ -10,15 +10,15 @@ pub use params::ContextParams;
 
 pub struct Context {
     ptr: NonNull<llama_cpp::llama_context>,
-    // Keep model alive as context depends on it
-    // (In C++ llama.cpp, context usually doesn't own model but here we might want to ensure safety.
-    // However, users often want to share model across contexts. So we can hold a reference or just rely on lifecycle management.)
-    // For this plan, we'll assume the user manages the Model lifetime or we hold an Arc/Rc if we were using it.
-    // But since Model is safe wrapper, let's just say Context is tied to a Model's lifetime 'm?
-    // Or we just don't store it and assume the user keeps Model alive.
-    // Llama.cpp doesn't crash if model is freed? Actually it might.
-    // Let's stick to unsafe assumtion or phantom data for now, OR better, require model reference in new.
-    // We won't store Model here to allow one model multiple contexts without Arc.
+    
+    
+    
+    
+    
+    
+    
+    
+    
 }
 
 unsafe impl Send for Context {}
@@ -31,7 +31,7 @@ impl Context {
             llama_cpp::llama_new_context_with_model(model.as_ptr(), c_params)
         };
         
-        // Error handling: llama_new_context_with_model returns NULL on failure
+        
         let non_null = ffi_guard::ensure_non_null(ptr, "Failed to create context")?;
         
         Ok(Self { ptr: non_null })
@@ -64,16 +64,16 @@ impl Context {
     }
     
 
-    /// Get logits for a specific token index in the batch.
-    /// Safety: The batch must have had logits enabled for this index, and decode must have run.
+    
+    
     pub fn get_logits(&self, batch_token_index: i32) -> *mut f32 {
         unsafe {
             llama_cpp::llama_get_logits_ith(self.as_ptr(), batch_token_index)
         }
     }
 
-    /// Get embeddings for a specific token index in the batch.
-    /// Safety: The batch must have had embeddings enabled for this index, and decode must have run.
+    
+    
     pub fn get_embeddings(&self, batch_token_index: i32) -> *mut f32 {
         unsafe {
             llama_cpp::llama_get_embeddings_ith(self.as_ptr(), batch_token_index)
@@ -112,17 +112,17 @@ impl Context {
         }
     }
 
-    // New state management functions
+    
     pub fn state_seq_get_data(&self, seq_id: i32) -> Result<Vec<u8>> {
         unsafe {
             let size = llama_cpp::llama_state_seq_get_size(self.as_ptr(), seq_id);
             if size == 0 {
-                return Err(Error::ContextSizeInvalid); // Or specific error
+                return Err(Error::ContextSizeInvalid); 
             }
             let mut buf = vec![0u8; size];
             let written = llama_cpp::llama_state_seq_get_data(self.as_ptr(), buf.as_mut_ptr(), size, seq_id);
             if written != size {
-                // This might happen if size changed?
+                
                 return Err(Error::ContextSizeInvalid);
             }
             Ok(buf)
@@ -138,7 +138,7 @@ impl Context {
     pub fn state_seq_save_file(&self, filepath: &str, seq_id: i32, tokens: &[i32]) -> usize {
         let c_filepath = std::ffi::CString::new(filepath).unwrap();
         unsafe {
-            // tokens needs to be passed
+            
             llama_cpp::llama_state_seq_save_file(
                 self.as_ptr(), 
                 c_filepath.as_ptr(), 
@@ -165,7 +165,7 @@ impl Context {
             );
             
             if size == 0 {
-                return Err(Error::ModelLoadFailed("Failed to load KV state from file".to_string())); // Generic error
+                return Err(Error::ModelLoadFailed("Failed to load KV state from file".to_string())); 
             }
             
             tokens.truncate(n_token_count_out);

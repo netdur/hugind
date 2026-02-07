@@ -93,7 +93,7 @@ impl RepoManager {
                 }
             }
         }
-        // sort by name
+        
         files.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(files)
     }
@@ -115,7 +115,7 @@ impl RepoManager {
         if dir.exists() {
             fs::remove_dir_all(&dir)?;
         }
-        // Cleanup parent if empty
+        
         if let Some(parent) = dir.parent() {
             if let Ok(entries) = fs::read_dir(parent) {
                 if entries.count() == 0 {

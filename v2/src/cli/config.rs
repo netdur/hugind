@@ -52,7 +52,7 @@ pub fn validate(path: String) -> Result<()> {
         }
         Err(e) => {
            println!("Configuration Invalid: {:#}", e);
-           // Bubble up error
+           
            Err(e)
         }
     }

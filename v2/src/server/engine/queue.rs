@@ -23,7 +23,7 @@ impl RequestQueue {
     }
 
     pub fn pop(&mut self) -> Option<String> {
-        // Simple FIFO for now
+        
         self.pending.pop_front()
     }
 

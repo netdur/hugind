@@ -3,14 +3,14 @@ use llama_cpp_2::context::LlamaContext;
 use llama_cpp_2::token::LlamaToken;
 use llama_cpp_sys_2;
 
-/// In-memory snapshot of a single sequence KV/cache state.
+
 pub struct SeqState {
     pub seq_id: i32,
     pub data: Vec<u8>,
 }
 
-// WARNING: This is a layout-dependent hack. It assumes `LlamaContext` has
-// `context: NonNull<llama_context>` as its first field.
+
+
 unsafe fn raw_ctx_ptr(ctx: &LlamaContext) -> *mut llama_cpp_sys_2::llama_context {
     let ptr = ctx as *const LlamaContext as *const std::ptr::NonNull<llama_cpp_sys_2::llama_context>;
     unsafe { (*ptr).as_ptr() }
@@ -35,8 +35,8 @@ pub fn save_session(ctx: &LlamaContext, session_name: &str, tokens: &[LlamaToken
     Ok(path)
 }
 
-/// Loads session tokens and returns (tokens, n_past, validated_path)
-/// internal_seq_id is the internal sequence ID used in the context to check KV cache
+
+
 pub fn load_session(
     ctx: &mut LlamaContext, 
     session_name: &str
@@ -46,7 +46,7 @@ pub fn load_session(
         return Err("Session file does not exist".into());
     }
     
-    // Use n_ctx as max tokens limit
+    
     let max_tokens = ctx.n_ctx() as usize;
     let tokens = ctx.load_session_file(&path, max_tokens)?;
     
@@ -66,7 +66,7 @@ pub fn fork_session(source_name: &str, dest_name: &str) -> Result<PathBuf, std::
     Ok(dest)
 }
 
-/// Save a per-sequence KV/cache snapshot into memory (RAM).
+
 pub fn save_seq_state_to_mem(
     ctx: &LlamaContext,
     seq_id: i32,
@@ -94,8 +94,8 @@ pub fn save_seq_state_to_mem(
     Ok(SeqState { seq_id, data })
 }
 
-/// Restore a per-sequence KV/cache snapshot from memory (RAM).
-/// Returns number of bytes read.
+
+
 pub fn load_seq_state_from_mem(
     ctx: &mut LlamaContext,
     seq_id: i32,
@@ -123,7 +123,7 @@ pub fn load_seq_state_from_mem(
     Ok(read)
 }
 
-/// Clear a sequence's KV/cache from the current context (frees VRAM for that seq).
+
 pub fn clear_seq_state(ctx: &mut LlamaContext, seq_id: i32) -> Result<(), Box<dyn std::error::Error>> {
     let _ = ctx.clear_kv_cache_seq(Some(seq_id as u32), None, None);
     Ok(())

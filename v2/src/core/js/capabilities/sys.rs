@@ -19,12 +19,12 @@ async fn input(prompt: String) -> String {
 
 pub async fn install(ctx: &AsyncContext) -> Result<()> {
     ctx.async_with(|ctx| Box::pin(async move {
-        // Register 'print'
+        
         let print_func = Function::new(ctx.clone(), print)?;
         ctx.globals().set("print", print_func)?;
 
-        // Register 'input'
-        // Function::new supports async functions via Async wrapper
+        
+        
         let input_func = Function::new(ctx.clone(), Async(input))?;
         ctx.globals().set("input", input_func)?;
 

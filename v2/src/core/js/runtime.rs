@@ -110,7 +110,7 @@ impl JsRuntime {
             }
         }).await;
 
-        // Loop and idle until we have a result
+        
         loop {
             self.wait_idle().await;
             if let Some(res) = explicit_output.lock().unwrap().take() {
@@ -119,8 +119,8 @@ impl JsRuntime {
             if let Some(res) = output.lock().unwrap().take() {
                 return res;
             }
-            // Small sleep to avoid pegged CPU if idle() returns immediately but promise isn't settled
-            // (though idle() should only return when all jobs are done).
+            
+            
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
     }
@@ -138,7 +138,7 @@ fn json_to_js<'js>(ctx: &rquickjs::Ctx<'js>, value: serde_json::Value) -> rquick
             if let Some(f) = n.as_f64() {
                 Ok(rquickjs::Value::new_float(ctx.clone(), f))
             } else if let Some(i) = n.as_i64() {
-                Ok(rquickjs::Value::new_int(ctx.clone(), i as i32)) // QuickJS int is i32
+                Ok(rquickjs::Value::new_int(ctx.clone(), i as i32)) 
             } else {
                 Ok(rquickjs::Value::new_null(ctx.clone()))
             }
@@ -181,8 +181,8 @@ fn js_to_json<'js>(ctx: &rquickjs::Ctx<'js>, value: rquickjs::Value<'js>) -> rqu
     } else if value.is_object() {
         let obj = value.into_object().unwrap();
         let mut out = serde_json::Map::new();
-        // This is a bit tricky with rquickjs as we need to iterate keys
-        // We can use Object::keys
+        
+        
         for key in obj.keys::<rquickjs::String>() {
             let key = key?;
             let k_str = key.to_string()?;

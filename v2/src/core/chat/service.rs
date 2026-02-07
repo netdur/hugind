@@ -21,8 +21,8 @@ impl ChatService {
             return self.default_base_url.clone();
         }
         
-        // Try direct config lookup
-        // Assuming config_name maps to a file in <config_home>/configs/
+        
+        
         let config_path = paths::config_home().join("configs").join(format!("{}.yml", config_name));
         
         if config_path.exists() {
@@ -52,7 +52,7 @@ impl ChatService {
         let client = Client::new();
         let url = format!("{}/completions", base_url);
 
-        // 1. Optimistic Attempt
+        
         let payload = json!({
             "model": model,
             "messages": [new_message],
@@ -67,9 +67,9 @@ impl ChatService {
             .send()
             .await?;
 
-        // 2. Fallback on 409
+        
         if response.status() == 409 {
-            // Rehydrate
+            
              let mut messages_json = Vec::new();
              for msg in full_history {
                  messages_json.push(json!({
@@ -77,7 +77,7 @@ impl ChatService {
                      "content": msg.content
                  }));
              }
-             // Add new message
+             
              messages_json.push(json!({
                  "role": new_message.role,
                  "content": new_message.content
@@ -125,7 +125,7 @@ impl ChatService {
          let payload = json!({
             "model": model,
             "messages": messages,
-            "stream": false // No stream for simple title
+            "stream": false 
         });
 
         if let Ok(resp) = client.post(&url).json(&payload).send().await {

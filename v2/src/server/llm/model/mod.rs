@@ -55,18 +55,18 @@ impl Model {
         };
         
         if res < 0 {
-            // Key not found or error
+            
             return Ok(None);
         }
         
-        // If result > buffer len, we need to resize?
-        // documentation says: returns length on success.
-        // If >= buf_size, it was truncated?
-        // Let's assume 1024 is enough for now or resize.
+        
+        
+        
+        
         
         let len = res as usize;
         if len >= buf.len() {
-             // Resize and retry
+             
              buf.resize(len + 1, 0);
              unsafe {
                 llama_cpp::llama_model_meta_val_str(
@@ -78,17 +78,17 @@ impl Model {
              };
         }
         
-        // Convert to string
+        
         let c_str = unsafe { std::ffi::CStr::from_ptr(buf.as_ptr() as *const i8) };
         Ok(Some(c_str.to_string_lossy().into_owned()))
     }
 
     pub fn chat_template(&self) -> Result<String> {
-        // Try tokenizer.chat_template
+        
         if let Some(tmpl) = self.get_metadata("tokenizer.chat_template")? {
             return Ok(tmpl);
         }
-        // Fallback?
+        
         Ok("".to_string())
     }
 

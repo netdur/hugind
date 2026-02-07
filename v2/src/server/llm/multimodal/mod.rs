@@ -30,19 +30,19 @@ impl MultimodalContext {
         self.ptr.as_ptr()
     }
 
-    /// Tokenize text with images.
-    /// Returns:
-    /// - Vec<i32>: The sequence of tokens (including LLAMA_TOKEN_NULL/0).
-    /// - Vec<Chunk>: List of chunks corresponding to the input.
-    /// 
-    /// Note: The original generic `tokenize` returns just tokens. Here we have to handle the fact that
-    /// some "tokens" are actually placeholders for image chunks.
-    /// The `Vec<i32>` returned will effectively be the flattened token stream.
-    /// The `Vec<Chunk>` allows us to retrieve the actual content (text or image) for processing.
+    
+    
+    
+    
+    
+    
+    
+    
+    
     pub fn tokenize(&self, text: &str, images: &[Image]) -> Result<(Vec<i32>, std::collections::HashMap<usize, Chunk>)> {
         let c_text = CString::new(text)?;
         
-        // Prepare bitmaps array
+        
         let mut bitmap_ptrs: Vec<*const llama_cpp::mtmd_bitmap> = images.iter().map(|img| img.as_ptr() as *const _).collect();
         
         unsafe {
@@ -56,7 +56,7 @@ impl MultimodalContext {
             if chunks_ptr.is_null() {
                 return Err(Error::BackendError("Failed to init input chunks".into()));
             }
-            // Ensure we free the chunks container
+            
             let _chunks_guard = InputChunksGuard(chunks_ptr);
 
             let ret = llama_cpp::mtmd_tokenize(
@@ -81,11 +81,11 @@ impl MultimodalContext {
                      continue;
                 }
                 
-                // Copy chunk to own it safely
+                
                 let copied_chunk_ptr = llama_cpp::mtmd_input_chunk_copy(chunk_ptr);
                 let chunk = Chunk { ptr: NonNull::new(copied_chunk_ptr).unwrap() };
                 
-                // Extract tokens from this chunk to build the flat token stream
+                
                 let chunk_type = llama_cpp::mtmd_input_chunk_get_type(chunk.as_ptr());
                 
                 if chunk_type == llama_cpp::mtmd_input_chunk_type_MTMD_INPUT_CHUNK_TYPE_TEXT {
@@ -94,13 +94,13 @@ impl MultimodalContext {
                     let tokens_slice = slice::from_raw_parts(tokens_ptr, n_tokens as usize);
                     result_tokens.extend_from_slice(tokens_slice);
                 } else {
-                    // Image/Audio chunk
+                    
                     let start_idx = result_tokens.len();
                     
                     let n_tokens = llama_cpp::mtmd_input_chunk_get_n_tokens(chunk.as_ptr());
-                    // Fill with placeholders (NULL token or 0?)
-                    // server-common.cpp uses LLAMA_TOKEN_NULL which is usually -1.
-                    // But our Token wrapper wraps i32, and typically 0 is UNK or similar, but -1 is safe invalid.
+                    
+                    
+                    
                     let null_token = -1; 
                     for _ in 0..n_tokens {
                         result_tokens.push(null_token);
@@ -122,7 +122,7 @@ impl MultimodalContext {
         seq_id: i32,
         n_batch: i32,
         logits_last: bool,
-    ) -> Result<(i32, i32)> { // (status, new_n_past)
+    ) -> Result<(i32, i32)> { 
         let mut new_n_past_c = 0;
         let ret = unsafe {
             llama_cpp::mtmd_helper_eval_chunk_single(
@@ -150,9 +150,9 @@ impl MultimodalContext {
         _n_batch: i32,
         _logits_last: bool,
     ) -> Result<(i32, i32)> {
-        // TODO: Add llama.cpp/llava-side support to evaluate partial chunk ranges.
-        // This should call a backend function that processes only [start, start+len)
-        // tokens/positions for the chunk and returns (status, n_done).
+        
+        
+        
         Err(Error::BackendError("partial mm eval not supported".to_string()))
     }
 }
@@ -234,7 +234,7 @@ impl Drop for Chunk {
     }
 }
 
-// Helper guard to ensure chunks list is freed
+
 struct InputChunksGuard(*mut llama_cpp::mtmd_input_chunks);
 
 impl Drop for InputChunksGuard {

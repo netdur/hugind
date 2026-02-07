@@ -14,24 +14,24 @@ impl<'js> rquickjs::class::Trace<'js> for Net {
 #[rquickjs::methods]
 impl Net {
     pub async fn fetch(&self, url: String) -> Result<String> {
-        // 1. Check if network is allowed
+        
         if !self.permission.allow {
              return Err(rquickjs::Error::new_loading_message("Network Error", "Network access is disabled for this agent."));
         }
 
-        // 2. Parse URL to check domain
+        
         let parsed_url = reqwest::Url::parse(&url)
             .map_err(|e| rquickjs::Error::new_loading_message("Invalid URL", e.to_string()))?;
         
         let host = parsed_url.host_str().unwrap_or("");
 
-        // 3. Check allowed domains (if restricted)
-        // If allowed_domains is empty, does it mean allow ALL or allow NONE? 
-        // Usually explicit allow list implies restrictions. 
-        // User request: "whatever I have net access and allow domains"
-        // Let's assume if list is NOT empty, we check against it. If empty, maybe allow all (if allow is true)? 
-        // Or if allow is true but domains provided, strict whitelist.
-        // Let's implement: If allowed_domains is NOT empty, host MUST be in it.
+        
+        
+        
+        
+        
+        
+        
         
         if !self.permission.allowed_domains.is_empty() {
              let allowed = self.permission.allowed_domains.iter().any(|d| host == d || host.ends_with(&format!(".{}", d)));
@@ -40,7 +40,7 @@ impl Net {
              }
         }
 
-        // 4. Perform request
+        
         let res = self.client.get(parsed_url)
             .send()
             .await
@@ -64,7 +64,7 @@ pub async fn install(ctx: &AsyncContext, config: &AgentConfig) -> Result<()> {
         NetPermissions::default()
     };
 
-    // If fetch enabled, Client is reqwest::Client::new()
+    
     let client = reqwest::Client::builder()
         .user_agent("Hugind/0.1 (http://github.com/netdur/hugind)")
         .build()

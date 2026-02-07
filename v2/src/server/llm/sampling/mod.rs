@@ -27,17 +27,17 @@ impl Sampler {
                 let greedy = llama_cpp::llama_sampler_init_greedy();
                 llama_cpp::llama_sampler_chain_add(chain, greedy);
             } else {
-                // Add samplers in standard order: 
-                // 1. Penalties (not fully configurable in this simple struct yet, but example placeholders)
-                // 2. Logit bias (if any)
-                // 3. Top-K
-                // 4. Top-P
-                // 5. Min-P
-                // 6. Temperature
-                // 7. Dist (random sampling)
                 
-                // For now, let's just do simple: dist(temp) or greedy
-                // If temp <= 0 -> greedy
+                
+                
+                
+                
+                
+                
+                
+                
+                
+                
                  
                 if config.temp <= 0.0 {
                      let greedy = llama_cpp::llama_sampler_init_greedy();
@@ -52,7 +52,7 @@ impl Sampler {
                     let temp = llama_cpp::llama_sampler_init_temp(config.temp);
                     llama_cpp::llama_sampler_chain_add(chain, temp);
 
-                    let dist = llama_cpp::llama_sampler_init_dist(1234); // random seed?
+                    let dist = llama_cpp::llama_sampler_init_dist(1234); 
                     llama_cpp::llama_sampler_chain_add(chain, dist);
                 }
             }
@@ -118,7 +118,7 @@ impl Sampler {
             llama_cpp::llama_sampler_apply(self.chain, &mut arr);
 
             if arr.selected < 0 {
-                // fallback: sample without grammar
+                
                 let id = llama_cpp::llama_sampler_sample(self.chain, ctx.as_ptr(), idx);
                 return Token(id);
             }

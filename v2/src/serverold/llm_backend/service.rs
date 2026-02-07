@@ -58,14 +58,14 @@ pub struct LlamaService<'a> {
     metrics: Arc<ServiceMetrics>,
 }
 
-// SAFETY: This service is guarded internally with mutexes and is intended to be used
-// on a single runtime. Marking it Send/Sync enables Axum state + spawn_blocking use.
-// If llama.cpp or mtmd contexts are not thread-safe, this may still be unsafe.
+
+
+
 unsafe impl<'a> Send for LlamaService<'a> {}
 unsafe impl<'a> Sync for LlamaService<'a> {}
 
 impl<'a> LlamaService<'a> {
-    // Lock order when multiple locks are needed: state -> ctx.
+    
     fn ensure_sampler_for_session(&self, session: &mut SessionState, params: &SamplerParams) {
         let needs_rebuild = session
             .sampler_params
@@ -580,9 +580,9 @@ impl<'a, 'b> Iterator for ServiceStream<'a, 'b> {
 }
 
 pub struct StepResult {
-    /// Tokens to feed back into the scheduler (includes EOS).
+    
     pub completed: Vec<(String, LlamaToken)>,
-    /// Tokens safe to emit to the user (excludes EOS).
+    
     pub emitted: Vec<(String, LlamaToken)>,
 }
 
@@ -666,8 +666,8 @@ impl<'a> LlamaService<'a> {
         Ok(())
     }
 
-    /// The new "tick" function. Takes map of (session_id -> last_generated_token) from previous step.
-    /// Returns both scheduler feedback tokens and user-emittable tokens.
+    
+    
     pub fn service_step(&self, completed_tokens: &[(String, LlamaToken)]) -> Result<StepResult, Box<dyn std::error::Error>> {
         let mut pending_emitted: Vec<(String, LlamaToken)> = Vec::new();
         let mut completed_tokens: Vec<(String, LlamaToken)> = completed_tokens.to_vec();

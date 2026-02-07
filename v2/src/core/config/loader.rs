@@ -25,12 +25,12 @@ impl ConfigLoader {
         let sampling_section = yaml.get("sampling").unwrap_or(&serde_yaml::Value::Null);
         let chat_section = yaml.get("chat").unwrap_or(&serde_yaml::Value::Null);
 
-        // Path resolution helper
+        
         let resolve_path = |p: Option<&str>| -> Option<PathBuf> {
             p.map(|s| resolve_path_relative(s, path))
         };
 
-        // Server Settings
+        
         let host = server_section["host"].as_str().unwrap_or("0.0.0.0").to_string();
         let port = server_section["port"].as_u64().unwrap_or(8080) as u16;
         let api_key = server_section["api_key"]
@@ -40,7 +40,7 @@ impl ConfigLoader {
         
         let library_path = resolve_path(server_section["library_path"].as_str());
         
-        // System Prompt
+        
         let system_prompt_file = server_section["system_prompt_file"]
             .as_str()
             .map(|p| p.trim())
@@ -62,7 +62,7 @@ impl ConfigLoader {
              paths::sessions_dir()
         };
 
-        // Model Settings
+        
         let model_name = model_section["name"]
             .as_str()
             .map(|s| s.trim().to_string())
@@ -71,14 +71,14 @@ impl ConfigLoader {
         let model_path = resolve_path_relative(model_path_str, path);
         
         if !model_path.exists() && !model_path_str.is_empty() {
-             // In a real CLI we might error here, but for now let's just proceed or error if critical
-             // Dart code throws exception
+             
+             
              anyhow::bail!("Model file not found at: {:?}", model_path);
         }
 
         let mmproj_path = resolve_path(model_section["mmproj_path"].as_str());
         
-        // Parameter Tuning Logic
+        
         let max_slots = server_section["max_slots"].as_u64().unwrap_or(4) as u32;
 
         let mut batch_size = context_section["batch_size"].as_u64().unwrap_or(
@@ -103,7 +103,7 @@ impl ConfigLoader {
             n_ctx: context_section["size"].as_u64().unwrap_or(4096) as u32,
             n_batch: batch_size,
             n_ubatch: context_section["ubatch_size"].as_u64().unwrap_or(512) as u32,
-            n_seq_max: max_slots, // Critical: set to max_slots
+            n_seq_max: max_slots, 
             n_threads: context_section["threads"].as_u64().unwrap_or(8) as u32,
             n_threads_batch: context_section["threads_batch"].as_u64().unwrap_or(8) as u32,
             flash_attention: parse_flash_attn(&context_section["flash_attention"]),
@@ -156,7 +156,7 @@ impl ConfigLoader {
     }
 }
 
-// Helpers
+
 fn resolve_path_relative(raw_path: &str, config_path: &Path) -> PathBuf {
     if raw_path.is_empty() {
         return PathBuf::new();
@@ -164,7 +164,7 @@ fn resolve_path_relative(raw_path: &str, config_path: &Path) -> PathBuf {
     
     let mut resolved = raw_path.to_string();
     
-    // Handle ~ expansion
+    
     if resolved.starts_with('~') {
         if let Some(home) = dirs::home_dir() {
             resolved = resolved.replacen("~", home.to_string_lossy().as_ref(), 1);

@@ -21,10 +21,10 @@ pub struct ContextParams {
     pub cb_eval_user_data: *mut std::ffi::c_void,
     pub type_k: llama_cpp::ggml_type,
     pub type_v: llama_cpp::ggml_type,
-    // pub logits_all: bool, // Removed in newer llama.cpp?
+    
     pub embeddings: bool,
     pub offload_kqv: bool,
-    // pub flash_attn: bool, // Removed or renamed
+    
     pub no_perf: bool,
 }
 
@@ -53,10 +53,10 @@ impl Default for ContextParams {
                 cb_eval_user_data: defaults.cb_eval_user_data,
                 type_k: defaults.type_k,
                 type_v: defaults.type_v,
-                // logits_all: defaults.logits_all,
+                
                 embeddings: defaults.embeddings,
                 offload_kqv: defaults.offload_kqv,
-                // flash_attn: defaults.flash_attn,
+                
                 no_perf: defaults.no_perf,
             }
         }
@@ -87,10 +87,10 @@ impl ContextParams {
             params.cb_eval_user_data = self.cb_eval_user_data;
             params.type_k = self.type_k;
             params.type_v = self.type_v;
-            // params.logits_all = self.logits_all;
+            
             params.embeddings = self.embeddings;
             params.offload_kqv = self.offload_kqv;
-            // params.flash_attn = self.flash_attn;
+            
             params.no_perf = self.no_perf;
             params
         }

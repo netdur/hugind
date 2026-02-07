@@ -108,7 +108,7 @@ pub struct AgentConfig {
     pub entry_point: String,
     #[serde(default)]
     pub wasm: Option<WasmConfig>,
-    // We keep these flexible for now
+    
     pub backend: Option<serde_yaml::Value>,
     #[serde(default)]
     pub permissions: Option<Permissions>,

@@ -6,14 +6,14 @@ use crate::shared::paths;
 use crate::core::sys::{SystemInspector, SystemInfo};
 
 pub fn init(name: String, model_override: Option<String>) -> Result<()> {
-    // A. Probe Hardware
+    
     println!("Probing hardware... (this may take a moment)");
     let info = SystemInspector::inspect();
     let recommended_preset = SystemInspector::recommend_preset(&info);
     
     print_hardware_summary(&info, recommended_preset);
 
-    // B. Choose Preset
+    
     let presets = vec!["metal_unified", "cuda_dedicated", "cpu_only"];
     let default_idx = presets.iter().position(|&p| p == recommended_preset).unwrap_or(0);
     
@@ -21,7 +21,7 @@ pub fn init(name: String, model_override: Option<String>) -> Result<()> {
         .with_starting_cursor(default_idx)
         .prompt()?;
 
-    // C. Load Templates (Embedded for now to ensure availability)
+    
     let base_content = include_str!("../resources/config.yml");
     let preset_content = match chosen_preset {
         "metal_unified" => include_str!("../resources/metal_unified.yml"),
@@ -30,9 +30,9 @@ pub fn init(name: String, model_override: Option<String>) -> Result<()> {
         _ => "",
     };
 
-    // D. Model Selection (Two-Step: Repo -> File)
+    
     let (model_path, model_size_gb) = if let Some(m) = model_override {
-        // approximate size if provided manually
+        
         let size = if let Ok(meta) = fs::metadata(&m) {
             meta.len() as f64 / 1_073_741_824.0
         } else {
@@ -54,7 +54,7 @@ pub fn init(name: String, model_override: Option<String>) -> Result<()> {
              };
              (path, size)
         } else {
-             // 1. Select Repo
+             
              let repo_options: Vec<String> = repos.iter().map(|r| r.full_name()).collect();
              let repo_selection = Select::new("Select a Model Repository", repo_options)
                 .with_page_size(10)
@@ -63,7 +63,7 @@ pub fn init(name: String, model_override: Option<String>) -> Result<()> {
              let repo_idx = repos.iter().position(|r| r.full_name() == repo_selection).unwrap();
              let selected_repo = &repos[repo_idx];
 
-             // 2. Select File
+             
              let files = RepoManager::list_repo_files(selected_repo)?;
              let gguf_files: Vec<&crate::core::model::registry::ModelFile> = files.iter()
                 .filter(|f| f.name.ends_with(".gguf") && !f.name.starts_with("mmproj"))
@@ -88,13 +88,13 @@ pub fn init(name: String, model_override: Option<String>) -> Result<()> {
         }
     };
 
-    // E. Detect Vision (Siblings)
+    
     let mmproj_path = detect_sibling(&model_path, &["mmproj", "projector", "vision"]);
     if let Some(ref mm) = mmproj_path {
         println!("✨ Auto-detected Vision Projector: {}", Path::new(mm).file_name().unwrap_or_default().to_string_lossy());
     }
 
-    // F. Chat Format
+    
     let chat_formats = vec!["auto", "chatml", "chatmlThinking", "qwen3", "gemma", "alpaca", "harmony"];
     let detected_format = detect_chat_format(&model_path);
     let fmt_idx = chat_formats.iter().position(|&f| f == detected_format).unwrap_or(0);
@@ -103,23 +103,23 @@ pub fn init(name: String, model_override: Option<String>) -> Result<()> {
         .with_starting_cursor(fmt_idx)
         .prompt()?;
 
-    // G. Memory Analysis & Context
+    
     println!("\n🧠 Memory Analysis:");
     let sys_mem_gb = info.memory_bytes as f64 / 1_073_741_824.0;
     println!("  System RAM: {:.1} GB", sys_mem_gb);
     println!("  Model Size: {:.1} GB", model_size_gb);
     
-    // Naive estimation: (RAM - Model - Overhead 2GB) / (KV Cache per token approx)
-    // KV Cache estimate (f16): 2 bytes * 2 layers * n_layers * n_heads * head_dim... very rough.
-    // Simpler: 100k tokens ~ 10GB for 7B/13B models roughly? 
-    // Let's use a very rough heuristic: 100MB per 1k tokens context for standard models.
+    
+    
+    
+    
     let available_for_ctx = (sys_mem_gb - model_size_gb - 2.0).max(0.5); 
-    // 0.1 GB per 1024 tokens => available * 10 
+    
     let est_tokens = (available_for_ctx * 10.0 * 1024.0) as u64;
     println!("  Est. Max Context: ~{} tokens", est_tokens);
 
     let ctx_options = vec![2048, 4096, 8192, 16384, 32768, 65536];
-    // Find closest lower power of 2
+    
     let recommended_ctx = ctx_options.iter()
         .filter(|&&c| c as u64 <= est_tokens)
         .last()
@@ -142,15 +142,15 @@ pub fn init(name: String, model_override: Option<String>) -> Result<()> {
     
     let final_ctx = final_ctx_str.split_whitespace().next().unwrap().parse::<u64>()?;
 
-    // H. Detect Library Path - Simplified
-    // In Rust we don't have easy access to the adjacent libs as in Dart bundle, 
-    // unless installed. We'll skip auto-detection for now or check common paths.
-    let library_path = ""; // TODO: Implement detection
+    
+    
+    
+    let library_path = ""; 
 
-    // I. Merge & Replace
+    
     let mut final_content = base_content.to_string();
     
-    // Merge preset values (Simple replacement for now)
+    
     for line in preset_content.lines() {
         if let Some((k, v)) = parse_yaml_line(line) {
             final_content = replace_value(&final_content, &k, &v);
@@ -171,7 +171,7 @@ pub fn init(name: String, model_override: Option<String>) -> Result<()> {
     final_content = replace_value(&final_content, "format", chosen_format);
     final_content = replace_value(&final_content, "size", &final_ctx.to_string());
 
-    // J. Write to Disk
+    
     let dest_dir = paths::configs_dir();
     fs::create_dir_all(&dest_dir)?;
     let dest_file = dest_dir.join(format!("{}.yml", name));
@@ -199,7 +199,7 @@ fn print_hardware_summary(info: &SystemInfo, recommendation: &str) {
     println!("System probe complete:");
     println!("  CPU: {} ({}c/{}t)", info.cpu_model, info.physical_cores, info.logical_cores);
     println!("  Memory: {:.1} GB", info.memory_bytes as f64 / 1_073_741_824.0);
-    // GPUs...
+    
     println!("Recommended preset: {}", recommendation);
 }
 
@@ -246,7 +246,7 @@ fn shorten_path(path: &str) -> String {
     path.to_string()
 }
 
-// Simple regex-like replacement that preserves comments
+
 fn replace_value(content: &str, key: &str, new_value: &str) -> String {
     let mut output = String::new();
     let key_pat = format!("{}:", key);
@@ -254,10 +254,10 @@ fn replace_value(content: &str, key: &str, new_value: &str) -> String {
     for line in content.lines() {
         let trimmed = line.trim_start();
         if trimmed.starts_with(&key_pat) {
-            // Found it. 
-            // Preserve indentation
+            
+            
             let indent = &line[0..line.len() - trimmed.len()];
-            // Check for comments
+            
             let parts: Vec<&str> = trimmed.splitn(2, ':').collect();
             if parts.len() == 2 {
                 let rest = parts[1];
@@ -267,7 +267,7 @@ fn replace_value(content: &str, key: &str, new_value: &str) -> String {
                 } else {
                     ""
                 };
-                // Reconstruct
+                
                 output.push_str(&format!("{}{}: {}{}\n", indent, key, new_value, if comment.is_empty() { String::new() } else { format!("  {}", comment) }));
                 continue;
             }

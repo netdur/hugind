@@ -35,10 +35,10 @@ impl ModelParams {
             params.split_mode = self.split_mode;
             params.main_gpu = self.main_gpu;
             
-            // Handle tensor split pointer if needed
-            // Note: tensor_split array must theoretically outlive the call if stored, 
-            // but llama_load_model_from_file consumes params immediately.
-            // However, definition is `const float * tensor_split`.
+            
+            
+            
+            
             if let Some(ts) = &self.tensor_split {
                 params.tensor_split = ts.as_ptr();
             }

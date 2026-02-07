@@ -14,7 +14,7 @@ struct LocalOnlyResolver {
 
 impl Resolver for LocalOnlyResolver {
     fn resolve<'js>(&mut self, _ctx: &Ctx<'js>, base: &str, name: &str) -> rquickjs::Result<String> {
-        // Only allow relative imports
+        
         if !(name.starts_with("./") || name.starts_with("../")) {
             return Err(Error::new_resolving_message(base, name, "only relative imports are allowed"));
         }

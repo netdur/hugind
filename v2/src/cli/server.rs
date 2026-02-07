@@ -18,7 +18,7 @@ pub async fn run_start(_config: String, _port: Option<u16>) -> Result<()> {
     runtime::init();
     runtime::logging::init_silent_logging();
 
-    // 1. Load Config
+    
     let path = find_config_path(&_config)
         .ok_or_else(|| anyhow::anyhow!("Config \"{}\" not found.", _config))?;
 
@@ -27,39 +27,39 @@ pub async fn run_start(_config: String, _port: Option<u16>) -> Result<()> {
         cfg.port = port;
     }
 
-    // 2. Initialize Runtime (llama.cpp backend)
+    
     runtime::init();
-    // runtime::logging::init_silent_logging(); // Optional: control via verbose flag?
+    
     
     println!("Loading model from {:?}", cfg.model_path);
 
-    // 3. Map Config to Model/Context Params
-    // We need to map from cfg.model_params (ServerConfig types) to llm::model::ModelParams
-    // Since we don't have direct From impls and types differ, we map manually.
+    
+    
+    
     let mut mparams = ModelParams::default();
     mparams.n_gpu_layers = cfg.model_params.n_gpu_layers as i32;
     mparams.main_gpu = cfg.model_params.main_gpu as i32;
     mparams.use_mmap = cfg.model_params.use_mmap;
     mparams.use_mlock = cfg.model_params.use_mlock;
-    // Map split_mode enum if needed, defaulting for now
+    
     
     let model = Arc::new(Model::from_file(cfg.model_path.to_str().unwrap(), &mparams)?);
     
     let mut cparams = ContextParams::default();
     cparams.n_ctx = cfg.context_params.n_ctx;
     cparams.n_batch = cfg.context_params.n_batch;
-    cparams.n_seq_max = cfg.max_slots; // Drive slots from max_slots config
+    cparams.n_seq_max = cfg.max_slots; 
     cparams.embeddings = cfg.embeddings_enabled;
     if cfg.embeddings_enabled {
         cparams.pooling_type = llama_cpp::llama_pooling_type_LLAMA_POOLING_TYPE_MEAN;
     }
 
-    // 4. Setup Engine Components
+    
     let (engine_tx, engine_rx) = mpsc::channel::<Request>(32);
-    let kv_manager = Arc::new(crate::engine::kv_cache::KvCacheManager::new(true)); // Config unified_memory? Assumed true for now
+    let kv_manager = Arc::new(crate::engine::kv_cache::KvCacheManager::new(true)); 
     let engine_stats = Arc::new(RwLock::new(EngineStats::default()));
     
-    // 5. Spawn Engine Thread
+    
     let engine_model = model.clone();
     let mmproj = cfg.mmproj_path.clone();
     let server_kv_manager = kv_manager.clone();
@@ -74,7 +74,7 @@ pub async fn run_start(_config: String, _port: Option<u16>) -> Result<()> {
             None
         };
         
-        // Initialize Engine
+        
         let mut engine = match LlmEngine::new(&engine_model, &cparams, mm_path_ref, engine_rx, kv_manager, engine_stats) {
             Ok(e) => e,
             Err(e) => {
@@ -143,7 +143,7 @@ pub async fn run_list() -> Result<()> {
         let monitor_url = format!("http://{}:{}/v1/monitor", normalize_host(&host), port);
         
         let health = fetch_health(&monitor_url).await;
-        // logic for expected model might be same
+        
         let expected = read_expected_model_name(&path).ok().flatten();
         let status = format_status(health, expected.as_deref());
         println!("- {} ({})", name, status);
@@ -286,9 +286,9 @@ async fn fetch_health(url: &str) -> Option<HealthInfo> {
     let resp = client.get(url).send().await.ok()?;
     let resp = resp.error_for_status().ok()?;
     let body = resp.text().await.ok()?;
-    // The new monitor endpoint returns JSON with server_state
-    // { "server_state": "running", ... }
-    let model = parse_model_name(&body); // This logic might need tweak for new JSON structure
+    
+    
+    let model = parse_model_name(&body); 
     Some(HealthInfo { model })
 }
 
@@ -298,16 +298,16 @@ fn parse_model_name(body: &str) -> Option<String> {
         return None;
     }
     
-    // Check if it's the monitor JSON
+    
     if let Ok(json) = serde_json::from_str::<JsonValue>(trimmed) {
          if let Some(state) = json.get("server_state").and_then(|v| v.as_str()) {
-             // If we get server_state, it's UP.
-             // But valid model name logic:
+             
+             
              return Some(state.to_string());
          }
     }
 
-    // Fallback to old logic
+    
     if let Ok(json) = serde_json::from_str::<JsonValue>(trimmed) {
         if let Some(name) = json.get("model").and_then(|v| v.as_str()) {
             return Some(name.to_string());
@@ -353,7 +353,7 @@ fn format_status(health: Option<HealthInfo>, _expected: Option<&str>) -> String 
         return "down".to_string();
     };
     
-    // New validation logic could be strictly checking "running" state
+    
     "up".to_string()
 }
 

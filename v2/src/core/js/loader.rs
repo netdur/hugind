@@ -13,7 +13,7 @@ impl Resolver for LocalOnlyResolver {
         base: &str,
         name: &str,
     ) -> rquickjs::Result<String> {
-        // Only allow relative imports
+        
         if !(name.starts_with("./") || name.starts_with("../")) {
             return Err(Error::new_resolving_message(
                 base,
@@ -35,7 +35,7 @@ impl Resolver for LocalOnlyResolver {
             )
         })?;
 
-        // Prevent escaping the agent root
+        
         if !resolved.starts_with(&self.root) {
             return Err(Error::new_resolving_message(
                 base,
@@ -44,7 +44,7 @@ impl Resolver for LocalOnlyResolver {
             ));
         }
 
-        // Restrict to .js files only
+        
         if resolved.extension().and_then(|s| s.to_str()) != Some("js") {
             return Err(Error::new_resolving_message(
                 base,

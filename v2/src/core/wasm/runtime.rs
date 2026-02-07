@@ -8,7 +8,7 @@ use wasmtime::component::ResourceTable;
 use wasmtime_wasi::preview2::{WasiCtx, WasiCtxBuilder, WasiView, DirPerms, FilePerms};
 use wasmtime_wasi::preview2::preview1::{WasiPreview1View, WasiPreview1Adapter};
 use cap_std::fs::Dir as CapDir;
-use futures::StreamExt; // For bytes_stream iteration
+use futures::StreamExt; 
 use crate::core::config::agent::{AgentConfig, NetPermissions, ShellPermission, RuntimeFsMode};
 use crate::core::fs::FsAccess;
 use crate::core::config::backend::resolve_backend;
@@ -61,15 +61,15 @@ impl WasmRuntime {
 
         if let Some(wasm_opts) = &config.wasm {
             if let Some(resources) = &wasm_opts.resources {
-                // Enable fuel metering if CPU limit is present
+                
                 if resources.cpu.is_some() {
                     wasm_config.consume_fuel(true);
                 }
                 
-                // Set memory limit if present
+                
                 if let Some(mem_str) = &resources.memory {
                    if let Some(_bytes) = parse_memory_string(mem_str) {
-                       // The actual memory limit will be applied via StoreLimits in run_module
+                       
                    }
                 }
             }
@@ -129,9 +129,9 @@ impl WasmRuntime {
             self.config.permissions.as_ref().and_then(|p| p.filesystem.clone()),
         );
 
-        // --- WASI Setup ---
+        
         let mut wasi_builder = WasiCtxBuilder::new();
-        wasi_builder.inherit_stdio(); // OR inherit specific streams
+        wasi_builder.inherit_stdio(); 
 
         let mut enable_wasi_mounts = true;
         if let Some(wasm_opts) = &self.config.wasm {
@@ -179,7 +179,7 @@ impl WasmRuntime {
                 }
             }
         }
-        // WasiCtxBuilder::build() -> WasiCtx
+        
         let wasi = wasi_builder.build();
         let table = ResourceTable::new();
         let adapter = WasiPreview1Adapter::new();
@@ -218,7 +218,7 @@ impl WasmRuntime {
 
         store.limiter(|s| &mut s.limits);
         
-        // Global execution timeout
+        
         let mut global_timeout = None;
         if let Some(wasm_opts) = &self.config.wasm {
             if let Some(res) = &wasm_opts.resources {
@@ -226,12 +226,12 @@ impl WasmRuntime {
             }
         }
 
-        // Apply CPU limits if configured (fuel)
+        
         if let Some(wasm_opts) = &self.config.wasm {
              if let Some(res) = &wasm_opts.resources {
                  if let Some(_cpu) = &res.cpu {
-                     // Example: Give 1 billion fuel units (~ instructions)
-                     // A real impl might parse "100%" or specific units.
+                     
+                     
                      store.set_fuel(1_000_000_000).ok(); 
                  }
              }
@@ -242,7 +242,7 @@ impl WasmRuntime {
 
         let mut linker = Linker::new(&self.engine);
         
-        // Link WASI
+        
         wasmtime_wasi::preview2::preview1::add_to_linker_async(&mut linker)?;
 
         Self::link_host_functions(&mut linker)?;
@@ -252,13 +252,13 @@ impl WasmRuntime {
             .await
             .map_err(|e| anyhow!("failed to instantiate wasm module: {}", e))?;
 
-        // Execution wrapper with timeout
+        
         let run_future = async {
-            // Prioritize _start (WASI standard entry point)
+            
             if let Ok(start) = instance.get_typed_func::<(), ()>(&mut store, "_start") {
                 start.call_async(&mut store, ()).await?;
             } else if let Ok(main) = instance.get_typed_func::<(), ()>(&mut store, "main") {
-                // Fallback to main if _start is not exported
+                
                 main.call_async(&mut store, ()).await?;
             }
              Ok::<(), anyhow::Error>(())
@@ -311,14 +311,14 @@ impl WasmRuntime {
             }),
         )?;
 
-        // --- Shell Execution ---
+        
         linker.func_wrap2_async(
             "hugind",
             "run_command",
             |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| Box::new(async move {
                 let cmd_str = read_string(&mut caller, ptr, len)?;
                 
-                // Security Check
+                
                 let perm = caller.data().shell_permission.clone().unwrap_or_default();
                 if !perm.allow {
                      bail!("Shell execution is disabled.");
@@ -330,24 +330,24 @@ impl WasmRuntime {
                 }
                 let program = parts[0];
 
-                // Whitelist Check
+                
                 if let Some(whitelist) = &perm.whitelist {
                     if !whitelist.iter().any(|cmd| cmd == program) {
                         bail!("Command '{}' is not whitelisted.", program);
                     }
                 }
 
-                // Blacklist Check
+                
                 if let Some(blacklist) = &perm.blacklist {
                     if blacklist.iter().any(|cmd| cmd == program) {
                         bail!("Command '{}' is blacklisted.", program);
                     }
                 }
 
-                // Execute
+                
                 let mut command = if cfg!(target_os = "macos") {
-                    // NOTE: This profile is permissive and is NOT a security boundary.
-                    // It only exists to satisfy "use sandbox-exec" on macOS.
+                    
+                    
                     let profile = "(version 1) (allow default)";
                     let mut cmd = Command::new("sandbox-exec");
                     cmd.arg("-p").arg(profile).arg(program);
@@ -360,7 +360,7 @@ impl WasmRuntime {
                     command.args(&parts[1..]);
                 }
 
-                // Shell Configs
+                
                 if perm.env_clear {
                     command.env_clear();
                 }
@@ -382,8 +382,8 @@ impl WasmRuntime {
 
                 let output = output_res.map_err(|e| anyhow!("Failed to execute command: {}", e))?;
 
-                // Max output check
-                let max_len = perm.max_output.as_deref().and_then(parse_memory_string).unwrap_or(1024 * 1024); // default 1MB
+                
+                let max_len = perm.max_output.as_deref().and_then(parse_memory_string).unwrap_or(1024 * 1024); 
 
                 let result_str = if output.status.success() {
                     if output.stdout.len() > max_len {
@@ -434,7 +434,7 @@ impl WasmRuntime {
                     let host = current.host_str().unwrap_or("");
                     let port = current.port_or_known_default().unwrap_or(80);
 
-                    // 1. Domain/IP Allowed List Check
+                    
                     if !permission.allowed_domains.is_empty() || !permission.allowed_ips.is_empty() {
                         let allowed = permission
                             .allowed_domains
@@ -442,7 +442,7 @@ impl WasmRuntime {
                             .any(|d| host == d || host.ends_with(&format!(".{}", d)));
 
                         if !allowed {
-                            // Check if it's an explicitly allowed IP
+                            
                             let is_ip_allowed = if let Ok(_ip) = host.parse::<std::net::IpAddr>() {
                                 permission.allowed_ips.iter().any(|allowed_ip| allowed_ip == host)
                             } else {
@@ -454,16 +454,16 @@ impl WasmRuntime {
                         }
                     }
 
-                    // 2. DNS Resolution & SSRF Check
-                    // We resolve the host to check if it points to a private network.
-                    // This doesn't strictly prevent DNS rebinding (TOCTOU), but blocks standard SSRF.
+                    
+                    
+                    
                     if permission.block_private_networks {
-                        // Try to parse as IP first to avoid DNS lookup if it IS an IP
+                        
                         let ips: Vec<std::net::IpAddr> =
                             if let Ok(ip) = host.parse::<std::net::IpAddr>() {
                                 vec![ip]
                             } else {
-                                // Resolve domain
+                                
                                 let addr_str = format!("{}:{}", host, port);
                                 tokio::net::lookup_host(&addr_str)
                                     .await
@@ -485,13 +485,13 @@ impl WasmRuntime {
                         .timeout
                         .as_deref()
                         .and_then(parse_duration_string)
-                        .unwrap_or(std::time::Duration::from_secs(30)); // Default 30s
+                        .unwrap_or(std::time::Duration::from_secs(30)); 
 
                     let max_bytes = permission
                         .max_response_bytes
                         .as_deref()
                         .and_then(parse_memory_string)
-                        .unwrap_or(10 * 1024 * 1024); // Default 10MB
+                        .unwrap_or(10 * 1024 * 1024); 
 
                     let res = client
                         .get(current.clone())
@@ -517,14 +517,14 @@ impl WasmRuntime {
                         bail!("HTTP Status: {}", res.status());
                     }
 
-                    // Stream body with size limit
+                    
                     let mut content = Vec::new();
                     let mut stream = res.bytes_stream();
 
                     while let Some(item) = stream.next().await {
                         let chunk = item.map_err(|e| anyhow!("Chunk error: {}", e))?;
                         if content.len() + chunk.len() > max_bytes {
-                            // Cap and stop
+                            
                             let remaining = max_bytes - content.len();
                             content.extend_from_slice(&chunk[..remaining]);
                             break;
@@ -568,7 +568,7 @@ impl WasmRuntime {
                     serde_json::json!({"type": "json_object"})
                 );
 
-                // LLM Timeout - default 2 min
+                
                 let res = client
                     .post(&url)
                     .timeout(std::time::Duration::from_secs(120)) 
@@ -579,13 +579,13 @@ impl WasmRuntime {
 
                 if !res.status().is_success() {
                     let status = res.status();
-                    // Read error body with limit
+                    
                      let bytes = res.bytes().await.unwrap_or_default();
                      let text = String::from_utf8_lossy(&bytes);
                     bail!("LLM Error: {}: {}", status, text);
                 }
 
-                // LLM Response Limit - default 10MB
+                
                 let max_bytes = 10 * 1024 * 1024; 
                 let mut content = Vec::new();
                 let mut stream = res.bytes_stream();
@@ -632,7 +632,7 @@ impl WasmRuntime {
                     serde_json::json!({"type": "json_object"})
                 );
 
-                // LLM Timeout - default 2 min
+                
                 let res = client
                     .post(&url)
                     .timeout(std::time::Duration::from_secs(120))
@@ -648,7 +648,7 @@ impl WasmRuntime {
                     bail!("LLM Error: {}: {}", status, text);
                 }
 
-                // LLM Response Limit - default 10MB
+                
                 let max_bytes = 10 * 1024 * 1024;
                 let mut content = String::new();
                 let mut stream = res.bytes_stream();
@@ -676,7 +676,7 @@ impl WasmRuntime {
                                 .and_then(|content| content.as_str())
                             {
                                 content.push_str(delta);
-                                // Stream to host stdout for immediate feedback
+                                
                                 print!("{delta}");
                             }
                         }
@@ -716,7 +716,7 @@ impl WasmRuntime {
     }
 
     fn link_fs_hostcalls(linker: &mut Linker<HostState>) -> Result<()> {
-        // --- Host filesystem (guarded by runtime_fs_mode + permissions.filesystem) ---
+        
         linker.func_wrap0_async(
             "hugind_fs",
             "fs_cwd",
@@ -1060,7 +1060,7 @@ fn pack_ptr_len(ptr: u32, len: u32) -> i64 {
 }
 
 fn parse_memory_string(mem: &str) -> Option<usize> {
-    // Simple parser: "512MB", "1GB", etc.
+    
     let mem = mem.trim().to_uppercase();
     if let Some(stripped) = mem.strip_suffix("MB") {
         return stripped.parse::<usize>().ok().map(|v| v * 1024 * 1024);
@@ -1082,7 +1082,7 @@ fn parse_duration_string(s: &str) -> Option<std::time::Duration> {
     if let Some(min) = s.strip_suffix("m") {
         return min.parse::<u64>().ok().map(|min| std::time::Duration::from_secs(min * 60));
     }
-    // Default to seconds if just number? Or fail? Safe to fail.
+    
     s.parse::<u64>().ok().map(std::time::Duration::from_secs)
 }
 
@@ -1090,29 +1090,29 @@ fn is_private_ip(ip: &std::net::IpAddr) -> bool {
     match ip {
         std::net::IpAddr::V4(addr) => {
             let octets = addr.octets();
-            // 10.0.0.0/8
+            
             if octets[0] == 10 { return true; }
-            // 172.16.0.0/12
+            
             if octets[0] == 172 && (octets[1] >= 16 && octets[1] <= 31) { return true; }
-            // 192.168.0.0/16
+            
             if octets[0] == 192 && octets[1] == 168 { return true; }
-            // 127.0.0.0/8 (Loopback)
+            
             if octets[0] == 127 { return true; }
-            // 169.254.0.0/16 (Link Local)
+            
             if octets[0] == 169 && octets[1] == 254 { return true; }
-            // 100.64.0.0/10 (CGNAT)
+            
             if octets[0] == 100 && (octets[1] >= 64 && octets[1] <= 127) { return true; }
-            // 0.0.0.0/8
+            
             if octets[0] == 0 { return true; }
             false
         }
         std::net::IpAddr::V6(addr) => {
-            // ::1 (Loopback)
+            
             if addr.is_loopback() { return true; }
             let segments = addr.segments();
-            // fc00::/7 (Unique Local)
+            
             if (segments[0] & 0xfe00) == 0xfc00 { return true; }
-            // fe80::/10 (Link Local)
+            
             if (segments[0] & 0xffc0) == 0xfe80 { return true; }
             false
         }
