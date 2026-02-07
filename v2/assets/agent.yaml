@@ -1,5 +1,8 @@
 # ==================================================================
-# 🦅 HUGIND AGENT MANIFEST
+# 🦅 HUGIND AGENT MANIFEST (REFERENCE TEMPLATE)
+# ==================================================================
+# This file is a reference template. Keep comments and optional fields.
+# It documents all supported options for agent packaging + permissions.
 # ==================================================================
 
 # 🆔 METADATA
@@ -11,14 +14,73 @@ author: "netdur"
 license: "MIT"
 
 # ⚠️ COMPATIBILITY
+# ------------------------------------------------------------------
 # Specifies which version of Hugind is required to run this agent.
 hugind_version: ">=0.6.0"
 
 # ⚙️ RUNTIME & ENTRY POINT
 # ------------------------------------------------------------------
-# The main Dart script that starts execution. 
-# It can be in the root or a subdirectory (e.g., bin/main.dart).
-entry_point: "main.dart"
+# The main script that starts execution.
+# It can be a JavaScript file (.js) or a WebAssembly module (.wasm).
+# Example: "dist/agent.wasm" or "src/index.js"
+entry_point: "dist/agent.wasm"
+
+# 📦 WASM CONFIGURATION
+# ------------------------------------------------------------------
+# Specific settings for WebAssembly runtime isolation and resources.
+wasm:
+
+  # ----------------------------------------------------------------
+  # 📂 FILE ACCESS MODEL (IMPORTANT)
+  # ----------------------------------------------------------------
+  # There are two kinds of filesystem access:
+  #
+  # 1) ✅ WASI MOUNTS ("sandbox filesystem"):
+  #    - The guest can only access directories explicitly mounted below.
+  #    - Inside each mounted directory, full access is expected.
+  #    - This does NOT use host filesystem permissions/scopes.
+  #
+  # 2) 🧰 HOST FILESYSTEM ("host access"):
+  #    - The guest uses host-provided filesystem functions (native APIs).
+  #    - Here, scopes / modes / allowed paths are enforced by permissions.
+  #
+  # If both are enabled, the agent can use mounts for workspace-like access
+  # and host filesystem APIs for controlled access elsewhere.
+  #
+  # runtime_fs_mode: "wasi_mounts" | "host_filesystem" | "both"
+  # Default: "both"
+  runtime_fs_mode: "both"
+
+  # Mounts: Map host directories to guest paths.
+  # Use with caution! Only helpful if you want to give the agent access
+  # to specific workspace data.
+  #
+  # NOTE: Mounts grant full access within the mounted directories.
+  # NOTE: Implementations SHOULD canonicalize paths to prevent symlink tricks.
+  mounts:
+    - host: "./data"
+      guest: "/data"
+    - host: "./config"
+      guest: "/etc/agent"
+
+  # Resources: Limit the computational resources the agent can consume.
+  resources:
+    # Memory: Maximum memory the instance can allocate (e.g., "512MB", "1GB").
+    # If not set, it may use the runtime default (often 4GB).
+    memory: "512MB"
+
+    # CPU: Limit execution time or fuel (if supported by the runtime).
+    # This is often abstract "fuel" units or a percentage.
+    # For now, we can specify a relative priority or max instruction count.
+    cpu: "100%"
+
+    # OPTIONAL: Wall-clock timeout (recommended if supported by runtime)
+    # Example: "30s", "2m"
+    # timeout: "60s"
+
+    # OPTIONAL: Max stdout/stderr capture (recommended if supported)
+    # Example: "1MB"
+    # max_output: "1MB"
 
 # 🔗 BACKEND CONNECTION
 # ------------------------------------------------------------------
@@ -35,19 +97,53 @@ backend:
 permissions:
 
   # 🌐 NETWORK
+  # ----------------------------------------------------------------
+  # Applies to host-provided networking functions (e.g. net_fetch).
+  # NOTE: If you provide a dedicated LLM hostcall, decide whether it should
+  # be governed by this network permission or a separate llm permission.
   network:
     allow: true
     allowed_domains:
       - "api.stockdata.org"
       - "finance.yahoo.com"
+    # OPTIONAL: Allow specific IP ranges (if supported). Prefer domains.
+    # allowed_ips:
+    #   - "93.184.216.0/24"
 
-  # 📂 FILESYSTEM (Native)
+    # OPTIONAL: Block private/loopback metadata ranges (recommended)
+    # block_private_networks: true
+
+  # 📂 FILESYSTEM (HOST / NATIVE ACCESS)
+  # ----------------------------------------------------------------
+  # Controls what the agent can access via host filesystem functions.
+  # IMPORTANT:
+  # - This does NOT restrict WASI mounts above.
+  # - This is only for "host filesystem" access mode (native/capability APIs).
   filesystem:
+    # Master switch for host filesystem APIs.
+    allow: true
+
+    # Modes: fine-grained controls for host filesystem APIs.
+    # If your runtime doesn’t support these, treat them as documentation
+    # and implement as best-effort.
     read: true
     write: true
+    create: true
+    delete: false
+
+    # Allowed paths (scoped prefixes) for host filesystem APIs.
+    # Implementations SHOULD canonicalize and enforce prefix checks.
     allowed_paths:
       - "$HOME/Downloads"
       - "./workspace"
+
+    # OPTIONAL: Deny list (takes precedence if supported)
+    # denied_paths:
+    #   - "$HOME/.ssh"
+    #   - "/etc"
+
+    # OPTIONAL: Whether to follow symlinks (recommended: false)
+    # follow_symlinks: false
 
   # 💻 SHELL / PROCESS EXECUTION
   # --------------------------------------------------------------
@@ -56,7 +152,7 @@ permissions:
   # --------------------------------------------------------------
   shell:
     allow: true
-    
+
     # OPTION A: WHITELIST (Recommended)
     # Only the commands listed below are allowed. All others are blocked.
     whitelist:
@@ -70,6 +166,20 @@ permissions:
     #   - "rm"
     #   - "shutdown"
     #   - "mkfs"
+
+    # OPTIONAL: Enforce timeouts / output limits if supported by runtime
+    # timeout: "5s"
+    # max_output: "256KB"
+
+    # OPTIONAL: Run with sanitized environment (recommended)
+    # env_clear: true
+    # working_dir: "./workspace"
+
+  # OPTIONAL: LLM permission (recommended if LLM calls should be separately gated)
+  # llm:
+  #   allow: true
+  #   allowed_base_urls:
+  #     - "http://127.0.0.1:8080/v1"
 
 # 🔌 DEPENDENCIES (MCP)
 # ------------------------------------------------------------------

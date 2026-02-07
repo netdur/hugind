@@ -1,7 +1,9 @@
 pub mod js;
+pub mod wasm;
 pub mod model;
 pub mod config;
 pub mod chat;
+pub mod fs;
 pub mod sys;
 pub mod runtime;
 pub mod errors;

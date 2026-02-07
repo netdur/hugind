@@ -75,5 +75,21 @@ async fn main() {
                 std::process::exit(1);
             }
         }
+        Commands::Server { command } => {
+            let result = match command {
+                hugind::cli::args::ServerCommand::Start { config, port } => {
+                    hugind::cli::server::run_start(config, port).await
+                }
+                hugind::cli::args::ServerCommand::List => hugind::cli::server::run_list().await,
+                hugind::cli::args::ServerCommand::Stop { config } => {
+                    hugind::cli::server::run_stop(config).await
+                }
+            };
+
+            if let Err(e) = result {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
     }
 }

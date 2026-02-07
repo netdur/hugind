@@ -12,6 +12,7 @@ Base URL: `http://127.0.0.1:<port>/v1`
 - `POST /v1/completions` text completions (non-chat)
 - `POST /v1/embeddings` embeddings only (enabled when `server.embeddings: true`)
 - `POST /v1/chat/hibernate` persist and unload a session from memory
+- `POST /v1/chat/delete` delete a session permanently
 
 ## Headers
 

@@ -1,0 +1,15 @@
+{
+  "name": "cli",
+  "version": "0.1.0",
+  "description": "Natural-language CLI",
+  "type": "module",
+  "scripts": {
+    "build": "asc main.ts -o main.wasm -O3 --path ./node_modules/assemblyscript-json/assembly"
+  },
+  "dependencies": {
+    "assemblyscript-json": "^1.1.0"
+  },
+  "devDependencies": {
+    "assemblyscript": "^0.28.9"
+  }
+}

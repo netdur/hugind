@@ -2,14 +2,116 @@ use serde::Deserialize;
 use std::path::Path;
 use anyhow::{Context, Result};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct NetPermissions {
+    #[serde(default)]
+    pub allow: bool,
+    #[serde(default)]
+    pub allowed_domains: Vec<String>,
+    #[serde(default)]
+    pub allowed_ips: Vec<String>,
+    #[serde(default)]
+    pub block_private_networks: bool,
+    pub max_response_bytes: Option<String>,
+    pub timeout: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct FileSystemPermission {
+    #[serde(default)]
+    pub allow: bool,
+    #[serde(default = "default_true")]
+    pub read: bool,
+    #[serde(default = "default_true")]
+    pub write: bool,
+    #[serde(default)]
+    pub create: bool,
+    #[serde(default)]
+    pub delete: bool,
+    #[serde(default)]
+    pub allow_outside_agent_root: bool,
+    #[serde(default)]
+    pub allowed_paths: Vec<String>,
+    #[serde(default)]
+    pub denied_paths: Vec<String>,
+    #[serde(default)]
+    pub follow_symlinks: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct ShellPermission {
+    #[serde(default)]
+    pub allow: bool,
+    pub whitelist: Option<Vec<String>>,
+    pub blacklist: Option<Vec<String>>,
+    pub timeout: Option<String>,
+    pub max_output: Option<String>,
+    #[serde(default)]
+    pub env_clear: bool,
+    pub working_dir: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct Permissions {
+    #[serde(default)]
+    pub network: Option<NetPermissions>,
+    #[serde(default)]
+    pub filesystem: Option<FileSystemPermission>,
+    #[serde(default)]
+    pub shell: Option<ShellPermission>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Mount {
+    pub host: String,
+    pub guest: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct WasmResources {
+    pub memory: Option<String>,
+    pub cpu: Option<String>,
+    pub timeout: Option<String>,
+    pub max_output: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeFsMode {
+    WasiMounts,
+    HostFilesystem,
+    Both,
+}
+
+impl Default for RuntimeFsMode {
+    fn default() -> Self {
+        Self::Both
+    }
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct WasmConfig {
+    #[serde(default)]
+    pub runtime_fs_mode: RuntimeFsMode,
+    pub mounts: Option<Vec<Mount>>,
+    pub resources: Option<WasmResources>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct AgentConfig {
     pub name: String,
     pub version: String,
     pub entry_point: String,
+    #[serde(default)]
+    pub wasm: Option<WasmConfig>,
     // We keep these flexible for now
     pub backend: Option<serde_yaml::Value>,
-    pub permissions: Option<serde_yaml::Value>,
+    #[serde(default)]
+    pub permissions: Option<Permissions>,
     pub dependencies: Option<serde_yaml::Value>,
     pub env: Option<Vec<serde_yaml::Value>>,
 }
@@ -33,8 +135,9 @@ impl Default for AgentConfig {
             name: "default".to_string(),
             version: "0.0.0".to_string(),
             entry_point: "main.js".to_string(),
+            wasm: None,
             backend: None,
-            permissions: None,
+            permissions: Some(Permissions::default()),
             dependencies: None,
             env: None,
         }

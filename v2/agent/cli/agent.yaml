@@ -1,0 +1,40 @@
+name: "cli"
+version: "0.1.0"
+description: "Natural-language CLI"
+author: "netdur"
+license: "MIT"
+
+hugind_version: ">=0.6.0"
+
+entry_point: "main.wasm"
+
+wasm:
+  runtime_fs_mode: "host_filesystem"
+  resources:
+    memory: "512MB"
+    cpu: "100%"
+
+backend:
+  url: "http://127.0.0.1:8080/v1"
+
+permissions:
+  network:
+    allow: true
+
+  filesystem:
+    allow: true
+    read: true
+    write: false
+    create: false
+    delete: false
+    allowed_paths:
+      - "$HOME"
+      - "."
+
+  shell:
+    allow: true
+
+dependencies:
+  mcp: []
+
+env: []

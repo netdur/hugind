@@ -1,14 +1,7 @@
 use rquickjs::{AsyncContext, Class, Result};
 use rquickjs::class::Trace; // Import Trace for manual impl usage (Wait, trait Trace is in class module?)
 use crate::core::config::agent::AgentConfig;
-use serde::Deserialize;
-
-#[derive(Deserialize, Debug, Clone)]
-struct BackendConfig {
-    url: String,
-    config: Option<String>, // model
-    // session handling to be added
-}
+use crate::core::config::backend::resolve_backend;
 
 
 #[rquickjs::class]
@@ -28,21 +21,18 @@ impl<'js> Trace<'js> for Llm {
 // Rust-only methods
 impl Llm {
     pub fn new(config: &AgentConfig) -> Self {
-        let (url, model) = if let Some(backend) = &config.backend {
-             let cfg: BackendConfig = serde_yaml::from_value(backend.clone())
-                .unwrap_or_else(|_| BackendConfig {
-                    url: "http://127.0.0.1:8080/v1".into(),
-                    config: Some("default".into())
-                });
-             (cfg.url, cfg.config)
-        } else {
-            ("http://127.0.0.1:8080/v1".into(), Some("default".into()))
-        };
+        let resolved = resolve_backend(config)
+            .map_err(|e| rquickjs::Error::new_loading_message("Backend Config Error", e.to_string()))
+            .unwrap_or_else(|_| crate::core::config::backend::ResolvedBackend {
+                base_url: "http://127.0.0.1:8080/v1".to_string(),
+                health_url: "http://127.0.0.1:8080/v1/monitor".to_string(),
+                model: Some("default".to_string()),
+            });
 
         Self {
             client: reqwest::Client::new(),
-            base_url: url,
-            model,
+            base_url: resolved.base_url,
+            model: resolved.model,
         }
     }
 }

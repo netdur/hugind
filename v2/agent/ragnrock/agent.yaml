@@ -1,0 +1,21 @@
+name: "ragnrock"
+version: "0.1.0"
+entry_point: "main.js"
+backend:
+  url: "http://127.0.0.1:8080/v1"
+  config: "default"
+permissions:
+  network:
+    allow: true
+    allowed_domains:
+      - "en.wikipedia.org"
+  filesystem:
+    read: false
+    write: false
+    allowed_paths: []
+  shell:
+    allow: false
+    whitelist: []
+dependencies:
+  mcp: []
+env: []

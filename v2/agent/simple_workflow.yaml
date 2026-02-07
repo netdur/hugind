@@ -1,0 +1,8 @@
+version: 1
+name: simple_workflow
+steps:
+    - name: user_input
+      agent: user_input
+    - name: ask_llm
+      agent: ask_llm
+  

@@ -6,6 +6,6 @@ use crate::core::config::agent::AgentConfig;
 pub async fn install_globals(ctx: &AsyncContext, config: &AgentConfig) -> rquickjs::Result<()> {
     sys::install(ctx).await?;
     llm::install(ctx, config).await?;
-    net::install(ctx).await?;
+    net::install(ctx, config).await?;
     Ok(())
 }

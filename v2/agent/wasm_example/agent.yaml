@@ -1,0 +1,12 @@
+name: "wasm_example"
+version: "0.1.0"
+entry_point: "main.wasm"
+backend:
+  url: "http://127.0.0.1:8080/v1"
+permissions:
+  network:
+    allow: true
+    allowed_domains: []
+dependencies:
+  mcp: []
+env: []

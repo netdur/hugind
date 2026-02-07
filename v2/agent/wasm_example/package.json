@@ -1,0 +1,30 @@
+{
+  "name": "wasm_example",
+  "version": "1.0.0",
+  "description": "This example shows how to call Hugind's WASM host APIs from AssemblyScript. The runtime expects `entry_point: \"main.wasm\"` and a `main()` export.",
+  "main": "index.js",
+  "scripts": {
+    "build": "asc main.ts -o main.wasm -O3",
+    "test": "node tests",
+    "asbuild:debug": "asc assembly/index.ts --target debug",
+    "asbuild:release": "asc assembly/index.ts --target release",
+    "asbuild": "npm run asbuild:debug && npm run asbuild:release",
+    "start": "npx serve ."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "assemblyscript-json": "^1.1.0"
+  },
+  "devDependencies": {
+    "assemblyscript": "^0.28.9"
+  },
+  "exports": {
+    ".": {
+      "import": "./build/release.js",
+      "types": "./build/release.d.ts"
+    }
+  }
+}

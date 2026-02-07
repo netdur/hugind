@@ -19,9 +19,23 @@ indicatif = "0.18.3"
 futures-util = "0.3.31"
 chrono = { version = "0.4.43", features = ["serde"] }
 uuid = { version = "1.20.0", features = ["v4", "fast-rng"] }
+tokio-stream = "0.1.17"
 base64 = "0.22.1"
 bytes = "1.11.0"
+wasmtime = { version = "18.0.2", features = ["async"] }
+wasmtime-wasi = "18.0.2"
+cap-std = "2.0.2"
+encoding_rs = "0.8.35"
+axum = "0.7.7"
+llama-cpp = { path = "/Users/adel/Workspace/llama_cpp_rust/llama-cpp", features = ["metal", "mtmd"] }
+tower = { version = "0.4", features = ["util", "timeout", "limit"] }
+tower-http = { version = "0.5", features = ["trace", "cors"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+parking_lot = "0.12"
+thiserror = "2.0.18"
+async-stream = "0.3"
+futures = "0.3"
 
 [dev-dependencies]
 tempfile = "3.24.0"
-

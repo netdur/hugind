@@ -29,6 +29,11 @@ pub enum Commands {
         #[command(subcommand)]
         command: Option<ChatCommand>,
     },
+    /// Manage server runtime
+    Server {
+        #[command(subcommand)]
+        command: ServerCommand,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -128,4 +133,23 @@ pub enum ChatCommand {
     /// Direct entry (wrapper for start/resume)
     #[command(external_subcommand)]
     Default(Vec<String>),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ServerCommand {
+    /// Start a server with the given config
+    Start {
+        /// Config name to use (e.g. "my-server")
+        config: String,
+        /// Override the configured port
+        #[arg(short, long)]
+        port: Option<u16>,
+    },
+    /// List server configs and status
+    List,
+    /// Print stop instructions for a running server
+    Stop {
+        /// Config name to stop
+        config: String,
+    },
 }
