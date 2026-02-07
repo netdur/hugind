@@ -9,6 +9,9 @@ pubspec.lock
 bin/hugind
 dist/
 *.tar.gz
+target/
+**/*.rs.bk
+*.pdb
 
 # Runtime data
 sessions/
@@ -21,3 +24,7 @@ ubuntu/
 !ubuntu/build_snap.sh
 !ubuntu/snap/
 !ubuntu/snap/**
+
+node_modules
+package-lock.json
+*.wasm
