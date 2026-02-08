@@ -83,7 +83,9 @@ pub enum AgentCommand {
         args: Vec<String>,
     },
     
-    Install,
+    Install {
+        path: String,
+    },
     
     Remove,
 }

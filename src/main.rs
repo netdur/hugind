@@ -12,7 +12,7 @@ async fn main() {
         Commands::Agent { command } => {
             let result = match command {
                 AgentCommand::Run { path, args } => agent::run(path, args).await,
-                AgentCommand::Install => agent::install(),
+                AgentCommand::Install { path } => agent::install(path).await,
                 AgentCommand::Remove => agent::remove(),
             };
 

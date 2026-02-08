@@ -37,6 +37,7 @@ Hugind provides the initial arguments in two ways:
    - `export default async function (input) { ... }`
 2. Global helper:
    - `get_args_json()` returns the JSON string for the initial input.
+   - `get_args()` is an alias for `get_args_json()`.
 
 ## Returning Output
 
@@ -55,6 +56,10 @@ These globals are installed at runtime:
 
 Writes to stdout.
 
+### `print_raw(message: string)`
+
+Writes to stdout without appending a newline.
+
 ### `input(prompt: string) -> Promise<string>`
 
 Writes a prompt, then reads a line from stdin.
@@ -65,12 +70,60 @@ Performs an HTTP GET request and returns the response body as text.
 Network access is gated by the agent's `permissions.network`:
 
 - `allow` must be `true`.
-- If `allowed_domains` is non-empty, the host must match one of them.
+- If `allowed_domains` or `allowed_ips` is non-empty, the host must match.
+- If `block_private_networks` is true, private/loopback IPs are blocked.
+- `timeout` and `max_response_bytes` are enforced.
+- Redirects are followed up to 5 times.
 
 ### `llm.chat(prompt: string) -> Promise<string>`
 
 Sends a chat completion request to the configured backend and returns the
 assistant response text. The backend is resolved from the agent manifest.
+`response_format` is set to `{ "type": "json_object" }`.
+
+### `llm.chat_stream(prompt: string | object) -> Promise<string>`
+
+Calls the chat completion endpoint with streaming enabled and returns the
+full response text. `response_format` is set to `{ "type": "json_object" }`.
+
+If the input is an object, you may provide `on_token` (or `onToken`) callback
+function. It will be called for each streamed delta, letting the agent decide
+whether to print.
+
+### `run_command(cmd: string) -> Promise<string>`
+
+Executes a shell command using `permissions.shell`:
+
+- `allow` must be `true`.
+- `whitelist` is enforced if present.
+- `blacklist` blocks if present.
+- `timeout`, `max_output`, `env_clear`, and `working_dir` are applied.
+
+`runCommand(cmd)` is an alias for `run_command(cmd)`.
+
+### `fs.*` (host filesystem API)
+
+Host filesystem calls are gated by `permissions.filesystem` and
+`runtime_fs_mode` (same semantics as the WASM runtime).
+
+Available methods:
+
+1. `fs.cwd() -> string`
+2. `fs.exists(path: string) -> bool`
+3. `fs.is_file(path: string) -> bool`
+4. `fs.is_dir(path: string) -> bool`
+5. `fs.realpath(path: string) -> string`
+6. `fs.read_text(path: string) -> string`
+7. `fs.read_bytes(path: string) -> number[]` (0..255)
+8. `fs.write_text(path: string, data: string) -> void`
+9. `fs.write_bytes(path: string, data: string | number[]) -> void`
+10. `fs.append_text(path: string, data: string) -> void`
+11. `fs.list_dir(path: string) -> string` (JSON array of entry names)
+12. `fs.mkdir(path: string, recursive?: bool) -> void`
+13. `fs.remove(path: string, recursive?: bool) -> void`
+14. `fs.rename(src: string, dst: string) -> void`
+15. `fs.copy(src: string, dst: string) -> void`
+16. `fs.stat(path: string) -> string` (JSON stat object)
 
 ## Error Handling
 

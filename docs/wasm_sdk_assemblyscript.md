@@ -12,6 +12,10 @@ bindings.
 
 Prints a message to stdout.
 
+### `printRaw(msg: string): void`
+
+Prints a message to stdout without appending a newline.
+
 ### `input(prompt: string): string`
 
 Writes a prompt and reads a line from stdin.
@@ -24,12 +28,16 @@ body as text.
 ### `llmChat(prompt: string): string`
 
 Calls the configured `/chat/completions` endpoint and returns the assistant
-response text.
+response text. The runtime enforces `response_format: { "type": "json_object" }`.
 
 ### `llmChatStream(prompt: string): string`
 
 Calls the configured `/chat/completions` endpoint with streaming enabled and
-returns the full response text. The runtime prints streamed deltas to stdout.
+returns the full response text. The runtime enforces
+`response_format: { "type": "json_object" }`.
+
+If your module exports `llm_on_token(ptr: i32, len: i32)`, the runtime will
+invoke it for each streamed delta, letting the agent decide whether to print.
 
 ### `runCommand(cmd: string): string`
 

@@ -3,7 +3,7 @@ use reqwest::Url;
 use std::path::{Path, PathBuf};
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
-use wasmtime::{Caller, Config, Engine, Linker, Module, Store};
+use wasmtime::{AsContextMut, Caller, Config, Engine, Linker, Module, Store};
 use wasmtime::component::ResourceTable;
 use wasmtime_wasi::preview2::{WasiCtx, WasiCtxBuilder, WasiView, DirPerms, FilePerms};
 use wasmtime_wasi::preview2::preview1::{WasiPreview1View, WasiPreview1Adapter};
@@ -12,6 +12,7 @@ use futures::StreamExt;
 use crate::core::config::agent::{AgentConfig, NetPermissions, ShellPermission, RuntimeFsMode};
 use crate::core::fs::FsAccess;
 use crate::core::config::backend::resolve_backend;
+use crate::core::runtime::util::{is_private_ip, parse_duration_string, parse_memory_string};
 
 struct HostState {
     args_json: String,
@@ -290,6 +291,15 @@ impl WasmRuntime {
         linker.func_wrap("hugind", "print", |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| {
             let msg = read_string(&mut caller, ptr, len)?;
             println!("{msg}");
+            Ok(())
+        })?;
+
+        linker.func_wrap("hugind", "print_raw", |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| {
+            use std::io::Write;
+            let msg = read_string(&mut caller, ptr, len)?;
+            let mut out = std::io::stdout();
+            let _ = out.write_all(msg.as_bytes());
+            let _ = out.flush();
             Ok(())
         })?;
 
@@ -652,6 +662,10 @@ impl WasmRuntime {
                 let max_bytes = 10 * 1024 * 1024;
                 let mut content = String::new();
                 let mut stream = res.bytes_stream();
+                let on_token = caller
+                    .get_export("llm_on_token")
+                    .and_then(|e| e.into_func())
+                    .and_then(|f| f.typed::<(i32, i32), ()>(caller.as_context_mut()).ok());
 
                 while let Some(item) = stream.next().await {
                     let chunk = item.map_err(|e| anyhow!("LLM Chunk error: {}", e))?;
@@ -676,8 +690,16 @@ impl WasmRuntime {
                                 .and_then(|content| content.as_str())
                             {
                                 content.push_str(delta);
-                                
-                                print!("{delta}");
+                                if let Some(cb) = &on_token {
+                                    let (out_ptr, out_len) =
+                                        write_bytes_async(&mut caller, delta.as_bytes()).await?;
+                                    cb.call_async(
+                                        caller.as_context_mut(),
+                                        (out_ptr as i32, out_len as i32),
+                                    )
+                                    .await
+                                    .ok();
+                                }
                             }
                         }
                     }
@@ -1057,64 +1079,4 @@ fn get_memory(caller: &mut Caller<'_, HostState>) -> Result<wasmtime::Memory> {
 
 fn pack_ptr_len(ptr: u32, len: u32) -> i64 {
     ((ptr as i64) << 32) | (len as i64 & 0xffff_ffff)
-}
-
-fn parse_memory_string(mem: &str) -> Option<usize> {
-    
-    let mem = mem.trim().to_uppercase();
-    if let Some(stripped) = mem.strip_suffix("MB") {
-        return stripped.parse::<usize>().ok().map(|v| v * 1024 * 1024);
-    }
-    if let Some(stripped) = mem.strip_suffix("GB") {
-        return stripped.parse::<usize>().ok().map(|v| v * 1024 * 1024 * 1024);
-    }
-    mem.parse::<usize>().ok()
-}
-
-fn parse_duration_string(s: &str) -> Option<std::time::Duration> {
-    let s = s.trim();
-    if let Some(ms) = s.strip_suffix("ms") {
-        return ms.parse::<u64>().ok().map(std::time::Duration::from_millis);
-    }
-    if let Some(sec) = s.strip_suffix("s") {
-        return sec.parse::<u64>().ok().map(std::time::Duration::from_secs);
-    }
-    if let Some(min) = s.strip_suffix("m") {
-        return min.parse::<u64>().ok().map(|min| std::time::Duration::from_secs(min * 60));
-    }
-    
-    s.parse::<u64>().ok().map(std::time::Duration::from_secs)
-}
-
-fn is_private_ip(ip: &std::net::IpAddr) -> bool {
-    match ip {
-        std::net::IpAddr::V4(addr) => {
-            let octets = addr.octets();
-            
-            if octets[0] == 10 { return true; }
-            
-            if octets[0] == 172 && (octets[1] >= 16 && octets[1] <= 31) { return true; }
-            
-            if octets[0] == 192 && octets[1] == 168 { return true; }
-            
-            if octets[0] == 127 { return true; }
-            
-            if octets[0] == 169 && octets[1] == 254 { return true; }
-            
-            if octets[0] == 100 && (octets[1] >= 64 && octets[1] <= 127) { return true; }
-            
-            if octets[0] == 0 { return true; }
-            false
-        }
-        std::net::IpAddr::V6(addr) => {
-            
-            if addr.is_loopback() { return true; }
-            let segments = addr.segments();
-            
-            if (segments[0] & 0xfe00) == 0xfc00 { return true; }
-            
-            if (segments[0] & 0xffc0) == 0xfe80 { return true; }
-            false
-        }
-    }
 }

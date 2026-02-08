@@ -54,6 +54,10 @@ as UTF‑8 bytes with pointer/length pairs.
 
 Prints a message to stdout.
 
+### `hugind.print_raw(message)`
+
+Prints a message to stdout without appending a newline.
+
 ### `hugind.input(prompt) -> string`
 
 Writes a prompt and reads a line from stdin.
@@ -80,12 +84,18 @@ Redirects are followed up to 5 times.
 ### `hugind.llm_chat(prompt) -> string`
 
 Calls the configured `/chat/completions` endpoint (non‑streaming) and returns
-the assistant content. The response is capped at 10 MB.
+the assistant content. `response_format` is set to `{ "type": "json_object" }`.
+The response is capped at 10 MB.
 
 ### `hugind.llm_chat_stream(prompt) -> string`
 
 Calls the configured `/chat/completions` endpoint with streaming enabled,
-prints streamed deltas to stdout, and returns the full content (capped at 10 MB).
+returns the full content (capped at 10 MB). `response_format` is set to
+`{ "type": "json_object" }`.
+
+If the guest exports `llm_on_token(ptr: i32, len: i32)`, it will be invoked
+for each streamed delta (UTF‑8 bytes). This lets the agent decide how to
+handle streaming output.
 
 ### `hugind.run_command(command) -> string`
 

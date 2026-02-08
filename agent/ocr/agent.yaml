@@ -1,0 +1,29 @@
+name: "ocr"
+version: "0.1.0"
+description: "Extracts structured OCR data from an image."
+author: "hugind"
+license: "MIT"
+hugind_version: ">=0.6.0"
+entry_point: "main.js"
+backend:
+  url: "http://127.0.0.1:8080/v1"
+  config: "qwen3vl-8b"
+  session:
+    mode: "fresh"
+permissions:
+  network:
+    allow: false
+    allowed_domains: []
+  filesystem:
+    allow: true
+    read: true
+    write: false
+    allow_outside_agent_root: true
+    allowed_paths:
+      - "/Users/adel/Downloads"
+  shell:
+    allow: false
+    whitelist: []
+dependencies:
+  mcp: []
+env: []

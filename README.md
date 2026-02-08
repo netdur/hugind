@@ -71,7 +71,7 @@ Shell / OS access control (allowlist + sandboxing):
 Other:
 
 * MCP support
-* Agent install CLI
+* Agent install CLI (`hugind agent install <path>`)
 * Informs the user of requested permissions and supports granting permissions explicitly
 
 ## Model

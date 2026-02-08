@@ -27,6 +27,7 @@ wasmtime-wasi = "18.0.2"
 cap-std = "2.0.2"
 encoding_rs = "0.8.35"
 axum = "0.7.7"
+tempfile = "3.24.0"
 llama-cpp = { path = "/Users/adel/Workspace/llama_cpp_rust/llama-cpp", features = ["metal", "mtmd"] }
 tower = { version = "0.4", features = ["util", "timeout", "limit"] }
 tower-http = { version = "0.5", features = ["trace", "cors"] }

@@ -8,6 +8,7 @@ use std::{
 pub struct JsRuntime {
     _runtime: AsyncRuntime,
     context: AsyncContext,
+    agent_root: PathBuf,
 }
 
 impl JsRuntime {
@@ -22,15 +23,22 @@ impl JsRuntime {
             rquickjs::loader::ScriptLoader::default(),
         ).await;
 
-        install_globals(&context, config).await?;
+        install_globals(&context, config, &agent_root).await?;
 
-        Ok(Self { _runtime: runtime, context })
+        Ok(Self { _runtime: runtime, context, agent_root })
     }
 
     pub async fn run_module(&self, entry: &Path, args_val: serde_json::Value) -> rquickjs::Result<serde_json::Value> {
         let entry = entry
             .canonicalize()
             .map_err(|e| Error::new_loading_message(entry.display().to_string(), e.to_string()))?;
+
+        if !entry.starts_with(&self.agent_root) {
+            return Err(Error::new_loading_message(
+                entry.display().to_string(),
+                "entry escapes agent root".to_string(),
+            ));
+        }
 
         let args_json = serde_json::to_string(&args_val)
             .map_err(|e| Error::new_loading_message("args", e.to_string()))?;
@@ -54,6 +62,9 @@ impl JsRuntime {
 
                 let get_args_fn = Function::new(ctx.clone(), move || args_json_inner.clone())?;
                 ctx.globals().set("get_args_json", get_args_fn)?;
+
+                let get_args_fn_compat = Function::new(ctx.clone(), move || args_json_clone.clone())?;
+                ctx.globals().set("get_args", get_args_fn_compat)?;
 
                 let set_result_fn = Function::new(ctx.clone(), move |ctx, val| {
                     let json = js_to_json(&ctx, val).unwrap_or(serde_json::Value::Null);

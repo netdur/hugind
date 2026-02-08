@@ -3,6 +3,9 @@
 @external("hugind", "print")
 declare function host_print(ptr: i32, len: i32): void;
 
+@external("hugind", "print_raw")
+declare function host_print_raw(ptr: i32, len: i32): void;
+
 @external("hugind", "input")
 declare function host_input(ptr: i32, len: i32): i64;
 
@@ -101,6 +104,11 @@ function readBytesFromHost(res: i64): Uint8Array {
 export function print(msg: string): void {
   const buf = String.UTF8.encode(msg, false);
   host_print(changetype<i32>(buf), buf.byteLength);
+}
+
+export function printRaw(msg: string): void {
+  const buf = String.UTF8.encode(msg, false);
+  host_print_raw(changetype<i32>(buf), buf.byteLength);
 }
 
 export function input(prompt: string): string {

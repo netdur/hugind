@@ -4,6 +4,13 @@ fn print(msg: String) {
     println!("{msg}");
 }
 
+fn print_raw(msg: String) {
+    use std::io::{self, Write};
+    let mut out = io::stdout();
+    let _ = out.write_all(msg.as_bytes());
+    let _ = out.flush();
+}
+
 async fn input(prompt: String) -> String {
     use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
     
@@ -22,6 +29,9 @@ pub async fn install(ctx: &AsyncContext) -> Result<()> {
         
         let print_func = Function::new(ctx.clone(), print)?;
         ctx.globals().set("print", print_func)?;
+
+        let print_raw_func = Function::new(ctx.clone(), print_raw)?;
+        ctx.globals().set("print_raw", print_raw_func)?;
 
         
         
