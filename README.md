@@ -71,6 +71,7 @@ Shell / OS access control (allowlist + sandboxing):
 Other:
 
 * MCP support
+  * MCP servers are declared per-agent in `agent.yaml` under `dependencies.mcp` (include `command` and `transport`)
 * Agent install CLI (`hugind agent install <path>`)
 * Informs the user of requested permissions and supports granting permissions explicitly
 
