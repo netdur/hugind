@@ -132,7 +132,7 @@ impl Llm {
              return Err(rquickjs::Error::new_loading_message("LLM Error", format!("{}: {}", status, text)));
         }
 
-        let body_text = read_response_limited(res, 10 * 1024 * 1024).await?;
+        let body_text = read_response_limited(res).await?;
 
         Ok(extract_llm_content(&body_text))
     }
@@ -242,19 +242,12 @@ impl Llm {
             ));
         }
 
-        let max_bytes = 10 * 1024 * 1024;
         let mut content = String::new();
         let mut stream = res.bytes_stream();
 
         while let Some(item) = stream.next().await {
             let chunk = item
                 .map_err(|e| rquickjs::Error::new_loading_message("LLM Error", e.to_string()))?;
-            if content.len() + chunk.len() > max_bytes {
-                return Err(rquickjs::Error::new_loading_message(
-                    "LLM Error",
-                    "LLM Response exceeded 10MB limit",
-                ));
-            }
             let text = String::from_utf8_lossy(&chunk);
             for line in text.lines() {
                 if !line.starts_with("data: ") {
@@ -335,19 +328,13 @@ pub async fn install(ctx: &AsyncContext, config: &AgentConfig) -> Result<()> {
     })).await
 }
 
-async fn read_response_limited(res: reqwest::Response, max_bytes: usize) -> Result<String> {
+async fn read_response_limited(res: reqwest::Response) -> Result<String> {
     let mut content = Vec::new();
     let mut stream = res.bytes_stream();
 
     while let Some(item) = stream.next().await {
         let chunk = item
             .map_err(|e| rquickjs::Error::new_loading_message("Response Read Error", e.to_string()))?;
-        if content.len() + chunk.len() > max_bytes {
-            return Err(rquickjs::Error::new_loading_message(
-                "Response Read Error",
-                "LLM Response exceeded 10MB limit",
-            ));
-        }
         content.extend_from_slice(&chunk);
     }
 

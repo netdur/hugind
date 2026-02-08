@@ -604,15 +604,11 @@ impl WasmRuntime {
                 }
 
                 
-                let max_bytes = 10 * 1024 * 1024; 
                 let mut content = Vec::new();
                 let mut stream = res.bytes_stream();
                 
                  while let Some(item) = stream.next().await {
                     let chunk = item.map_err(|e| anyhow!("LLM Chunk error: {}", e))?;
-                    if content.len() + chunk.len() > max_bytes {
-                         bail!("LLM Response exceeded 10MB limit");
-                    }
                     content.extend_from_slice(&chunk);
                 }
 
@@ -672,7 +668,6 @@ impl WasmRuntime {
                 }
 
                 
-                let max_bytes = 10 * 1024 * 1024;
                 let mut content = String::new();
                 let mut stream = res.bytes_stream();
                 let on_token = caller
@@ -682,9 +677,6 @@ impl WasmRuntime {
 
                 while let Some(item) = stream.next().await {
                     let chunk = item.map_err(|e| anyhow!("LLM Chunk error: {}", e))?;
-                    if content.len() + chunk.len() > max_bytes {
-                        bail!("LLM Response exceeded 10MB limit");
-                    }
                     let text = String::from_utf8_lossy(&chunk);
                     for line in text.lines() {
                         if !line.starts_with("data: ") {
