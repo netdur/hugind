@@ -29,6 +29,7 @@ impl Llm {
                 base_url: "http://127.0.0.1:8080/v1".to_string(),
                 health_url: "http://127.0.0.1:8080/v1/monitor".to_string(),
                 model: Some("default".to_string()),
+                session: None,
             });
 
         Self {

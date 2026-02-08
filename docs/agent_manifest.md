@@ -150,6 +150,30 @@ Each dependency includes:
 - `required`
 - `description`
 
+### MCP Runtime Configuration
+
+Each MCP dependency must include the command needed to launch the server.
+
+Example:
+
+```yaml
+dependencies:
+  mcp:
+    - name: "markitdown"
+      required: true
+      transport: "stdio"
+      command: "markitdown-mcp"
+      args: []
+```
+
+Tool names:
+- When multiple MCP servers are configured, tools are referenced as `server:tool`.
+- If only one MCP server is configured, `tool` is accepted without a prefix.
+
+JavaScript runtime:
+- A global `tools` object is available with async `list()` and `call(name, args)`.
+- Both methods return JSON strings (use `JSON.parse(...)`).
+
 ## `env` Section
 
 Environment variables required by the agent. Each entry includes:

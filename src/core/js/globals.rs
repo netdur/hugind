@@ -1,4 +1,4 @@
-use super::capabilities::{fs, llm, net, shell, sys};
+use super::capabilities::{fs, llm, net, shell, sys, tools};
 use rquickjs::AsyncContext;
 
 use crate::core::config::agent::AgentConfig;
@@ -13,5 +13,6 @@ pub async fn install_globals(
     net::install(ctx, config).await?;
     shell::install(ctx, config).await?;
     fs::install(ctx, config, agent_root).await?;
+    tools::install(ctx, config).await?;
     Ok(())
 }

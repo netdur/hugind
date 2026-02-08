@@ -1,0 +1,27 @@
+name: "doc_parser"
+version: "0.1.0"
+description: "Converts documents to Markdown using MarkItDown MCP."
+author: "hugind"
+license: "MIT"
+hugind_version: ">=0.6.0"
+entry_point: "main.js"
+permissions:
+  network:
+    allow: false
+    allowed_domains: []
+  filesystem:
+    allow: true
+    read: true
+    write: false
+    allow_outside_agent_root: true
+  shell:
+    allow: false
+dependencies:
+  mcp:
+    - name: "markitdown"
+      required: true
+      description: "MarkItDown MCP server for document conversion."
+      transport: "stdio"
+      command: "markitdown-mcp"
+      args: []
+env: []
