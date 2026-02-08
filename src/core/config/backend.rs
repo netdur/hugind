@@ -2,13 +2,21 @@ use anyhow::{bail, Result};
 use serde::Deserialize;
 use std::fs;
 
-use crate::core::config::agent::AgentConfig;
+use crate::core::config::agent::{AgentConfig, RuntimeSession, SessionMode};
 use crate::shared::paths;
+use uuid::Uuid;
 
 #[derive(Debug, Deserialize, Default, Clone)]
 struct AgentBackend {
     url: Option<String>,
     config: Option<String>,
+    session: Option<AgentBackendSession>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+struct AgentBackendSession {
+    mode: Option<SessionMode>,
+    id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -16,9 +24,20 @@ pub struct ResolvedBackend {
     pub base_url: String,
     pub health_url: String,
     pub model: Option<String>,
+    pub session: Option<RuntimeSession>,
 }
 
 pub fn resolve_backend(config: &AgentConfig) -> Result<ResolvedBackend> {
+    resolve_backend_internal(config)
+}
+
+pub fn prepare_backend(config: &mut AgentConfig) -> Result<ResolvedBackend> {
+    let resolved = resolve_backend_internal(config)?;
+    config.runtime_session = resolved.session.clone();
+    Ok(resolved)
+}
+
+fn resolve_backend_internal(config: &AgentConfig) -> Result<ResolvedBackend> {
     let parsed = if let Some(backend) = &config.backend {
         serde_yaml::from_value::<AgentBackend>(backend.clone())
             .map_err(|e| anyhow::anyhow!("Invalid backend config: {}", e))?
@@ -52,11 +71,44 @@ pub fn resolve_backend(config: &AgentConfig) -> Result<ResolvedBackend> {
     let health_base = trimmed.strip_suffix("/v1").unwrap_or(trimmed);
     let health_url = format!("{}/v1/monitor", health_base);
 
+    let session = if let Some(session) = config.runtime_session.clone() {
+        Some(session)
+    } else {
+        resolve_session(parsed.session)?
+    };
+
     Ok(ResolvedBackend {
         base_url,
         health_url,
         model,
+        session,
     })
+}
+
+fn resolve_session(session: Option<AgentBackendSession>) -> Result<Option<RuntimeSession>> {
+    let session = match session {
+        Some(s) => s,
+        None => return Ok(None),
+    };
+
+    let mode = session.mode.unwrap_or_default();
+    match mode {
+        SessionMode::Stateless => Ok(None),
+        SessionMode::Fresh => Ok(Some(RuntimeSession {
+            mode,
+            id: Some(Uuid::new_v4().to_string()),
+        })),
+        SessionMode::Resume => {
+            let id = session.id.and_then(|s| {
+                let trimmed = s.trim().to_string();
+                if trimmed.is_empty() { None } else { Some(trimmed) }
+            });
+            if id.is_none() {
+                bail!("backend.session.id is required for resume");
+            }
+            Ok(Some(RuntimeSession { mode, id }))
+        }
+    }
 }
 
 fn resolve_base_url_from_config(config_name: &str) -> Option<String> {

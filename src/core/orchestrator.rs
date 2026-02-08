@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 use crate::core::js::runtime::JsRuntime;
 use crate::core::wasm::runtime::WasmRuntime;
-use crate::core::config::backend::resolve_backend;
+use crate::core::config::backend::{prepare_backend, ResolvedBackend};
+use crate::core::config::agent::SessionMode;
 
 pub async fn execute(path: String, args_vec: Vec<String>) -> anyhow::Result<()> {
     let target_path = PathBuf::from(&path).canonicalize().map_err(|e| {
@@ -15,7 +16,7 @@ pub async fn execute(path: String, args_vec: Vec<String>) -> anyhow::Result<()> 
         }
     }
 
-    let (agent_root, entry_path, config) = if target_path.is_dir() {
+    let (agent_root, entry_path, mut config) = if target_path.is_dir() {
         
         let config = crate::core::config::agent::AgentConfig::load_from_dir(&target_path)?;
         let entry = target_path.join(&config.entry_point);
@@ -32,7 +33,7 @@ pub async fn execute(path: String, args_vec: Vec<String>) -> anyhow::Result<()> 
     
     
     
-    let backend = resolve_backend(&config)?;
+    let backend = prepare_backend(&mut config)?;
     println!("Checking server health at {}...", backend.health_url);
     if let Err(_) = reqwest::get(&backend.health_url).await.and_then(|r| r.error_for_status()) {
         eprintln!("Error: Server is not up or healthy at {}. Aborting agent run.", backend.health_url);
@@ -57,6 +58,8 @@ pub async fn execute(path: String, args_vec: Vec<String>) -> anyhow::Result<()> 
         js.wait_idle().await;
     }
 
+    cleanup_fresh_session(&backend, &config).await;
+
     Ok(())
 }
 
@@ -70,7 +73,8 @@ async fn run_workflow(workflow: crate::core::config::workflow::WorkflowConfig, r
     for step in workflow.steps {
         println!("==> Step: {}", step.name);
         let agent_dir = root.join(&step.agent);
-        let config = crate::core::config::agent::AgentConfig::load_from_dir(&agent_dir)?;
+        let mut config = crate::core::config::agent::AgentConfig::load_from_dir(&agent_dir)?;
+        let backend = prepare_backend(&mut config)?;
         let entry = agent_dir.join(&config.entry_point);
         
         if entry.extension().and_then(|s| s.to_str()) == Some("wasm") {
@@ -87,8 +91,26 @@ async fn run_workflow(workflow: crate::core::config::workflow::WorkflowConfig, r
                 .map_err(|e| anyhow::anyhow!("Execution error in step {}: {}", step.name, e))?;
             js.wait_idle().await;
         }
+
+        cleanup_fresh_session(&backend, &config).await;
     }
 
     println!("Workflow completed.");
     Ok(())
+}
+
+async fn cleanup_fresh_session(backend: &ResolvedBackend, config: &crate::core::config::agent::AgentConfig) {
+    let session = match &config.runtime_session {
+        Some(s) if s.mode == SessionMode::Fresh => s,
+        _ => return,
+    };
+    let id = match &session.id {
+        Some(id) => id,
+        None => return,
+    };
+    let url = format!("{}/state/{}", backend.base_url.trim_end_matches('/'), id);
+    let client = reqwest::Client::new();
+    if let Err(e) = client.delete(&url).send().await.and_then(|r| r.error_for_status()) {
+        eprintln!("Warning: failed to delete session {}: {}", id, e);
+    }
 }

@@ -65,6 +65,26 @@ pub struct Permissions {
     pub shell: Option<ShellPermission>,
 }
 
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionMode {
+    Stateless,
+    Fresh,
+    Resume,
+}
+
+impl Default for SessionMode {
+    fn default() -> Self {
+        Self::Stateless
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RuntimeSession {
+    pub mode: SessionMode,
+    pub id: Option<String>,
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct Mount {
     pub host: String,
@@ -114,6 +134,8 @@ pub struct AgentConfig {
     pub permissions: Option<Permissions>,
     pub dependencies: Option<serde_yaml::Value>,
     pub env: Option<Vec<serde_yaml::Value>>,
+    #[serde(skip)]
+    pub runtime_session: Option<RuntimeSession>,
 }
 
 impl AgentConfig {
@@ -140,6 +162,7 @@ impl Default for AgentConfig {
             permissions: Some(Permissions::default()),
             dependencies: None,
             env: None,
+            runtime_session: None,
         }
     }
 }

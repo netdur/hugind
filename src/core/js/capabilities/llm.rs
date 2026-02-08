@@ -10,6 +10,7 @@ pub struct Llm {
     client: reqwest::Client,
     base_url: String,
     model: Option<String>,
+    session_id: Option<String>,
 }
 
 impl<'js> Trace<'js> for Llm {
@@ -34,6 +35,7 @@ impl Llm {
             client: reqwest::Client::new(),
             base_url: resolved.base_url,
             model: resolved.model,
+            session_id: resolved.session.and_then(|s| s.id),
         }
     }
 }
@@ -110,11 +112,15 @@ impl Llm {
             );
         }
 
-        let res = self
+        let mut request = self
             .client
             .post(&url)
             .timeout(std::time::Duration::from_secs(120))
-            .json(&body)
+            .json(&body);
+        if let Some(id) = &self.session_id {
+            request = request.header("X-Session-ID", id);
+        }
+        let res = request
             .send()
             .await
             .map_err(|e| rquickjs::Error::new_loading_message("LLM Request Failed", e.to_string()))?;
@@ -213,11 +219,15 @@ impl Llm {
             );
         }
 
-        let res = self
+        let mut request = self
             .client
             .post(&url)
             .timeout(std::time::Duration::from_secs(120))
-            .json(&body)
+            .json(&body);
+        if let Some(id) = &self.session_id {
+            request = request.header("X-Session-ID", id);
+        }
+        let res = request
             .send()
             .await
             .map_err(|e| rquickjs::Error::new_loading_message("LLM Request Failed", e.to_string()))?;

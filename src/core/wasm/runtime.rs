@@ -25,6 +25,7 @@ struct HostState {
     llm_client: reqwest::Client,
     llm_base_url: String,
     llm_model: Option<String>,
+    llm_session_id: Option<String>,
     wasi: WasiCtx,
     table: ResourceTable,
     adapter: WasiPreview1Adapter,
@@ -99,6 +100,7 @@ impl WasmRuntime {
         let resolved = resolve_backend(&self.config)?;
         let llm_base_url = resolved.base_url;
         let llm_model = resolved.model;
+        let llm_session_id = resolved.session.as_ref().and_then(|s| s.id.clone());
 
         let net_permission = if let Some(p) = &self.config.permissions {
             p.network.clone().unwrap_or_default()
@@ -210,6 +212,7 @@ impl WasmRuntime {
                 llm_client: reqwest::Client::new(),
                 llm_base_url,
                 llm_model,
+                llm_session_id,
                 wasi,
                 table,
                 adapter,
@@ -560,6 +563,7 @@ impl WasmRuntime {
                 let base_url = caller.data().llm_base_url.clone();
                 let model = caller.data().llm_model.clone();
                 let client = caller.data().llm_client.clone();
+                let session_id = caller.data().llm_session_id.clone();
 
                 let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
                 let messages = vec![serde_json::json!({
@@ -579,10 +583,14 @@ impl WasmRuntime {
                 );
 
                 
-                let res = client
+                let mut request = client
                     .post(&url)
                     .timeout(std::time::Duration::from_secs(120)) 
-                    .json(&body)
+                    .json(&body);
+                if let Some(id) = session_id {
+                    request = request.header("X-Session-ID", id);
+                }
+                let res = request
                     .send()
                     .await
                     .map_err(|e| anyhow!("LLM Request Failed: {}", e))?;
@@ -624,6 +632,7 @@ impl WasmRuntime {
                 let base_url = caller.data().llm_base_url.clone();
                 let model = caller.data().llm_model.clone();
                 let client = caller.data().llm_client.clone();
+                let session_id = caller.data().llm_session_id.clone();
 
                 let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
                 let messages = vec![serde_json::json!({
@@ -643,10 +652,14 @@ impl WasmRuntime {
                 );
 
                 
-                let res = client
+                let mut request = client
                     .post(&url)
                     .timeout(std::time::Duration::from_secs(120))
-                    .json(&body)
+                    .json(&body);
+                if let Some(id) = session_id {
+                    request = request.header("X-Session-ID", id);
+                }
+                let res = request
                     .send()
                     .await
                     .map_err(|e| anyhow!("LLM Request Failed: {}", e))?;

@@ -98,7 +98,14 @@ Name of the server config to use by default. This should match a config in
 Session behavior:
 
 - `mode`: `stateless` | `fresh` | `resume`.
-- `id`: optional session id. Defaults to `name` if omitted.
+- `id`: optional session id. Used only for `resume`. Ignored for `fresh`.
+
+Runtime semantics:
+- `stateless`: no `X-Session-ID` header is sent.
+- `fresh`: runtime generates a UUID4 at the start of the run, uses it as
+  `X-Session-ID` for all requests, then calls `DELETE /v1/state/:id` after the
+  run completes.
+- `resume`: runtime requires `id` and sends it as `X-Session-ID`; no auto-delete.
 
 ## `permissions` Section
 

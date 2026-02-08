@@ -1,4 +1,4 @@
-// (base) adel@192 hugind % ./target/release/hugind agent run agent/ocr --image /Users/adel/Downloads/18zjgwovgbhg1.jpeg --prompt "only read the comment"
+// ./target/release/hugind agent run agent/ocr --image /Users/adel/Downloads/18zjgwovgbhg1.jpeg --prompt "only read the title"
 
 function parseArgs(input) {
     const args = (input && Array.isArray(input.args)) ? input.args.slice() : [];
