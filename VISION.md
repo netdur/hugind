@@ -1,58 +1,90 @@
-# 👁️ The Vision
+## The Vision
 
-## The problem: AI is hard to use in real work
+### The problem: AI doesn’t match how real teams ship work
 
-Today most teams use AI like this: you chat with a big model and copy the answer into your work.
+Most teams use AI like this: ask a big model questions, copy the answer into the real system, and hope it holds up.
 
-That is fine for quick ideas. But it causes problems when the work must be correct, repeatable, and safe.
+That works for brainstorming. It breaks down when the work needs to be:
 
-Here are the common issues:
+* **Repeatable** — someone else can run it and get the same result
+* **Reviewable** — changes are visible, discussable, and revertible
+* **Verifiable** — tests and checks prove it’s correct
+* **Safe** — data and access are controlled
 
-* **Too general:** Big models know a lot about the world, but your company usually needs a small slice. The output can sound right while still being wrong for your rules or codebase.
-* **Hard to track:** A chat log is not a work record. It’s hard to answer simple questions like: What changed? Who approved it? Did it pass tests?
-* **Data risk:** In legal, healthcare, finance, or government, sending sensitive data to a cloud model can be against policy or law.
+### What breaks in practice
 
----
+When AI output gets treated like “work,” teams run into the same failures over and over:
 
-## The solution (in theory): treat AI like a factory process
+* **Unbounded scope**
+  Chat responses mix assumptions, decisions, and code. It’s hard to tell what’s a suggestion versus what’s actually done.
 
-The future is not “a smarter chatbot.”
+* **No traceable outcome**
+  A transcript isn’t evidence. Teams need diffs, logs, test results, and approvals.
 
-The future is a system where AI work is done in **small steps**, under **clear rules**, with **proof** that each step is correct.
+* **Soft guardrails**
+  “Please don’t do X” isn’t a control system. Real work needs explicit permissions and hard limits.
 
-### 1) Use the right model for the job
+* **Privacy and governance friction**
+  Many teams can’t send sensitive data to external services—or can’t justify it—so adoption stalls where it matters most.
 
-Instead of one huge model for everything, use models that match the task.
+### The direction: AI as a disciplined work system
 
-* Small or specialized models can be better when you need consistent output and strict rules.
-* Bigger models can be used only when you need broad reasoning.
+The future isn’t “a smarter chatbot.”
 
-The key idea: **pick the tool that fits the task**, not “one model to rule them all.”
+It’s AI that behaves like a reliable delivery system: bounded units of work, clear ownership, visible progress, and proof before anything ships.
 
-### 2) Work in small, checkable steps
+A serious AI workflow needs three capabilities:
 
-AI output should not be “a long conversation.” It should be **a task** with:
-
-* a clear input and expected output
-* rules for what “done” means
-* automatic checks (tests, validation, linting, policy rules)
-
-A result is only accepted when it passes the checks.
-
-### 3) Make safety and control part of the system
-
-To use AI at scale, you need control that does not depend on trust.
-
-A good system enforces:
-
-* **Least access:** an agent can only see and touch what it needs.
-* **Limits:** CPU/RAM/time limits so one task can’t break the machine.
-* **Clear history:** the system saves real outputs (files, diffs, test results), not just chat messages.
+* **Turn messy intent into a concrete definition of done**
+* **Execute work in controlled steps with checks**
+* **Produce a record that reviewers and managers can trust**
 
 ---
 
-## What this leads to
+## How AI-driven work should run
 
-AI becomes less like “advice” and more like **work you can verify**.
+### 1) Convert intent into a short, testable plan
 
-That means teams can use AI in serious environments: with rules, audits, and sensitive data—without guessing what happened or hoping the output is correct.
+Before changing code or files, the system should force clarity:
+
+* What is the goal?
+* What is in scope vs. out of scope?
+* What artifacts will be produced (diffs, files, outputs)?
+* What checks must pass (tests, validation, policy rules)?
+* What risks and dependencies exist?
+
+This isn’t bureaucracy. It prevents the most expensive failure mode: confidently shipping the wrong thing.
+
+### 2) Execute in small, inspectable steps
+
+Instead of one big, fragile leap, work should be broken into steps that are easy to review and easy to undo:
+
+* Each step has a clear input and output
+* Each step is bounded in time and resources
+* Each step produces artifacts (diffs, generated files, logs)
+* Each step is gated by checks
+
+If a check fails, the run stops with evidence. No “it said it was done.”
+
+### 3) Make control a property of the system
+
+A serious workflow can’t rely on trust. It must enforce controls by default:
+
+* **Least access** — the system only sees and touches what’s required
+* **Hard limits** — CPU/RAM/time caps are default, not optional
+* **Constrained tools** — file, shell, and network access are explicit and allowlist-based
+* **Auditable history** — keep artifacts, not vibes: inputs, outputs, diffs, and test results
+
+---
+
+## What this looks like day-to-day
+
+A typical run looks like:
+
+* **Clarify** — produce a short plan and acceptance checks
+* **Build** — make a small change and generate a diff
+* **Validate** — run checks and capture results
+* **Branch when needed** — explore alternatives in parallel without corrupting the main line
+* **Ship with confidence** — reviewers see exactly what changed and why it passed
+
+This mirrors how healthy teams already operate. The difference is that AI is treated like a worker in the process—required to follow the same rules, produce the same evidence, and pass the same gates.
