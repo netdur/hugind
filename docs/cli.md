@@ -1,56 +1,49 @@
-# CLI Overview
+# Hugind CLI Manual
 
-## Global Usage
+## NAME
 
-```
-hugind [--version] <command> [subcommand] [options]
-```
+`hugind` - command-line interface for agents, configs, models, chats, and the server.
 
-- `--version` prints the binary version and exits.
-- `hugind --help` shows the top-level command list.
-- `hugind <command> --help` shows subcommand help provided by the Dart args runner.
+## SYNOPSIS
 
-## Command Index
+`hugind <command> [options]`
 
-- `hugind model ...` manage local models (download, list, remove)
-- `hugind config ...` hardware probe and config utilities
-- `hugind server ...` run and manage inference servers
-- `hugind agent ...` install/run sandboxed agents
-- `hugind chat ...` interactive terminal workspace
+## DESCRIPTION
 
-## Hugind Home Directories
+`hugind` provides a small set of top-level commands for managing agents,
+configurations, models, chat sessions, and a server. If a command fails,
+`hugind` prints an error and exits with code `1`.
 
-Hugind uses two roots today: one for configs/agents, and one for data.
+## COMMANDS
 
-**Config home (configs, agents):**
-- macOS/Linux: `$XDG_CONFIG_HOME/hugind` if set, otherwise `~/.hugind`
-- Windows: `%APPDATA%\hugind` if set, otherwise `%USERPROFILE%\.hugind`
+Top-level subcommands:
 
-**Data home (models, chats, sessions, settings):**
-- macOS/Linux: `~/.hugind`
-- Windows: `%USERPROFILE%\.hugind`
+- `hugind agent ...`
+- `hugind config ...`
+- `hugind model ...`
+- `hugind chat ...`
+- `hugind server ...`
 
-Common paths:
+### `hugind agent`
 
-- Configs: `<config_home>/configs/*.yml`
-- Agents: `<config_home>/agents/<agent_name>/`
-- Models: `<data_home>/<hf_user>/<hf_repo>/*.gguf`
-- Chat sessions: `<data_home>/chats/*.json`
-- Server sessions: `<data_home>/sessions/`
-- Global settings: `<data_home>/settings.yml`
+See `docs/cli_agent.md`.
 
-## Quick Examples
+### `hugind config`
 
-```
-# List downloaded models
-hugind model list
+See `docs/cli_config.md`.
 
-# Create a new config
-hugind config init my-assistant
+### `hugind model`
 
-# Start server
-hugind server start my-assistant
+See `docs/cli_model.md`.
 
-# Start chat wizard
-hugind chat
-```
+### `hugind chat`
+
+See `docs/cli_chat.md`.
+
+### `hugind server`
+
+See `docs/cli_server.md`.
+
+## HELP
+
+Run `hugind --help` or `hugind <command> --help` to see all flags and options.

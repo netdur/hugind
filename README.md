@@ -1,143 +1,66 @@
 # Hugind 🦅
 
-> **Native, Stateful Inference Server & Sandboxed Agent Runtime.**
+**The local-first, stateful inference engine and sandboxed agent runtime.**
 
-Hugind is a production-grade AI backend designed for stability and resource efficiency on consumer hardware. It wraps `llama.cpp` with a smart management layer, providing an OpenAI-compatible API that features **3-tier state persistence**, efficient **context branching**, and a **permission-gated agent runtime**.
+Hugind is a high-performance system built in **Rust** designed specifically for consumer hardware. Unlike cloud-native solutions, Hugind focuses on maximizing local resources through aggressive caching, process isolation, and a specialized 3-tier memory architecture.
 
-Powered by [llama_cpp_dart](https://github.com/netdur/llama_cpp_dart).
+## 🚀 Key Philosophy
 
----
-
-## ⚡️ Key Features
-
-*   **🧠 3-Tier Memory Architecture**: Intelligently manages KV-cache sessions to maximize VRAM:
-    *   **Hot**: Active sessions stay in VRAM for zero-latency response.
-    *   **Warm**: Idle sessions map to system RAM when VRAM is needed elsewhere.
-    *   **Cold**: Long-term sessions hibernate to disk, surviving server restarts.
-*   **🔱 Context Forking (`X-Session-Fork`)**: High-throughput batching for limited hardware. Clone a "template" KV-cache (e.g., a system prompt or a large document) instantly into multiple parallel branches. 
-    *   *Benchmark: Successfully handles 25+ parallel requests on a 6GB RTX 2060.*
-*   **🛡️ Secure Agent Runtime**: Run AI agents in a sandboxed, interpreted environment using a custom-patched `dart_eval`. Agents are gated by a manifest-based permission system (`agent.yaml`).
-*   **🛠️ Self-Building Ecosystem**: Includes built-in agents that can **scaffold**, **refactor**, and **audit** other agents, creating a secure, self-healing development loop.
-*   **🔌 MCP Client**: Native support for the Model Context Protocol. Connect agents to external tools (Postgres, GitHub, Filesystem) via standard MCP servers.
-*   **👁️ Multimodal Vision**: Native support for image inputs (Llava, Moondream, Qwen-VL) via the OpenAI Vision API.
-*   **📋 Hardware-Aware CLI**: A wizard-driven probe that calculates optimal `gpu_layers` and `context_size` to prevent Out-Of-Memory (OOM) crashes.
+* **Local-Only:** Engineered for your machine, not the cloud.
+* **Performance First:** Native `llama.cpp` bindings with continuous batching.
+* **Secure by Design:** Every model and every agent runs in its own isolated OS process.
+* **Stateful:** Stop recomputing prompts. Hugind remembers the context so you don't have to wait.
 
 ---
 
-## 📦 Installation
+## 🧠 Inference Server
 
-### macOS (Homebrew)
-```bash
-brew tap netdur/hugind
-brew install hugind
-```
+The core server leverages a custom **llama.cpp** binding to provide a robust, OpenAI-compatible API.
 
-### Build from Source
-Requires Dart SDK 3.0+.
-```bash
-git clone https://github.com/netdur/hugind.git
-cd hugind
-bash build.sh
-export PATH="$PATH:$(pwd)/bin"
-```
+* **Continuous Batching:** Process multiple requests simultaneously without blocking.
+* **3-Tier Cache (VRAM → RAM → Disk):** Hugind intelligently moves session data between tiers. Loading a massive context from Disk is often faster than re-processing tokens.
+* **Session Branching:** Instantly fork a "base" session (like a large FAQ or system prompt) into parallel, independent workers.
+* **Smart Context Management:** Uses context shifting and request chunking to keep GPU memory usage predictable and bounded.
+* **Multi-Modal:** Full support for image-based reasoning.
 
 ---
 
-## 🚀 Quick Start
+## 🛡️ Sandboxed Agent Runtime
 
-1.  **Download a Model**:
-    ```bash
-    hugind model add gemma-3-4b-it-qat-q4_0-gguf
-    ```
-2.  **Initialize Config**: (Detects VRAM and sets safe limits)
-    ```bash
-    hugind config init my-config
-    ```
-3.  **Start the Server**:
-    ```bash
-    hugind server start my-config
-    ```
+Hugind isn't just an LLM server; it’s a secure execution environment for AI agents.
 
----
+| Feature | JavaScript (`rquickjs`) | WASM (`Wasmer`) |
+| --- | --- | --- |
+| **Isolation** | OS Process | OS Process + Sandbox |
+| **Speed** | Ultra-lightweight | Near-native |
+| **Language** | JS/TS | Any (C++, Rust, Go, etc.) |
 
-## 🤖 The Agent Lifecycle (Secure & Automated)
+### Fine-Grained Controls
 
-Hugind treats agents like browser extensions. They run as `.dart` scripts in a restricted runtime.
-
-### 1. Build & Audit
-You can use the built-in "Builder" agent to generate new tools and the "Audit" agent to verify their safety.
-
-```bash
-# Generate a math agent
-hugind agent run builder examples/agents/math-tool
-
-# Audit the code for security risks (e.g., shell injections)
-hugind agent run audit examples/agents/math-tool
-```
-
-### 2. Permissions (`agent.yaml`)
-Every agent is restricted by a manifest. If an agent isn't granted shell access, the runtime blocks the execution at the kernel level.
-
-```yaml
-permissions:
-  network: { allow: false }
-  filesystem: { read: true, allowed_paths: ["./data"] }
-  shell: { allow: false }
-```
+* **Network:** Strict allowlists for IPs and domains (supports wildcards `*`).
+* **Filesystem:** Scoped access with explicit read/write mounts.
+* **Resource Limits:** Define strict RAM and CPU caps for WASM modules.
+* **Permission Prompting:** The `hugind agent install url` informs users exactly what an agent is requesting before it install.
 
 ---
 
-## 💬 Stateful API Usage
+## 🛠️ Architecture: The Process Model
 
-Hugind eliminates the need to send the entire chat history with every request by maintaining state on the server.
+Unlike monolithic servers, Hugind treats stability as a priority:
 
-### Basic Statefulness
-Use `X-Session-ID` to resume a conversation. Hugind will automatically restore the KV-cache from RAM or Disk.
-
-```bash
-curl -H "X-Session-ID: session-123" \
-     -d '{"messages": [{"role": "user", "content": "Remember my name is Adel."}]}' \
-     http://localhost:8080/v1/chat/completions
-```
-
-### Efficient Branching (`X-Session-Fork`)
-To process multiple different tasks from the same base context (like a large legal document or a complex system prompt) without re-processing:
-
-1.  **Create a template session** (processed once).
-2.  **Fork it** into new IDs:
-```bash
-# This request boots instantly from the 'legal-doc-template' cache
-curl -H "X-Session-ID: worker-1" \
-     -H "X-Session-Fork: legal-doc-template" \
-     -d '{"messages": [{"role": "user", "content": "Summarize page 5."}]}' \
-     http://localhost:8080/v1/chat/completions
-```
+* **Model Isolation:** Each model runs in its own OS process with a dedicated port. If one model crashes, the system stays up.
+* **Agent Isolation:** Each agent is partitioned away from the core server, communicating only through defined APIs.
+* **Client-Facing:** The server is designed to sit behind an application layer—not to be exposed directly to the open web.
 
 ---
 
-## 🔌 Model Context Protocol (MCP)
+## 💻 Tooling & CLI
 
-Configure external tools in `settings.yml` to allow agents to interact with your local environment securely:
+Hugind comes with a suite of tools to manage your local AI stack:
 
-```yaml
-mcp_servers:
-  sqlite:
-    command: "npx"
-    args: ["-y", "@modelcontextprotocol/server-sqlite", "--db", "analytics.db"]
-```
-
----
-
-## 📚 Documentation
-
-*   [**CLI Reference**](docs/cli.md) - Command usage and flags.
-*   [**Agent Dev**](docs/agent_dev.md) - Writing sandboxed Dart agents.
-*   [**Server Guide**](docs/server.md) - 3-Tier memory and fork logic.
-*   [**API Spec**](docs/api.md) - Custom headers and OpenAI compatibility.
-
-## 🤝 Contributing
-
-Contributions are welcome. Please see [developer.md](docs/developer.md) for build instructions and the contribution guidelines.
+* **Model CRUD:** Download and manage GGUF models directly from Hugging Face.
+* **Hardware Probe:** Auto-configures Hugind based on your available VRAM and CPU cores.
+* **Chat CLI:** A "ChatGPT-style" interface for immediate testing and validation of your deployment.
 
 ## 📄 License
 

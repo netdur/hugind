@@ -44,12 +44,8 @@ wasm:
   #    - The guest uses host-provided filesystem functions (native APIs).
   #    - Here, scopes / modes / allowed paths are enforced by permissions.
   #
-  # If both are enabled, the agent can use mounts for workspace-like access
-  # and host filesystem APIs for controlled access elsewhere.
-  #
-  # runtime_fs_mode: "wasi_mounts" | "host_filesystem" | "both"
-  # Default: "both"
-  runtime_fs_mode: "both"
+  # runtime_fs_mode: "wasi_mounts" | "host_filesystem"
+  runtime_fs_mode: "wasi_mounts"
 
   # Mounts: Map host directories to guest paths.
   # Use with caution! Only helpful if you want to give the agent access
@@ -85,11 +81,15 @@ wasm:
 # 🔗 BACKEND CONNECTION
 # ------------------------------------------------------------------
 # Points to the HTTP API. The agent acts as a client.
+# NOTE: Use either `url` or `config`, not both.
 backend:
-  url: "http://127.0.0.1:8080/v1"  # Default URL (overridable via ENV)
-  config: "gemma-2-9b-it"          # Provider config name in ~/.hugind/configs
+  url: "http://127.0.0.1:8080/v1"  # Direct API base URL
+  # config: "gemma-2-9b-it"        # Config name in ~/.hugind/configs
   session:
-    mode: "fresh"                  # stateless | fresh | resume
+    # stateless: no state on LLM server
+    # fresh: stateful during run, deleted after successful run
+    # resume: stateful across runs
+    mode: "fresh"
     id: "stock-analyst"            # Defaults to agent name if omitted
 
 # 🛡️ PERMISSIONS (The Security Boundary)
@@ -147,8 +147,8 @@ permissions:
 
   # 💻 SHELL / PROCESS EXECUTION
   # --------------------------------------------------------------
-  # You can use EITHER a 'whitelist' (Strict) OR a 'blacklist' (Open).
-  # Do not use both at the same time.
+  # You can use a 'whitelist' (Strict) or a 'blacklist' (Open).
+  # Both can co-exist, but it rarely makes sense.
   # --------------------------------------------------------------
   shell:
     allow: true
@@ -175,11 +175,6 @@ permissions:
     # env_clear: true
     # working_dir: "./workspace"
 
-  # OPTIONAL: LLM permission (recommended if LLM calls should be separately gated)
-  # llm:
-  #   allow: true
-  #   allowed_base_urls:
-  #     - "http://127.0.0.1:8080/v1"
 
 # 🔌 DEPENDENCIES (MCP)
 # ------------------------------------------------------------------
