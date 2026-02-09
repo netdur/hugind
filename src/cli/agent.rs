@@ -61,6 +61,39 @@ pub fn remove() -> Result<()> {
     Ok(())
 }
 
+pub fn list() -> Result<()> {
+    let dir = paths::agents_dir();
+    if !dir.exists() {
+        println!("No installed agents.");
+        return Ok(());
+    }
+
+    let mut names = Vec::new();
+    for entry in fs::read_dir(&dir)
+        .with_context(|| format!("Failed to read {}", dir.display()))? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        if ty.is_dir() {
+            if let Some(name) = entry.file_name().to_str() {
+                names.push(name.to_string());
+            }
+        }
+    }
+
+    if names.is_empty() {
+        println!("No installed agents.");
+        return Ok(());
+    }
+
+    names.sort();
+    println!("{:<24} {}", "NAME", "PATH");
+    for name in names {
+        let path = dir.join(&name);
+        println!("{:<24} {}", name, path.display());
+    }
+    Ok(())
+}
+
 fn is_url(input: &str) -> bool {
     Url::parse(input)
         .map(|u| u.scheme() == "http" || u.scheme() == "https")

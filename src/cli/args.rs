@@ -88,6 +88,8 @@ pub enum AgentCommand {
     },
     
     Remove,
+
+    List,
 }
 
 #[derive(Subcommand, Debug)]

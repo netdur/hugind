@@ -1,4 +1,4 @@
-# Hugind 🦅
+# Hugind 🐦‍⬛
 
 ## Scope / positioning
 

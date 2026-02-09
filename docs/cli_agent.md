@@ -20,6 +20,10 @@ for install/remove functionality.
 Runs an agent from a file path, passing any additional arguments through to the
 agent runtime.
 
+### `hugind agent list`
+
+Lists agents installed under `~/.hugind/agents`.
+
 ### `hugind agent install <path>`
 
 Installs an agent from a local folder (or `agent.yaml`) or from a web URL.
