@@ -1033,10 +1033,19 @@ impl<'a> LlmEngine<'a> {
                         self.ctx.kv_cache_seq_rm(seq_id, -1, -1);
                         self.slots.remove(&seq_id);
                     }
-                     let mut sessions = self.kv_manager.sessions.write();
-                     let disk_path = sessions.get(&session_id).and_then(|s| s.disk_path.clone());
-                     sessions.remove(&session_id);
-                     drop(sessions);
+                    if found_seq.is_none() {
+                        let vram_seq_id = {
+                            let sessions = self.kv_manager.sessions.read();
+                            sessions.get(&session_id).and_then(|s| s.vram_seq_id)
+                        };
+                        if let Some(seq_id) = vram_seq_id {
+                            self.ctx.kv_cache_seq_rm(seq_id, -1, -1);
+                        }
+                    }
+                    let mut sessions = self.kv_manager.sessions.write();
+                    let disk_path = sessions.get(&session_id).and_then(|s| s.disk_path.clone());
+                    sessions.remove(&session_id);
+                    drop(sessions);
                         if let Some(path) = disk_path {
                             if let Err(e) = std::fs::remove_file(&path) {
                              eprintln!("Failed to remove disk file {}: {}", path.display(), e);

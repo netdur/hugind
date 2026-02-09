@@ -11,7 +11,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::core::chat::session::{SessionRepo, Message};
 use crate::core::chat::service::ChatService;
-use crate::shared::paths;
+use crate::shared::{paths, configs};
 
 pub async fn run_interactive_wizard() -> Result<()> {
     let options = vec![
@@ -121,6 +121,9 @@ fn list_configs() -> Vec<String> {
             if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                 if ext == "yml" || ext == "yaml" {
                     if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                        if configs::is_reserved_config_name(stem) {
+                            continue;
+                        }
                         configs.push(stem.to_string());
                     }
                 }

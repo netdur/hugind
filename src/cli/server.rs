@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use serde_json::json;
 
-use crate::shared::paths;
+use crate::shared::{paths, configs};
 use crate::engine::{LlmEngine, request::Request, types::EventKind, EngineStats};
 use crate::llm::{model::{Model, ModelParams}, context::ContextParams, runtime};
 use crate::server;
@@ -56,7 +56,7 @@ pub async fn run_start(_config: String, _port: Option<u16>) -> Result<()> {
 
     
     let (engine_tx, engine_rx) = mpsc::channel::<Request>(32);
-    let kv_manager = Arc::new(crate::engine::kv_cache::KvCacheManager::new(true)); 
+    let kv_manager = Arc::new(crate::engine::kv_cache::KvCacheManager::new(cfg.unified_memory_mode));
     let engine_stats = Arc::new(RwLock::new(EngineStats::default()));
     
     
@@ -195,6 +195,11 @@ fn list_config_files(config_dir: &Path) -> Result<Vec<PathBuf>> {
         if path.is_file() {
             if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
                 if ext == "yml" || ext == "yaml" {
+                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                        if configs::is_reserved_config_name(stem) {
+                            continue;
+                        }
+                    }
                     configs.push(path);
                 }
             }

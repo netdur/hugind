@@ -34,6 +34,9 @@ pub struct ServerConfig {
     #[serde(default = "default_session_home")]
     pub session_home: PathBuf,
     
+    #[serde(default = "default_unified_memory_mode")]
+    pub unified_memory_mode: bool,
+    
     #[serde(default)]
     pub verbose: bool,
 
@@ -243,6 +246,7 @@ fn default_max_slots() -> u32 { 4 }
 fn default_timeout() -> u64 { 600 }
 fn default_system_prompt() -> String { "You are a helpful assistant.".to_string() }
 fn default_session_home() -> PathBuf { "sessions".into() } 
+fn default_unified_memory_mode() -> bool { false }
 fn default_gpu_layers() -> u32 { 99 }
 fn default_true() -> bool { true }
 fn default_n_ctx() -> u32 { 4096 }

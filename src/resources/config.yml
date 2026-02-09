@@ -8,6 +8,7 @@ server:
   timeout_seconds: 600
   system_prompt_file: "prompts/coding_assistant.txt"
   library_path: ""
+  unified_memory_mode: false
 
 model:
   path: "@PLACEHOLDER"

@@ -56,6 +56,10 @@ impl ConfigLoader {
             .or_else(|| server_section["embeddings"].as_str().map(|s| s.eq_ignore_ascii_case("true")))
             .unwrap_or(false);
 
+        let unified_memory_mode = server_section["unified_memory_mode"].as_bool()
+            .or_else(|| server_section["unified_memory_mode"].as_str().map(|s| s.eq_ignore_ascii_case("true")))
+            .unwrap_or(false);
+
         let session_home = if let Some(s) = server_section["session_home"].as_str() {
              resolve_path_relative(s, path)
         } else {
@@ -144,6 +148,7 @@ impl ConfigLoader {
             system_prompt_file,
             embeddings_enabled,
             session_home,
+            unified_memory_mode,
             verbose: server_section["verbose"].as_bool().unwrap_or(false),
             model_path,
             mmproj_path,

@@ -96,13 +96,7 @@ pub fn init(name: String, model_override: Option<String>) -> Result<()> {
     }
 
     
-    let chat_formats = vec!["auto", "chatml", "chatmlThinking", "qwen3", "gemma", "alpaca", "harmony"];
-    let detected_format = detect_chat_format(&model_path);
-    let fmt_idx = chat_formats.iter().position(|&f| f == detected_format).unwrap_or(0);
-    
-    let chosen_format = Select::new("Select Chat Format Template", chat_formats)
-        .with_starting_cursor(fmt_idx)
-        .prompt()?;
+    let chosen_format = "auto";
 
     
     println!("\n🧠 Memory Analysis:");
@@ -119,7 +113,13 @@ pub fn init(name: String, model_override: Option<String>) -> Result<()> {
     let est_tokens = (available_for_ctx * 10.0 * 1024.0) as u64;
     println!("  Est. Max Context: ~{} tokens", est_tokens);
 
-    let ctx_options = vec![2048, 4096, 8192, 16384, 32768, 65536];
+    let mut ctx_options = vec![2048, 4096, 8192, 16384, 32768, 65536];
+    let mut next_ctx = 131072u64;
+    let max_ctx = est_tokens.min(262_144);
+    while next_ctx <= max_ctx {
+        ctx_options.push(next_ctx);
+        next_ctx *= 2;
+    }
     
     let recommended_ctx = ctx_options.iter()
         .filter(|&&c| c as u64 <= est_tokens)
@@ -169,6 +169,8 @@ pub fn init(name: String, model_override: Option<String>) -> Result<()> {
         final_content = replace_value(&final_content, "library_path", &format!("\"{}\"", library_path));
     }
 
+    let unified_memory_mode = chosen_preset == "metal_unified";
+    final_content = replace_value(&final_content, "unified_memory_mode", if unified_memory_mode { "true" } else { "false" });
     final_content = replace_value(&final_content, "format", chosen_format);
     final_content = replace_value(&final_content, "size", &final_ctx.to_string());
 
@@ -197,7 +199,7 @@ pub fn init(name: String, model_override: Option<String>) -> Result<()> {
 }
 
 fn ensure_default_configs() -> Result<()> {
-    let dest_dir = paths::configs_dir();
+    let dest_dir = paths::presets_dir();
     fs::create_dir_all(&dest_dir)?;
 
     let defaults = [

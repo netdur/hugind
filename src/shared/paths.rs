@@ -41,6 +41,10 @@ pub fn configs_dir() -> PathBuf {
     config_home().join("configs")
 }
 
+pub fn presets_dir() -> PathBuf {
+    data_home().join("presets")
+}
+
 
 pub fn agents_dir() -> PathBuf {
     config_home().join("agents")

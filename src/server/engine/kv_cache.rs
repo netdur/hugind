@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::io::{Read, Write};
 use parking_lot::RwLock;
 
+use crate::shared::paths;
 use crate::llm::context::Context;
 use crate::llm::tokenizer::Token;
 use crate::llm::error::{Result, Error};
@@ -74,13 +75,14 @@ impl KvCacheManager {
     pub fn register_session(&self, id: String, _tokens: Vec<Token>, n_keep: usize) {
         let mut sessions = self.sessions.write();
         if !sessions.contains_key(&id) {
+            let disk_path = paths::sessions_dir().join(format!("{}.bin", id));
             sessions.insert(id.clone(), Session {
                 id,
                 tier: CacheTier::Vram,
                 last_used: std::time::Instant::now(),
                 ram_state: None,
                 ram_kv_head: None,
-                disk_path: None,
+                disk_path: Some(disk_path),
                 pending_action: None,
                 tokens: Vec::new(),
                 n_keep,
@@ -294,6 +296,9 @@ impl KvCacheManager {
     
     
     fn write_state_file(path: &PathBuf, data: &[u8], n_tokens: u32, n_keep: u32) -> Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| Error::BackendError(e.to_string()))?;
+        }
         let header = StateHeader {
             magic: *b"HUGN", 
             version: 1,

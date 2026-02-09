@@ -17,6 +17,7 @@ use crate::engine::types::EventKind;
 use crate::llm::sampling::GrammarParams;
 use base64::Engine;
 use std::time::Duration;
+use crate::shared::paths;
 
 const JSON_GRAMMAR: &str = r#"
 root   ::= object
@@ -326,7 +327,8 @@ pub async fn save_state(
         
         
         
-        let path = format!("cache/{}.bin", payload.template_id);
+        let path = paths::sessions_dir().join(format!("{}.bin", payload.template_id));
+        let path = path.to_string_lossy().to_string();
         
         
         let _ = std::fs::create_dir_all("cache");

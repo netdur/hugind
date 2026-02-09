@@ -14,6 +14,7 @@ pub fn ensure_user_home() -> Result<()> {
         .with_context(|| format!("Failed to create {}", data_home.display()))?;
 
     ensure_dir(paths::configs_dir())?;
+    ensure_dir(paths::presets_dir())?;
     ensure_dir(paths::agents_dir())?;
     ensure_dir(paths::sessions_dir())?;
     ensure_dir(data_home.join("chat"))?;

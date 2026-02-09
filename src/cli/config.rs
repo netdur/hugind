@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::fs;
 use anyhow::Result;
-use crate::shared::paths;
+use crate::shared::{paths, configs};
 use crate::core::sys::SystemInspector;
 use crate::core::config::settings::GlobalSettings;
 
@@ -24,6 +24,9 @@ pub fn list() -> Result<()> {
             if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
                 if ext == "yml" || ext == "yaml" {
                     if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                        if configs::is_reserved_config_name(stem) {
+                            continue;
+                        }
                         println!("- {}", stem);
                         found = true;
                     }
