@@ -1,6 +1,6 @@
 [package]
 name = "hugind"
-version = "0.1.0"
+version = "0.9.0"
 edition = "2024"
 
 [dependencies]
@@ -28,6 +28,8 @@ cap-std = "2.0.2"
 encoding_rs = "0.8.35"
 axum = "0.7.7"
 tempfile = "3.24.0"
+zip = "2.2.0"
+semver = "1.0"
 llama-cpp = { path = "/Users/adel/Workspace/llama_cpp_rust/llama-cpp", features = ["metal", "mtmd"] }
 tower = { version = "0.4", features = ["util", "timeout", "limit"] }
 tower-http = { version = "0.5", features = ["trace", "cors"] }

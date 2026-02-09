@@ -6,6 +6,7 @@ use crate::shared::paths;
 use crate::core::sys::{SystemInspector, SystemInfo};
 
 pub fn init(name: String, model_override: Option<String>) -> Result<()> {
+    ensure_default_configs()?;
     
     println!("Probing hardware... (this may take a moment)");
     let info = SystemInspector::inspect();
@@ -192,6 +193,27 @@ pub fn init(name: String, model_override: Option<String>) -> Result<()> {
     println!("  • Model: {}", shorten_path(&model_path));
     println!("  • Context: {}", final_ctx);
 
+    Ok(())
+}
+
+fn ensure_default_configs() -> Result<()> {
+    let dest_dir = paths::configs_dir();
+    fs::create_dir_all(&dest_dir)?;
+
+    let defaults = [
+        ("config.yml", include_str!("../resources/config.yml")),
+        ("cpu_only.yml", include_str!("../resources/cpu_only.yml")),
+        ("cuda_dedicated.yml", include_str!("../resources/cuda_dedicated.yml")),
+        ("metal_unified.yml", include_str!("../resources/metal_unified.yml")),
+    ];
+
+    for (name, content) in defaults {
+        let path = dest_dir.join(name);
+        if path.exists() {
+            continue;
+        }
+        fs::write(&path, content)?;
+    }
     Ok(())
 }
 

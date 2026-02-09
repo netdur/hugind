@@ -117,6 +117,7 @@ pub fn remove(name: String) -> Result<()> {
 }
 
 pub fn defaults(lib: Option<String>, hf_token: Option<String>) -> Result<()> {
+    ensure_settings_file()?;
     if lib.is_none() && hf_token.is_none() {
         let settings = GlobalSettings::load()?;
         println!("\nGlobal Settings ({:?}):", paths::data_home().join("settings.yml"));
@@ -154,3 +155,15 @@ pub fn defaults(lib: Option<String>, hf_token: Option<String>) -> Result<()> {
     Ok(())
 }
 
+fn ensure_settings_file() -> Result<()> {
+    let path = paths::data_home().join("settings.yml");
+    if path.exists() {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let content = include_str!("../../assets/settings.yml");
+    fs::write(&path, content)?;
+    Ok(())
+}

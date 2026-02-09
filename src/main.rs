@@ -6,6 +6,11 @@ use hugind::cli::{
 
 #[tokio::main]
 async fn main() {
+    if let Err(e) = hugind::shared::bootstrap::ensure_user_home() {
+        eprintln!("Error: {}", e);
+        std::process::exit(1);
+    }
+
     let cli = Cli::parse();
 
     match cli.command {

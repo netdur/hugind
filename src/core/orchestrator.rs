@@ -3,6 +3,7 @@ use crate::core::js::runtime::JsRuntime;
 use crate::core::wasm::runtime::WasmRuntime;
 use crate::core::config::backend::{prepare_backend, ResolvedBackend};
 use crate::core::config::agent::SessionMode;
+use semver::{Version, VersionReq};
 
 pub async fn execute(path: String, args_vec: Vec<String>) -> anyhow::Result<()> {
     let target_path = PathBuf::from(&path).canonicalize().map_err(|e| {
@@ -33,6 +34,7 @@ pub async fn execute(path: String, args_vec: Vec<String>) -> anyhow::Result<()> 
     
     
     
+    enforce_hugind_version(&config)?;
     let backend = prepare_backend(&mut config)?;
     println!("Checking server health at {}...", backend.health_url);
     if let Err(_) = reqwest::get(&backend.health_url).await.and_then(|r| r.error_for_status()) {
@@ -74,6 +76,7 @@ async fn run_workflow(workflow: crate::core::config::workflow::WorkflowConfig, r
         println!("==> Step: {}", step.name);
         let agent_dir = root.join(&step.agent);
         let mut config = crate::core::config::agent::AgentConfig::load_from_dir(&agent_dir)?;
+        enforce_hugind_version(&config)?;
         let backend = prepare_backend(&mut config)?;
         let entry = agent_dir.join(&config.entry_point);
         
@@ -113,4 +116,26 @@ async fn cleanup_fresh_session(backend: &ResolvedBackend, config: &crate::core::
     if let Err(e) = client.delete(&url).send().await.and_then(|r| r.error_for_status()) {
         eprintln!("Warning: failed to delete session {}: {}", id, e);
     }
+}
+
+fn enforce_hugind_version(config: &crate::core::config::agent::AgentConfig) -> anyhow::Result<()> {
+    let Some(req_str) = &config.hugind_version else {
+        return Ok(());
+    };
+    if req_str.trim().is_empty() {
+        return Ok(());
+    }
+
+    let req = VersionReq::parse(req_str)
+        .map_err(|e| anyhow::anyhow!("Invalid hugind_version constraint '{}': {}", req_str, e))?;
+    let current = Version::parse(env!("CARGO_PKG_VERSION"))
+        .map_err(|e| anyhow::anyhow!("Invalid current Hugind version: {}", e))?;
+    if !req.matches(&current) {
+        return Err(anyhow::anyhow!(
+            "Agent requires hugind_version '{}' but current is {}",
+            req_str,
+            current
+        ));
+    }
+    Ok(())
 }

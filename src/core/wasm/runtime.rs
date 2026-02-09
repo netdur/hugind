@@ -25,6 +25,7 @@ struct HostState {
     llm_client: reqwest::Client,
     llm_base_url: String,
     llm_model: Option<String>,
+    hugind_version: String,
     llm_session_id: Option<String>,
     wasi: WasiCtx,
     table: ResourceTable,
@@ -100,6 +101,7 @@ impl WasmRuntime {
         let resolved = resolve_backend(&self.config)?;
         let llm_base_url = resolved.base_url;
         let llm_model = resolved.model;
+        let hugind_version = env!("CARGO_PKG_VERSION").to_string();
         let llm_session_id = resolved.session.as_ref().and_then(|s| s.id.clone());
 
         let net_permission = if let Some(p) = &self.config.permissions {
@@ -212,6 +214,7 @@ impl WasmRuntime {
                 llm_client: reqwest::Client::new(),
                 llm_base_url,
                 llm_model,
+                hugind_version,
                 llm_session_id,
                 wasi,
                 table,
@@ -721,6 +724,16 @@ impl WasmRuntime {
             |mut caller: Caller<'_, HostState>| Box::new(async move {
                 let args_json = caller.data().args_json.clone();
                 let (out_ptr, out_len) = write_bytes_async(&mut caller, args_json.as_bytes()).await?;
+                Ok(pack_ptr_len(out_ptr, out_len))
+            }),
+        )?;
+
+        linker.func_wrap0_async(
+            "hugind",
+            "version",
+            |mut caller: Caller<'_, HostState>| Box::new(async move {
+                let version = caller.data().hugind_version.clone();
+                let (out_ptr, out_len) = write_bytes_async(&mut caller, version.as_bytes()).await?;
                 Ok(pack_ptr_len(out_ptr, out_len))
             }),
         )?;

@@ -33,19 +33,23 @@ confirmation before copying the agent into `~/.hugind/agents/<agent-name>`.
 Accepted inputs:
 - Local folder containing `agent.yaml`
 - Direct path to `agent.yaml`
+- Local `.zip` containing a single agent
 - Web URL pointing at a folder or `agent.yaml`
+- Web URL pointing at a `.zip` containing a single agent
 
 Examples:
 ```bash
 hugind agent install /path/to/agent-folder
 hugind agent install /path/to/agent.yaml
+hugind agent install /path/to/agent.zip
 hugind agent install https://example.com/agents/my-agent/
 hugind agent install https://example.com/agents/my-agent/agent.yaml
+hugind agent install https://example.com/agents/my-agent.zip
 ```
 
 Notes:
 - If the agent already exists, the installer will ask before overwriting.
-- For web installs, only `agent.yaml` and the `entry_point` are downloaded.
+- For web installs, only `agent.yaml` and the `entry_point` are downloaded unless a `.zip` is used.
 
 ### `hugind agent remove`
 

@@ -1,14 +1,15 @@
 #!/bin/bash
 
 # Compile the hugind executable
-echo "Building hugind..."
-VERSION=$(grep 'version:' pubspec.yaml | sed 's/version: //')
-echo "Detected version: $VERSION"
-dart compile exe bin/hugind.dart -DVERSION=$VERSION -o bin/hugind
+set -euo pipefail
 
-if [ $? -eq 0 ]; then
-    echo "Build successful! Executable is at bin/hugind"
+echo "Building hugind..."
+if command -v rg >/dev/null 2>&1; then
+  VERSION=$(rg -n "^version\\s*=\\s*\"([^\"]+)\"" Cargo.toml -o --replace '$1' | head -n1)
 else
-    echo "Build failed."
-    exit 1
+  VERSION=$(grep -E '^version[[:space:]]*=' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/' | head -n1)
 fi
+echo "Detected version: $VERSION"
+
+cargo build --release
+echo "Build successful! Binary is at target/release/hugind"

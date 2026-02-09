@@ -2,8 +2,10 @@ use anyhow::{Context, Result};
 use inquire::Confirm;
 use reqwest::Url;
 use std::fs;
+use std::io::{self};
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
+use zip::read::ZipArchive;
 
 use crate::core::config::agent::{AgentConfig, FileSystemPermission, NetPermissions, Permissions, ShellPermission};
 use crate::shared::paths;
@@ -16,7 +18,15 @@ pub async fn run(path: String, args_vec: Vec<String>) -> Result<()> {
 
 pub async fn install(path: String) -> Result<()> {
     let (source_root, config, _temp_guard) = if is_url(&path) {
-        download_agent(&path).await?
+        if is_zip_path(&path) {
+            download_zip_agent(&path).await?
+        } else {
+            download_agent(&path).await?
+        }
+    } else if is_zip_path(&path) {
+        let root = extract_local_zip_agent(&path)?;
+        let config = AgentConfig::load_from_dir(&root)?;
+        (root, config, None)
     } else {
         let root = resolve_local_agent_root(&path)?;
         let config = AgentConfig::load_from_dir(&root)?;
@@ -117,6 +127,21 @@ fn resolve_local_agent_root(path: &str) -> Result<PathBuf> {
     Ok(target)
 }
 
+fn is_zip_path(path: &str) -> bool {
+    path.to_lowercase().ends_with(".zip")
+}
+
+fn extract_local_zip_agent(path: &str) -> Result<PathBuf> {
+    let zip_path = PathBuf::from(path)
+        .canonicalize()
+        .with_context(|| format!("Failed to resolve zip path {}", path))?;
+    let temp = tempfile::tempdir()?;
+    let root = temp.path().to_path_buf();
+    extract_zip(&zip_path, &root)?;
+    let agent_root = find_agent_root(&root)?;
+    Ok(agent_root)
+}
+
 async fn download_agent(path: &str) -> Result<(PathBuf, AgentConfig, Option<TempDir>)> {
     let base_url = if path.ends_with("agent.yaml") {
         Url::parse(path)?
@@ -150,6 +175,22 @@ async fn download_agent(path: &str) -> Result<(PathBuf, AgentConfig, Option<Temp
     Ok((root, config, Some(temp)))
 }
 
+async fn download_zip_agent(path: &str) -> Result<(PathBuf, AgentConfig, Option<TempDir>)> {
+    let url = Url::parse(path)?;
+    let temp = tempfile::tempdir()?;
+    let root = temp.path().to_path_buf();
+    let zip_path = root.join("agent.zip");
+
+    let bytes = fetch_bytes(&url).await
+        .with_context(|| format!("Failed to download {}", url))?;
+    fs::write(&zip_path, &bytes)?;
+
+    extract_zip(&zip_path, &root)?;
+    let agent_root = find_agent_root(&root)?;
+    let config = AgentConfig::load_from_dir(&agent_root)?;
+    Ok((agent_root, config, Some(temp)))
+}
+
 async fn fetch_text(url: &Url) -> Result<String> {
     let response = reqwest::get(url.clone()).await?.error_for_status()?;
     Ok(response.text().await?)
@@ -169,6 +210,64 @@ fn sanitize_agent_name(name: &str) -> String {
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
         .collect()
+}
+
+fn extract_zip(zip_path: &Path, dest: &Path) -> Result<()> {
+    let file = fs::File::open(zip_path)
+        .with_context(|| format!("Failed to open zip {}", zip_path.display()))?;
+    let mut archive = ZipArchive::new(file)
+        .with_context(|| format!("Invalid zip {}", zip_path.display()))?;
+
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)?;
+        let Some(rel_path) = entry.enclosed_name() else {
+            continue;
+        };
+        let out_path = dest.join(rel_path);
+        if entry.is_dir() {
+            fs::create_dir_all(&out_path)?;
+            continue;
+        }
+        if let Some(parent) = out_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let mut outfile = fs::File::create(&out_path)?;
+        io::copy(&mut entry, &mut outfile)?;
+    }
+    Ok(())
+}
+
+fn find_agent_root(root: &Path) -> Result<PathBuf> {
+    let mut stack = vec![root.to_path_buf()];
+    let mut found: Option<PathBuf> = None;
+
+    while let Some(dir) = stack.pop() {
+        let entries = match fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if path.file_name().and_then(|s| s.to_str()) == Some("agent.yaml") {
+                let candidate = path.parent().unwrap_or(root).to_path_buf();
+                if let Some(existing) = &found {
+                    if existing != &candidate {
+                        return Err(anyhow::anyhow!(
+                            "Multiple agent.yaml files found in zip; please provide a zip with a single agent"
+                        ));
+                    }
+                } else {
+                    found = Some(candidate);
+                }
+            }
+        }
+    }
+
+    found.ok_or_else(|| anyhow::anyhow!("agent.yaml not found in zip"))
 }
 
 fn print_permissions(perms: &Option<Permissions>) -> Result<()> {

@@ -173,7 +173,7 @@ impl McpClient {
     async fn initialize(&self) -> Result<()> {
         let params = json!({
             "protocolVersion": "2024-11-05",
-            "clientInfo": { "name": "hugind", "version": "0.1.0" },
+            "clientInfo": { "name": "hugind", "version": env!("CARGO_PKG_VERSION") },
             "capabilities": {}
         });
         let _ = self.request("initialize", params).await?;

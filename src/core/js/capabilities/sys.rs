@@ -11,6 +11,10 @@ fn print_raw(msg: String) {
     let _ = out.flush();
 }
 
+fn version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
 async fn input(prompt: String) -> String {
     use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
     
@@ -37,6 +41,9 @@ pub async fn install(ctx: &AsyncContext) -> Result<()> {
         
         let input_func = Function::new(ctx.clone(), Async(input))?;
         ctx.globals().set("input", input_func)?;
+
+        let version_func = Function::new(ctx.clone(), version)?;
+        ctx.globals().set("hugind_version", version_func)?;
 
         Ok(())
     })).await

@@ -125,6 +125,7 @@ pub struct WasmConfig {
 pub struct AgentConfig {
     pub name: String,
     pub version: String,
+    pub hugind_version: Option<String>,
     pub entry_point: String,
     #[serde(default)]
     pub wasm: Option<WasmConfig>,
@@ -156,6 +157,7 @@ impl Default for AgentConfig {
         Self {
             name: "default".to_string(),
             version: "0.0.0".to_string(),
+            hugind_version: None,
             entry_point: "main.js".to_string(),
             wasm: None,
             backend: None,
