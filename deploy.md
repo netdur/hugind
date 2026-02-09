@@ -1,4 +1,5 @@
-# 🚀 Hugind Release Workflow
+# Hugind Release Workflow
+
 
 This guide covers how to build, tag, and publish a new version of Hugind for macOS (Homebrew).
 

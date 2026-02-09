@@ -20,6 +20,8 @@ pub async fn run_server(
     kv_manager: Arc<crate::engine::kv_cache::KvCacheManager>,
     engine_stats: Arc<parking_lot::RwLock<crate::engine::EngineStats>>,
     model: Arc<crate::llm::model::Model>,
+    model_name: Option<String>,
+    config_name: Option<String>,
     host: String,
     port: u16,
     api_key: Option<String>,
@@ -31,6 +33,8 @@ pub async fn run_server(
         kv_manager,
         engine_stats,
         model,
+        model_name,
+        config_name,
         api_key,
     });
 

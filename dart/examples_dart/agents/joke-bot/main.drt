@@ -1,8 +1,0 @@
-dynamic main(Map<String, dynamic> context) async {
-  var sys = context['capabilities']['sys'];
-  var llm = context['capabilities']['llm'];
-
-  var banner = "🤖 Beep Boop. I am JokeBot.";
-  sys.print(banner);
-
-}

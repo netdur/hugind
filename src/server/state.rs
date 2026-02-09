@@ -10,5 +10,7 @@ pub struct AppState {
     pub kv_manager: Arc<crate::engine::kv_cache::KvCacheManager>, 
     pub engine_stats: Arc<RwLock<EngineStats>>, 
     pub model: Arc<crate::llm::model::Model>,
+    pub model_name: Option<String>,
+    pub config_name: Option<String>,
     pub api_key: Option<String>,
 }

@@ -7,7 +7,6 @@ use std::time::Duration;
 use parking_lot::RwLock;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use serde_json::json;
 
 use crate::shared::{paths, configs};
 use crate::engine::{LlmEngine, request::Request, types::EventKind, EngineStats};
@@ -44,6 +43,13 @@ pub async fn run_start(_config: String, _port: Option<u16>) -> Result<()> {
     
     
     let model = Arc::new(Model::from_file(cfg.model_path.to_str().unwrap(), &mparams)?);
+    let model_name = cfg.model_name.clone().or_else(|| {
+        cfg.model_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_string())
+    });
+    let config_name = Some(cfg.name.clone());
     
     let mut cparams = ContextParams::default();
     cparams.n_ctx = cfg.context_params.n_ctx;
@@ -111,7 +117,9 @@ pub async fn run_start(_config: String, _port: Option<u16>) -> Result<()> {
         engine_tx, 
         server_kv_manager, 
         server_engine_stats, 
-        model.clone(), 
+        model.clone(),
+        model_name,
+        config_name,
         cfg.host.clone(), 
         cfg.port, 
         cfg.api_key.clone()
@@ -141,11 +149,8 @@ pub async fn run_list() -> Result<()> {
             .unwrap_or("unknown");
         let (host, port) = read_host_port(&path).unwrap_or(("127.0.0.1".to_string(), 8080));
         let monitor_url = format!("http://{}:{}/v1/monitor", normalize_host(&host), port);
-        
-        let health = fetch_health(&monitor_url).await;
-        
-        let expected = read_expected_model_name(&path).ok().flatten();
-        let status = format_status(health, expected.as_deref());
+        let info = fetch_monitor_info(&monitor_url).await;
+        let status = format_status(info.as_ref(), name);
         println!("- {} ({})", name, status);
     }
 
@@ -157,9 +162,8 @@ pub async fn run_stop(config: String) -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("Config \"{}\" not found.", config))?;
     let (host, port) = read_host_port(&path).unwrap_or(("127.0.0.1".to_string(), 8080));
     let monitor_url = format!("http://{}:{}/v1/monitor", normalize_host(&host), port);
-    let health = fetch_health(&monitor_url).await;
-
-    if health.is_some() {
+    let info = fetch_monitor_info(&monitor_url).await;
+    if info.is_some() {
         println!("Server appears healthy at {}.", monitor_url);
     } else {
         println!("Server not reachable at {}.", monitor_url);
@@ -177,8 +181,8 @@ pub async fn run_stop(config: String) -> Result<()> {
         println!("Stopped process(es) on port {}: {:?}", port, killed);
     }
 
-    let health = fetch_health(&monitor_url).await;
-    if health.is_some() {
+    let info = fetch_monitor_info(&monitor_url).await;
+    if info.is_some() {
         println!("Server still reachable at {}.", monitor_url);
     } else {
         println!("Server is down at {}.", monitor_url);
@@ -279,7 +283,7 @@ fn kill_by_port(port: u16) -> Result<Vec<i32>> {
     Ok(pids)
 }
 
-async fn fetch_health(url: &str) -> Option<HealthInfo> {
+async fn fetch_monitor_info(url: &str) -> Option<MonitorInfo> {
     let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(1))
         .build()
@@ -291,83 +295,26 @@ async fn fetch_health(url: &str) -> Option<HealthInfo> {
     let resp = client.get(url).send().await.ok()?;
     let resp = resp.error_for_status().ok()?;
     let body = resp.text().await.ok()?;
-    
-    
-    let model = parse_model_name(&body); 
-    Some(HealthInfo { model })
+    let json = serde_json::from_str::<JsonValue>(&body).ok()?;
+    let config_name = json.get("config_name").and_then(|v| v.as_str()).map(|s| s.to_string());
+    Some(MonitorInfo { config_name })
 }
 
-fn parse_model_name(body: &str) -> Option<String> {
-    let trimmed = body.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    
-    
-    if let Ok(json) = serde_json::from_str::<JsonValue>(trimmed) {
-         if let Some(state) = json.get("server_state").and_then(|v| v.as_str()) {
-             
-             
-             return Some(state.to_string());
-         }
-    }
-
-    
-    if let Ok(json) = serde_json::from_str::<JsonValue>(trimmed) {
-        if let Some(name) = json.get("model").and_then(|v| v.as_str()) {
-            return Some(name.to_string());
-        }
-        if let Some(name) = json.get("name").and_then(|v| v.as_str()) {
-            return Some(name.to_string());
-        }
-        if let Some(name) = json.get("model_name").and_then(|v| v.as_str()) {
-            return Some(name.to_string());
-        }
-        if let Some(name) = json.get("modelName").and_then(|v| v.as_str()) {
-            return Some(name.to_string());
-        }
-    }
-
-    Some(trimmed.to_string())
-}
-
-fn read_expected_model_name(path: &Path) -> Result<Option<String>> {
-    let content = fs::read_to_string(path)
-        .with_context(|| format!("Failed to read config file: {:?}", path))?;
-    let yaml: Value = serde_yaml::from_str(&content).with_context(|| "Failed to parse YAML")?;
-    let model = yaml.get("model").unwrap_or(&Value::Null);
-
-    if let Some(name) = model.get("name").and_then(|v| v.as_str()) {
-        return Ok(Some(name.to_string()));
-    }
-
-    let path = model.get("path").and_then(|v| v.as_str()).unwrap_or("");
-    if path.is_empty() {
-        return Ok(None);
-    }
-
-    let file = Path::new(path)
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or(path);
-    Ok(Some(file.to_string()))
-}
-
-fn format_status(health: Option<HealthInfo>, _expected: Option<&str>) -> String {
-    let Some(_health) = health else {
+fn format_status(info: Option<&MonitorInfo>, expected: &str) -> String {
+    let Some(info) = info else {
         return "down".to_string();
     };
-    
-    
+
+    if let Some(config_name) = info.config_name.as_deref() {
+        if config_name == expected {
+            return "up".to_string();
+        }
+        return "down".to_string();
+    }
+
     "up".to_string()
 }
 
-fn model_matches_expected(model: &str, expected: &str) -> bool {
-    let model_lc = model.to_lowercase();
-    let expected_lc = expected.to_lowercase();
-    model_lc.contains(&expected_lc) || expected_lc.contains(&model_lc)
-}
-
-struct HealthInfo {
-    model: Option<String>,
+struct MonitorInfo {
+    config_name: Option<String>,
 }

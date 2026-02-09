@@ -280,11 +280,18 @@ pub async fn chat_completions(
     }
 }
 
-pub async fn list_models() -> Json<ModelList> {
+pub async fn list_models(
+    State(state): State<Arc<AppState>>,
+) -> Json<ModelList> {
+    let model_id = state
+        .config_name
+        .clone()
+        .or_else(|| state.model_name.clone())
+        .unwrap_or_else(|| "unknown".to_string());
     Json(ModelList {
         object: "list".to_string(),
         data: vec![ModelInfo {
-            id: "gemma-3-4b-it".to_string(), 
+            id: model_id, 
             object: "model".to_string(),
             created: 1677652288,
             owned_by: "system".to_string(),
@@ -307,6 +314,7 @@ pub async fn monitor(State(state): State<Arc<AppState>>) -> Json<MonitorStats> {
     let stats = state.engine_stats.read();
 
     Json(MonitorStats {
+        config_name: state.config_name.clone().unwrap_or_else(|| "unknown".to_string()),
         server_state: "running".to_string(),
         requests_processing: stats.requests_processing,
         requests_waiting: stats.requests_waiting,

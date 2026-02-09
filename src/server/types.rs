@@ -126,6 +126,7 @@ pub struct ModelInfo {
 
 #[derive(Debug, Serialize)]
 pub struct MonitorStats {
+    pub config_name: String,
     pub server_state: String,
     pub requests_processing: usize,
     pub requests_waiting: usize,
