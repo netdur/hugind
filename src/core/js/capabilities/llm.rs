@@ -3,6 +3,7 @@ use rquickjs::{AsyncContext, Class, Result};
 use rquickjs::class::Trace; 
 use crate::core::config::agent::AgentConfig;
 use crate::core::config::backend::resolve_backend;
+use crate::shared::logging::RunLogger;
 
 
 #[rquickjs::class]
@@ -11,6 +12,7 @@ pub struct Llm {
     base_url: String,
     model: Option<String>,
     session_id: Option<String>,
+    logger: Option<RunLogger>,
 }
 
 impl<'js> Trace<'js> for Llm {
@@ -22,7 +24,7 @@ impl<'js> Trace<'js> for Llm {
 
 
 impl Llm {
-    pub fn new(config: &AgentConfig) -> Self {
+    pub fn new(config: &AgentConfig, logger: Option<RunLogger>) -> Self {
         let resolved = resolve_backend(config)
             .map_err(|e| rquickjs::Error::new_loading_message("Backend Config Error", e.to_string()))
             .unwrap_or_else(|_| crate::core::config::backend::ResolvedBackend {
@@ -37,6 +39,7 @@ impl Llm {
             base_url: resolved.base_url,
             model: resolved.model,
             session_id: resolved.session.and_then(|s| s.id),
+            logger,
         }
     }
 }
@@ -46,8 +49,16 @@ impl Llm {
     pub async fn chat(&self, input: rquickjs::Value<'_>) -> Result<String> {
         let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
 
+        let mut logged = false;
         let mut body = match js_value_to_json(input)? {
             serde_json::Value::String(prompt) => {
+                if let Some(logger) = &self.logger {
+                    logger.log_line(format!(
+                        "host.llm.chat input=string prompt_len={}",
+                        prompt.len()
+                    ));
+                    logged = true;
+                }
                 let mut messages = Vec::new();
                 messages.push(serde_json::json!({
                     "role": "user",
@@ -74,6 +85,19 @@ impl Llm {
                 ));
             }
         };
+        if !logged {
+            if let Some(logger) = &self.logger {
+                let msg_len = body
+                    .get("messages")
+                    .and_then(|v| v.as_array())
+                    .map(|a| a.len());
+                let model = body.get("model").and_then(|v| v.as_str()).unwrap_or("");
+                logger.log_line(format!(
+                    "host.llm.chat input=object messages={:?} model={}",
+                    msg_len, model
+                ));
+            }
+        }
 
         if !body.contains_key("messages") {
             if let Some(prompt_val) = body.remove("prompt") {
@@ -133,8 +157,11 @@ impl Llm {
         }
 
         let body_text = read_response_limited(res).await?;
-
-        Ok(extract_llm_content(&body_text))
+        let content = extract_llm_content(&body_text);
+        if let Some(logger) = &self.logger {
+            logger.log_line(format!("host.llm.chat response_len={}", content.len()));
+        }
+        Ok(content)
     }
 
     pub async fn chat_stream(&self, input: rquickjs::Value<'_>) -> Result<String> {
@@ -150,8 +177,16 @@ impl Llm {
             }
         }
 
+        let mut logged = false;
         let mut body = match js_value_to_json(input)? {
             serde_json::Value::String(prompt) => {
+                if let Some(logger) = &self.logger {
+                    logger.log_line(format!(
+                        "host.llm.chat_stream input=string prompt_len={}",
+                        prompt.len()
+                    ));
+                    logged = true;
+                }
                 let messages = vec![serde_json::json!({
                     "role": "user",
                     "content": prompt
@@ -181,6 +216,19 @@ impl Llm {
                 ));
             }
         };
+        if !logged {
+            if let Some(logger) = &self.logger {
+                let msg_len = body
+                    .get("messages")
+                    .and_then(|v| v.as_array())
+                    .map(|a| a.len());
+                let model = body.get("model").and_then(|v| v.as_str()).unwrap_or("");
+                logger.log_line(format!(
+                    "host.llm.chat_stream input=object messages={:?} model={}",
+                    msg_len, model
+                ));
+            }
+        }
 
         if !body.contains_key("messages") {
             if let Some(prompt_val) = body.remove("prompt") {
@@ -274,6 +322,12 @@ impl Llm {
             }
         }
 
+        if let Some(logger) = &self.logger {
+            logger.log_line(format!(
+                "host.llm.chat_stream response_len={}",
+                content.len()
+            ));
+        }
         Ok(content)
     }
 }
@@ -318,8 +372,8 @@ fn js_value_to_json<'js>(value: rquickjs::Value<'js>) -> rquickjs::Result<serde_
     }
 }
 
-pub async fn install(ctx: &AsyncContext, config: &AgentConfig) -> Result<()> {
-    let llm = Llm::new(config);
+pub async fn install(ctx: &AsyncContext, config: &AgentConfig, logger: Option<RunLogger>) -> Result<()> {
+    let llm = Llm::new(config, logger);
     
     ctx.async_with(|ctx| Box::pin(async move {
         let llm_cls = Class::instance(ctx.clone(), llm)?;

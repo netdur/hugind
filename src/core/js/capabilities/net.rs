@@ -4,11 +4,13 @@ use rquickjs::{AsyncContext, Class, Result};
 
 use crate::core::config::agent::{AgentConfig, NetPermissions};
 use crate::core::runtime::util::{is_private_ip, parse_duration_string, parse_memory_string};
+use crate::shared::logging::RunLogger;
 
 #[rquickjs::class]
 pub struct Net {
     client: reqwest::Client,
     permission: NetPermissions,
+    logger: Option<RunLogger>,
 }
 
 impl<'js> rquickjs::class::Trace<'js> for Net {
@@ -18,6 +20,9 @@ impl<'js> rquickjs::class::Trace<'js> for Net {
 #[rquickjs::methods]
 impl Net {
     pub async fn fetch(&self, url: String) -> Result<String> {
+        if let Some(logger) = &self.logger {
+            logger.log_line(format!("host.net.fetch url={}", url));
+        }
         if !self.permission.allow {
             return Err(rquickjs::Error::new_loading_message(
                 "Network Error",
@@ -166,7 +171,7 @@ impl Net {
     }
 }
 
-pub async fn install(ctx: &AsyncContext, config: &AgentConfig) -> Result<()> {
+pub async fn install(ctx: &AsyncContext, config: &AgentConfig, logger: Option<RunLogger>) -> Result<()> {
     let perm = if let Some(p) = &config.permissions {
         p.network.clone().unwrap_or_default()
     } else {
@@ -182,6 +187,7 @@ pub async fn install(ctx: &AsyncContext, config: &AgentConfig) -> Result<()> {
     let net = Net {
         client,
         permission: perm,
+        logger,
     };
 
     ctx.async_with(|ctx| Box::pin(async move {

@@ -9,10 +9,15 @@ pub struct JsRuntime {
     _runtime: AsyncRuntime,
     context: AsyncContext,
     agent_root: PathBuf,
+    logger: Option<crate::shared::logging::RunLogger>,
 }
 
 impl JsRuntime {
-    pub async fn new(agent_root: PathBuf, config: &crate::core::config::agent::AgentConfig) -> rquickjs::Result<Self> {
+    pub async fn new(
+        agent_root: PathBuf,
+        config: &crate::core::config::agent::AgentConfig,
+        logger: Option<crate::shared::logging::RunLogger>,
+    ) -> rquickjs::Result<Self> {
         let runtime = AsyncRuntime::new()?;
         let context = AsyncContext::full(&runtime).await?;
 
@@ -23,9 +28,14 @@ impl JsRuntime {
             rquickjs::loader::ScriptLoader::default(),
         ).await;
 
-        install_globals(&context, config, &agent_root).await?;
+        install_globals(&context, config, &agent_root, logger.clone()).await?;
 
-        Ok(Self { _runtime: runtime, context, agent_root })
+        Ok(Self {
+            _runtime: runtime,
+            context,
+            agent_root,
+            logger,
+        })
     }
 
     pub async fn run_module(&self, entry: &Path, args_val: serde_json::Value) -> rquickjs::Result<serde_json::Value> {
@@ -107,15 +117,25 @@ impl JsRuntime {
 
             if let Err(e) = res {
                 if let rquickjs::Error::Exception = e {
-                     let catch = ctx.catch();
-                     if let Some(exception) = catch.as_exception() {
-                          eprintln!("JS Exception: {:?}", exception);
-                          if let Some(stack) = exception.stack() {
-                              eprintln!("Stack: {}", stack);
-                          }
-                     }
+                    let catch = ctx.catch();
+                    if let Some(exception) = catch.as_exception() {
+                        eprintln!("JS Exception: {:?}", exception);
+                        if let Some(stack) = exception.stack() {
+                            eprintln!("Stack: {}", stack);
+                        }
+                        if let Some(logger) = &self.logger {
+                            let mut msg = format!("js.exception {:?}", exception);
+                            if let Some(stack) = exception.stack() {
+                                msg.push_str(&format!(" stack={}", stack));
+                            }
+                            logger.log_line(msg);
+                        }
+                    }
                 } else {
                     eprintln!("Execution Error: {}", e);
+                    if let Some(logger) = &self.logger {
+                        logger.log_line(format!("js.execution_error {}", e));
+                    }
                 }
                 *output.lock().unwrap() = Some(Err(e));
             }

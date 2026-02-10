@@ -3,8 +3,16 @@ use tokio::process::Command;
 
 use crate::core::config::agent::{AgentConfig, ShellPermission};
 use crate::core::runtime::util::{parse_duration_string, parse_memory_string};
+use crate::shared::logging::RunLogger;
 
-async fn run_command_inner(cmd_str: String, perm: ShellPermission) -> Result<String> {
+async fn run_command_inner(
+    cmd_str: String,
+    perm: ShellPermission,
+    logger: Option<RunLogger>,
+) -> Result<String> {
+    if let Some(l) = &logger {
+        l.log_line(format!("host.shell.run_command cmd={}", cmd_str));
+    }
     if !perm.allow {
         return Err(rquickjs::Error::new_loading_message(
             "Shell Error",
@@ -110,7 +118,7 @@ async fn run_command_inner(cmd_str: String, perm: ShellPermission) -> Result<Str
     Ok(result_str)
 }
 
-pub async fn install(ctx: &AsyncContext, config: &AgentConfig) -> Result<()> {
+pub async fn install(ctx: &AsyncContext, config: &AgentConfig, logger: Option<RunLogger>) -> Result<()> {
     let perm = if let Some(p) = &config.permissions {
         p.shell.clone().unwrap_or_default()
     } else {
@@ -120,15 +128,19 @@ pub async fn install(ctx: &AsyncContext, config: &AgentConfig) -> Result<()> {
     ctx.async_with(|ctx| {
         let perm_for_snake = perm.clone();
         let perm_for_camel = perm.clone();
+        let logger_snake = logger.clone();
+        let logger_camel = logger.clone();
         Box::pin(async move {
             let run_command_fn = Function::new(ctx.clone(), Async(move |cmd: String| {
                 let perm = perm_for_snake.clone();
-                async move { run_command_inner(cmd, perm).await }
+                let logger = logger_snake.clone();
+                async move { run_command_inner(cmd, perm, logger).await }
             }))?;
 
             let run_command_fn_camel = Function::new(ctx.clone(), Async(move |cmd: String| {
                 let perm = perm_for_camel.clone();
-                async move { run_command_inner(cmd, perm).await }
+                let logger = logger_camel.clone();
+                async move { run_command_inner(cmd, perm, logger).await }
             }))?;
 
             ctx.globals().set("run_command", run_command_fn)?;

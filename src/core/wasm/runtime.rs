@@ -13,6 +13,7 @@ use crate::core::config::agent::{AgentConfig, NetPermissions, ShellPermission, R
 use crate::core::fs::FsAccess;
 use crate::core::config::backend::resolve_backend;
 use crate::core::runtime::util::{is_private_ip, parse_duration_string, parse_memory_string};
+use crate::shared::logging::RunLogger;
 
 struct HostState {
     args_json: String,
@@ -31,6 +32,7 @@ struct HostState {
     table: ResourceTable,
     adapter: WasiPreview1Adapter,
     limits: wasmtime::StoreLimits,
+    logger: Option<RunLogger>,
 }
 
 impl WasiView for HostState {
@@ -55,10 +57,15 @@ pub struct WasmRuntime {
     engine: Engine,
     agent_root: PathBuf,
     config: AgentConfig,
+    logger: Option<RunLogger>,
 }
 
 impl WasmRuntime {
-    pub fn new(agent_root: PathBuf, config: &AgentConfig) -> Result<Self> {
+    pub fn new(
+        agent_root: PathBuf,
+        config: &AgentConfig,
+        logger: Option<RunLogger>,
+    ) -> Result<Self> {
         let mut wasm_config = Config::new();
         wasm_config.async_support(true);
 
@@ -83,6 +90,7 @@ impl WasmRuntime {
             engine,
             agent_root,
             config: config.clone(),
+            logger,
         })
     }
 
@@ -220,6 +228,7 @@ impl WasmRuntime {
                 table,
                 adapter,
                 limits,
+                logger: self.logger.clone(),
             },
         );
 
@@ -289,13 +298,15 @@ impl WasmRuntime {
     }
 
     fn link_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
-        linker.func_wrap("env", "abort", |mut _caller: Caller<'_, HostState>, _msg: i32, _file: i32, line: i32, col: i32| -> Result<()> {
+        linker.func_wrap("env", "abort", |mut caller: Caller<'_, HostState>, _msg: i32, _file: i32, line: i32, col: i32| -> Result<()> {
+            log_host(&caller, format!("host.sys.abort line={} col={}", line, col));
             eprintln!("Guest Error: abort() called at line {}:{}", line, col);
             Err(anyhow::anyhow!("Guest execution aborted"))
         })?;
 
         linker.func_wrap("hugind", "print", |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| {
             let msg = read_string(&mut caller, ptr, len)?;
+            log_host(&caller, format!("host.sys.print len={}", msg.len()));
             println!("{msg}");
             Ok(())
         })?;
@@ -303,6 +314,7 @@ impl WasmRuntime {
         linker.func_wrap("hugind", "print_raw", |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| {
             use std::io::Write;
             let msg = read_string(&mut caller, ptr, len)?;
+            log_host(&caller, format!("host.sys.print_raw len={}", msg.len()));
             let mut out = std::io::stdout();
             let _ = out.write_all(msg.as_bytes());
             let _ = out.flush();
@@ -314,6 +326,7 @@ impl WasmRuntime {
             "input",
             |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| Box::new(async move {
                 let prompt = read_string(&mut caller, ptr, len)?;
+                log_host(&caller, format!("host.sys.input prompt_len={}", prompt.len()));
                 let mut stdout = io::stdout();
                 let _ = stdout.write_all(prompt.as_bytes()).await;
                 let _ = stdout.flush().await;
@@ -333,6 +346,7 @@ impl WasmRuntime {
             "run_command",
             |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| Box::new(async move {
                 let cmd_str = read_string(&mut caller, ptr, len)?;
+                log_host(&caller, format!("host.shell.run_command cmd={}", cmd_str));
                 
                 
                 let perm = caller.data().shell_permission.clone().unwrap_or_default();
@@ -432,6 +446,7 @@ impl WasmRuntime {
             "net_fetch",
             |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| Box::new(async move {
                 let url = read_string(&mut caller, ptr, len)?;
+                log_host(&caller, format!("host.net.fetch url={}", url));
                 let permission = caller.data().net_permission.clone();
                 let client = caller.data().net_client.clone();
                 if !permission.allow {
@@ -563,6 +578,7 @@ impl WasmRuntime {
             "llm_chat",
             |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| Box::new(async move {
                 let prompt = read_string(&mut caller, ptr, len)?;
+                log_host(&caller, format!("host.llm.chat prompt_len={}", prompt.len()));
                 let base_url = caller.data().llm_base_url.clone();
                 let model = caller.data().llm_model.clone();
                 let client = caller.data().llm_client.clone();
@@ -618,6 +634,7 @@ impl WasmRuntime {
                 let body_text = String::from_utf8_lossy(&content).to_string();
 
                 let content = extract_llm_content(&body_text);
+                log_host(&caller, format!("host.llm.chat response_len={}", content.len()));
                 let (out_ptr, out_len) = write_bytes_async(&mut caller, content.as_bytes()).await?;
                 Ok(pack_ptr_len(out_ptr, out_len))
             }),
@@ -628,6 +645,7 @@ impl WasmRuntime {
             "llm_chat_stream",
             |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| Box::new(async move {
                 let prompt = read_string(&mut caller, ptr, len)?;
+                log_host(&caller, format!("host.llm.chat_stream prompt_len={}", prompt.len()));
                 let base_url = caller.data().llm_base_url.clone();
                 let model = caller.data().llm_model.clone();
                 let client = caller.data().llm_client.clone();
@@ -713,6 +731,10 @@ impl WasmRuntime {
                     }
                 }
 
+                log_host(
+                    &caller,
+                    format!("host.llm.chat_stream response_len={}", content.len()),
+                );
                 let (out_ptr, out_len) = write_bytes_async(&mut caller, content.as_bytes()).await?;
                 Ok(pack_ptr_len(out_ptr, out_len))
             }),
@@ -723,6 +745,7 @@ impl WasmRuntime {
             "get_args",
             |mut caller: Caller<'_, HostState>| Box::new(async move {
                 let args_json = caller.data().args_json.clone();
+                log_host(&caller, "host.sys.get_args");
                 let (out_ptr, out_len) = write_bytes_async(&mut caller, args_json.as_bytes()).await?;
                 Ok(pack_ptr_len(out_ptr, out_len))
             }),
@@ -733,6 +756,7 @@ impl WasmRuntime {
             "version",
             |mut caller: Caller<'_, HostState>| Box::new(async move {
                 let version = caller.data().hugind_version.clone();
+                log_host(&caller, "host.sys.version");
                 let (out_ptr, out_len) = write_bytes_async(&mut caller, version.as_bytes()).await?;
                 Ok(pack_ptr_len(out_ptr, out_len))
             }),
@@ -743,6 +767,7 @@ impl WasmRuntime {
             "set_result",
             |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| {
                 let json_str = read_string(&mut caller, ptr, len)?;
+                log_host(&caller, format!("host.sys.set_result bytes={}", json_str.len()));
                 let parsed = serde_json::from_str::<serde_json::Value>(&json_str)
                     .map_err(|e| anyhow!("Invalid JSON result: {}", e))?;
                 caller.data_mut().result_json = Some(parsed);
@@ -764,6 +789,7 @@ impl WasmRuntime {
                 ensure_host_fs_enabled(&caller)?;
                 let cwd = caller.data().fs_access.cwd();
                 let cwd_str = cwd.to_string_lossy();
+                log_host(&caller, "host.fs.cwd");
                 let (out_ptr, out_len) = write_bytes_async(&mut caller, cwd_str.as_bytes()).await?;
                 Ok(pack_ptr_len(out_ptr, out_len))
             }),
@@ -775,6 +801,7 @@ impl WasmRuntime {
             |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| -> Result<i32> {
                 ensure_host_fs_enabled(&caller)?;
                 let path = read_string(&mut caller, ptr, len)?;
+                log_host(&caller, format!("host.fs.exists path={}", path));
                 Ok(if caller.data().fs_access.exists(&path)? { 1 } else { 0 })
             },
         )?;
@@ -785,6 +812,7 @@ impl WasmRuntime {
             |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| -> Result<i32> {
                 ensure_host_fs_enabled(&caller)?;
                 let path = read_string(&mut caller, ptr, len)?;
+                log_host(&caller, format!("host.fs.is_file path={}", path));
                 Ok(if caller.data().fs_access.is_file(&path)? { 1 } else { 0 })
             },
         )?;
@@ -795,6 +823,7 @@ impl WasmRuntime {
             |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| -> Result<i32> {
                 ensure_host_fs_enabled(&caller)?;
                 let path = read_string(&mut caller, ptr, len)?;
+                log_host(&caller, format!("host.fs.is_dir path={}", path));
                 Ok(if caller.data().fs_access.is_dir(&path)? { 1 } else { 0 })
             },
         )?;
@@ -805,6 +834,7 @@ impl WasmRuntime {
             |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| Box::new(async move {
                 ensure_host_fs_enabled(&caller)?;
                 let path = read_string(&mut caller, ptr, len)?;
+                log_host(&caller, format!("host.fs.realpath path={}", path));
                 let real = caller.data().fs_access.realpath(&path)?;
                 let real_str = real.to_string_lossy();
                 let (out_ptr, out_len) = write_bytes_async(&mut caller, real_str.as_bytes()).await?;
@@ -818,6 +848,7 @@ impl WasmRuntime {
             |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| Box::new(async move {
                 ensure_host_fs_enabled(&caller)?;
                 let path = read_string(&mut caller, ptr, len)?;
+                log_host(&caller, format!("host.fs.read_text path={}", path));
                 let content = caller.data().fs_access.read_text(&path)?;
                 let (out_ptr, out_len) = write_bytes_async(&mut caller, content.as_bytes()).await?;
                 Ok(pack_ptr_len(out_ptr, out_len))
@@ -830,6 +861,7 @@ impl WasmRuntime {
             |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| Box::new(async move {
                 ensure_host_fs_enabled(&caller)?;
                 let path = read_string(&mut caller, ptr, len)?;
+                log_host(&caller, format!("host.fs.read_bytes path={}", path));
                 let content = caller.data().fs_access.read_bytes(&path)?;
                 let (out_ptr, out_len) = write_bytes_async(&mut caller, &content).await?;
                 Ok(pack_ptr_len(out_ptr, out_len))
@@ -843,6 +875,7 @@ impl WasmRuntime {
                 ensure_host_fs_enabled(&caller)?;
                 let path = read_string(&mut caller, path_ptr, path_len)?;
                 let data = read_string(&mut caller, data_ptr, data_len)?;
+                log_host(&caller, format!("host.fs.write_text path={} bytes={}", path, data.len()));
                 caller.data().fs_access.write_text(&path, &data, false)?;
                 Ok(0)
             },
@@ -855,6 +888,7 @@ impl WasmRuntime {
                 ensure_host_fs_enabled(&caller)?;
                 let path = read_string(&mut caller, path_ptr, path_len)?;
                 let data = read_bytes(&mut caller, data_ptr as u32, data_len as u32)?.to_vec();
+                log_host(&caller, format!("host.fs.write_bytes path={} bytes={}", path, data.len()));
                 caller.data().fs_access.write_bytes(&path, &data, false)?;
                 Ok(0)
             },
@@ -867,6 +901,7 @@ impl WasmRuntime {
                 ensure_host_fs_enabled(&caller)?;
                 let path = read_string(&mut caller, path_ptr, path_len)?;
                 let data = read_string(&mut caller, data_ptr, data_len)?;
+                log_host(&caller, format!("host.fs.append_text path={} bytes={}", path, data.len()));
                 caller.data().fs_access.write_text(&path, &data, true)?;
                 Ok(0)
             },
@@ -878,6 +913,7 @@ impl WasmRuntime {
             |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| Box::new(async move {
                 ensure_host_fs_enabled(&caller)?;
                 let path = read_string(&mut caller, ptr, len)?;
+                log_host(&caller, format!("host.fs.list_dir path={}", path));
                 let entries = caller.data().fs_access.list_dir(&path)?;
                 let json = serde_json::to_string(&entries)
                     .map_err(|e| anyhow!("failed to serialize dir entries: {}", e))?;
@@ -892,6 +928,11 @@ impl WasmRuntime {
             |mut caller: Caller<'_, HostState>, ptr: i32, len: i32, recursive: i32| -> Result<i32> {
                 ensure_host_fs_enabled(&caller)?;
                 let path = read_string(&mut caller, ptr, len)?;
+                log_host(&caller, format!(
+                    "host.fs.mkdir path={} recursive={}",
+                    path,
+                    recursive != 0
+                ));
                 caller.data().fs_access.mkdir(&path, recursive != 0)?;
                 Ok(0)
             },
@@ -903,6 +944,11 @@ impl WasmRuntime {
             |mut caller: Caller<'_, HostState>, ptr: i32, len: i32, recursive: i32| -> Result<i32> {
                 ensure_host_fs_enabled(&caller)?;
                 let path = read_string(&mut caller, ptr, len)?;
+                log_host(&caller, format!(
+                    "host.fs.remove path={} recursive={}",
+                    path,
+                    recursive != 0
+                ));
                 caller.data().fs_access.remove(&path, recursive != 0)?;
                 Ok(0)
             },
@@ -915,6 +961,7 @@ impl WasmRuntime {
                 ensure_host_fs_enabled(&caller)?;
                 let src = read_string(&mut caller, src_ptr, src_len)?;
                 let dst = read_string(&mut caller, dst_ptr, dst_len)?;
+                log_host(&caller, format!("host.fs.rename src={} dst={}", src, dst));
                 caller.data().fs_access.rename(&src, &dst)?;
                 Ok(0)
             },
@@ -927,6 +974,7 @@ impl WasmRuntime {
                 ensure_host_fs_enabled(&caller)?;
                 let src = read_string(&mut caller, src_ptr, src_len)?;
                 let dst = read_string(&mut caller, dst_ptr, dst_len)?;
+                log_host(&caller, format!("host.fs.copy src={} dst={}", src, dst));
                 caller.data().fs_access.copy(&src, &dst)?;
                 Ok(0)
             },
@@ -938,6 +986,7 @@ impl WasmRuntime {
             |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| Box::new(async move {
                 ensure_host_fs_enabled(&caller)?;
                 let path = read_string(&mut caller, ptr, len)?;
+                log_host(&caller, format!("host.fs.stat path={}", path));
                 let stat = caller.data().fs_access.stat(&path)?;
                 let json = serde_json::to_string(&stat)
                     .map_err(|e| anyhow!("failed to serialize stat: {}", e))?;
@@ -1022,6 +1071,12 @@ fn ensure_host_fs_enabled(caller: &Caller<'_, HostState>) -> Result<()> {
     match caller.data().fs_mode {
         RuntimeFsMode::WasiMounts => bail!("host filesystem access is disabled (runtime_fs_mode = wasi_mounts)"),
         RuntimeFsMode::HostFilesystem | RuntimeFsMode::Both => Ok(()),
+    }
+}
+
+fn log_host(caller: &Caller<'_, HostState>, msg: impl AsRef<str>) {
+    if let Some(logger) = &caller.data().logger {
+        logger.log_line(msg.as_ref());
     }
 }
 

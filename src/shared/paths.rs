@@ -54,3 +54,7 @@ pub fn agents_dir() -> PathBuf {
 pub fn sessions_dir() -> PathBuf {
     data_home().join("sessions")
 }
+
+pub fn logs_dir() -> PathBuf {
+    data_home().join("logs")
+}

@@ -5,8 +5,9 @@ use std::sync::Arc;
 
 use crate::core::config::agent::AgentConfig;
 use crate::core::mcp::McpManager;
+use crate::shared::logging::RunLogger;
 
-pub async fn install(ctx: &AsyncContext, config: &AgentConfig) -> Result<()> {
+pub async fn install(ctx: &AsyncContext, config: &AgentConfig, logger: Option<RunLogger>) -> Result<()> {
     let manager = match McpManager::new(config).await {
         Ok(m) => m.map(Arc::new),
         Err(e) => {
@@ -21,9 +22,14 @@ pub async fn install(ctx: &AsyncContext, config: &AgentConfig) -> Result<()> {
         let tools_obj = Object::new(ctx.clone())?;
 
         let list_manager = manager.clone();
+        let list_logger = logger.clone();
         let list_fn = Function::new(ctx.clone(), Async(move || {
             let list_manager = list_manager.clone();
+            let list_logger = list_logger.clone();
             async move {
+                if let Some(l) = &list_logger {
+                    l.log_line("host.tools.list");
+                }
                 let tools = match &list_manager {
                     Some(m) => m.list_tools().await.map_err(map_mcp_err)?,
                     None => Vec::new(),
@@ -35,11 +41,22 @@ pub async fn install(ctx: &AsyncContext, config: &AgentConfig) -> Result<()> {
         tools_obj.set("list", list_fn)?;
 
         let call_manager = manager.clone();
+        let call_logger = logger.clone();
         let call_fn = Function::new(ctx.clone(), Async(move |name: String, args: Value| {
             let call_manager = call_manager.clone();
+            let call_logger = call_logger.clone();
             let args_json = js_value_to_json(args)
                 .map_err(|e| rquickjs::Error::new_loading_message("MCP Error", e.to_string()));
             async move {
+                if let Some(l) = &call_logger {
+                    let args_len = args_json
+                        .as_ref()
+                        .ok()
+                        .and_then(|v| serde_json::to_string(v).ok())
+                        .map(|s| s.len())
+                        .unwrap_or(0);
+                    l.log_line(format!("host.tools.call name={} args_len={}", name, args_len));
+                }
                 let manager = call_manager.as_ref().ok_or_else(|| {
                     rquickjs::Error::new_loading_message("MCP Error", "No MCP tools configured")
                 })?;
