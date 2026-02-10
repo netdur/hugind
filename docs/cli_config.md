@@ -43,7 +43,7 @@ Interactive config generator. It:
    - Otherwise it scans local model repositories and prompts for a `.gguf`.
    - If no repositories exist, it prompts for an absolute `.gguf` path.
 4. Auto-detects a vision projector file (e.g. `mmproj`) in the same folder.
-5. Prompts for chat format and context size.
+5. Prompts for context size.
 6. Writes the config to the configs directory as `<name>.yml`.
 
 If a config already exists, it prompts before overwriting.

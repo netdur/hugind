@@ -1432,6 +1432,7 @@ dependencies = [
  "futures-util",
  "indicatif",
  "inquire",
+ "libc",
  "llama-cpp",
  "parking_lot",
  "reqwest",

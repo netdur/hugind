@@ -34,6 +34,8 @@ pub enum Commands {
         #[command(subcommand)]
         command: ServerCommand,
     },
+
+    Stdio,
 }
 
 #[derive(Subcommand, Debug)]

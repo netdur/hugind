@@ -173,7 +173,10 @@ async function ask_llm(goal, history, screenContext, hints) {
     "",
     "Generic UI rules (NOT app-specific):",
     "- Distinguish intents:",
-    "  * CREATE intent: first enter creation mode via Create/New/Add/Compose button, then type into editor input(s).",    
+    "  * SEARCH intent: use a search UI, type query into a search input, then ENTER.",
+    "  * CREATE intent: first enter creation mode via Create/New/Add/Compose button, then type into editor input(s).",
+    "- Not every visible input is an editor; many apps show a search bar on the home screen.",
+    "- Only use mobile_type_keys when an input is visible AND it matches the current intent (search vs editor).",
     "- Avoid tapping the same element index repeatedly if it didn't change the screen.",
     "",
     "If required args are missing, set tool to null and explain in thought.",
@@ -329,6 +332,17 @@ function findElementIndexByLabel(substring) {
   return -1;
 }
 
+function findElementIndexById(substring) {
+  // FIXED: search resource-id, not desc
+  if (!substring) return -1;
+  const needle = normalize(substring);
+  for (let i = 0; i < UI_CACHE.length; i++) {
+    const rid = normalize(UI_CACHE[i] && UI_CACHE[i].resId);
+    if (rid.includes(needle)) return i;
+  }
+  return -1;
+}
+
 async function getPackageCandidates(goal) {
   const keywords = extractGoalKeywords(goal);
   if (keywords.length === 0) return [];
@@ -364,7 +378,9 @@ async function runStep(goal, history) {
   // so we don't type into a home-screen search bar.
   if (createText && !historyHasTyped(history, createText)) {
     const createIdx = findCreateAffordanceIndex();
-    const likelySearchBar = false;
+    // If we are not already in a likely editor screen, try entering create mode.
+    // Heuristic: if the screen looks searchy and has an input, that input is likely search, not editor.
+    const likelySearchBar = (inputIdx !== -1 && searchy);
 
     if (createIdx !== -1 && !historyJustTapped(history, createIdx) && likelySearchBar) {
       const target = UI_CACHE[createIdx];

@@ -3,14 +3,11 @@ use rquickjs::{function::Async, AsyncContext, Function, Result};
 use crate::shared::logging::RunLogger;
 
 fn print(msg: String) {
-    println!("{msg}");
+    crate::shared::stdio::print(&msg);
 }
 
 fn print_raw(msg: String) {
-    use std::io::{self, Write};
-    let mut out = io::stdout();
-    let _ = out.write_all(msg.as_bytes());
-    let _ = out.flush();
+    crate::shared::stdio::print_raw(&msg);
 }
 
 fn version() -> String {

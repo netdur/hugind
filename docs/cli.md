@@ -2,7 +2,7 @@
 
 ## NAME
 
-`hugind` - command-line interface for agents, configs, models, chats, and the server.
+`hugind` - command-line interface for agents, configs, models, chats, the server, and the stdio bridge.
 
 ## SYNOPSIS
 
@@ -23,6 +23,7 @@ Top-level subcommands:
 - `hugind model ...`
 - `hugind chat ...`
 - `hugind server ...`
+- `hugind stdio`
 
 ### `hugind agent`
 
@@ -43,6 +44,10 @@ See `docs/cli_chat.md`.
 ### `hugind server`
 
 See `docs/cli_server.md`.
+
+### `hugind stdio`
+
+See `docs/stdio_bridge.md`.
 
 ## HELP
 

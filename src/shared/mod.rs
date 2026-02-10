@@ -3,3 +3,4 @@ pub mod configs;
 pub mod logging;
 pub mod types;
 pub mod bootstrap;
+pub mod stdio;

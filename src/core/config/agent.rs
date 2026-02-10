@@ -1,8 +1,8 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use anyhow::{Context, Result};
 
-#[derive(Debug, Deserialize, Default, Clone)]
+#[derive(Debug, Deserialize, Serialize, Default, Clone)]
 pub struct NetPermissions {
     #[serde(default)]
     pub allow: bool,
@@ -16,7 +16,7 @@ pub struct NetPermissions {
     pub timeout: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Default, Clone)]
+#[derive(Debug, Deserialize, Serialize, Default, Clone)]
 pub struct FileSystemPermission {
     #[serde(default)]
     pub allow: bool,
@@ -42,7 +42,7 @@ fn default_true() -> bool {
     true
 }
 
-#[derive(Debug, Deserialize, Default, Clone)]
+#[derive(Debug, Deserialize, Serialize, Default, Clone)]
 pub struct ShellPermission {
     #[serde(default)]
     pub allow: bool,
@@ -55,7 +55,7 @@ pub struct ShellPermission {
     pub working_dir: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Default, Clone)]
+#[derive(Debug, Deserialize, Serialize, Default, Clone)]
 pub struct Permissions {
     #[serde(default)]
     pub network: Option<NetPermissions>,
@@ -65,7 +65,7 @@ pub struct Permissions {
     pub shell: Option<ShellPermission>,
 }
 
-#[derive(Debug, Deserialize, Clone, Copy, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionMode {
     Stateless,
@@ -79,19 +79,19 @@ impl Default for SessionMode {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Serialize, Clone)]
 pub struct RuntimeSession {
     pub mode: SessionMode,
     pub id: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Mount {
     pub host: String,
     pub guest: String,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct WasmResources {
     pub memory: Option<String>,
     pub cpu: Option<String>,
@@ -99,7 +99,7 @@ pub struct WasmResources {
     pub max_output: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeFsMode {
     WasiMounts,
@@ -113,7 +113,7 @@ impl Default for RuntimeFsMode {
     }
 }
 
-#[derive(Debug, Deserialize, Default, Clone)]
+#[derive(Debug, Deserialize, Serialize, Default, Clone)]
 pub struct WasmConfig {
     #[serde(default)]
     pub runtime_fs_mode: RuntimeFsMode,
@@ -121,7 +121,7 @@ pub struct WasmConfig {
     pub resources: Option<WasmResources>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AgentConfig {
     pub name: String,
     pub version: String,

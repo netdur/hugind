@@ -298,7 +298,7 @@ impl WasmRuntime {
     }
 
     fn link_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
-        linker.func_wrap("env", "abort", |mut caller: Caller<'_, HostState>, _msg: i32, _file: i32, line: i32, col: i32| -> Result<()> {
+        linker.func_wrap("env", "abort", |caller: Caller<'_, HostState>, _msg: i32, _file: i32, line: i32, col: i32| -> Result<()> {
             log_host(&caller, format!("host.sys.abort line={} col={}", line, col));
             eprintln!("Guest Error: abort() called at line {}:{}", line, col);
             Err(anyhow::anyhow!("Guest execution aborted"))
@@ -306,16 +306,13 @@ impl WasmRuntime {
 
         linker.func_wrap("hugind", "print", |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| {
             let msg = read_string(&mut caller, ptr, len)?;
-            println!("{msg}");
+            crate::shared::stdio::print(&msg);
             Ok(())
         })?;
 
         linker.func_wrap("hugind", "print_raw", |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| {
-            use std::io::Write;
             let msg = read_string(&mut caller, ptr, len)?;
-            let mut out = std::io::stdout();
-            let _ = out.write_all(msg.as_bytes());
-            let _ = out.flush();
+            crate::shared::stdio::print_raw(&msg);
             Ok(())
         })?;
 

@@ -252,14 +252,6 @@ fn detect_sibling(main_path: &str, keywords: &[&str]) -> Option<String> {
     None
 }
 
-fn detect_chat_format(path: &str) -> &'static str {
-    let lower = path.to_lowercase();
-    if lower.contains("gemma") { return "gemma"; }
-    if lower.contains("llama-3") { return "alpaca"; }
-    if lower.contains("qwen") || lower.contains("yi") { return "chatml"; }
-    "none"
-}
-
 fn shorten_path(path: &str) -> String {
     if let Some(home) = dirs::home_dir() {
         let home_str = home.to_string_lossy();

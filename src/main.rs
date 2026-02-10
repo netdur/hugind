@@ -97,5 +97,11 @@ async fn main() {
                 std::process::exit(1);
             }
         }
+        Commands::Stdio => {
+            if let Err(e) = hugind::stdio::run().await {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
     }
 }

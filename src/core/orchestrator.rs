@@ -8,6 +8,10 @@ use semver::{Version, VersionReq};
 use std::path::Path;
 
 pub async fn execute(path: String, args_vec: Vec<String>) -> anyhow::Result<()> {
+    execute_with_result(path, args_vec).await.map(|_| ())
+}
+
+pub async fn execute_with_result(path: String, args_vec: Vec<String>) -> anyhow::Result<serde_json::Value> {
     let target_path = PathBuf::from(&path).canonicalize().map_err(|e| {
         anyhow::anyhow!("Error resolving path {}: {}", path, e)
     })?;
@@ -89,14 +93,14 @@ pub async fn execute(path: String, args_vec: Vec<String>) -> anyhow::Result<()> 
         }
     }
 
-    run_result?;
+    let output = run_result?;
 
     cleanup_fresh_session(&backend, &config).await;
 
-    Ok(())
+    Ok(output)
 }
 
-async fn run_workflow(workflow: crate::core::config::workflow::WorkflowConfig, root: PathBuf, initial_args: Vec<String>) -> anyhow::Result<()> {
+async fn run_workflow(workflow: crate::core::config::workflow::WorkflowConfig, root: PathBuf, initial_args: Vec<String>) -> anyhow::Result<serde_json::Value> {
     println!("Starting workflow: {}", workflow.name);
     
     let mut last_output = serde_json::json!({
@@ -157,7 +161,7 @@ async fn run_workflow(workflow: crate::core::config::workflow::WorkflowConfig, r
     }
 
     println!("Workflow completed.");
-    Ok(())
+    Ok(last_output)
 }
 
 async fn cleanup_fresh_session(backend: &ResolvedBackend, config: &crate::core::config::agent::AgentConfig) {

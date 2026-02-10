@@ -60,6 +60,11 @@ Notes:
 
 Requests that the server save a KV cache state for a session.
 
+Notes:
+- `session_id` must match an active session id.
+- `template_id` is used only as the output filename: `~/.hugind/sessions/<template_id>.bin`.
+- This does not change the session id.
+
 ### `POST /v1/state/idle`
 
 Requests that the server idle (evict) a session.
@@ -67,6 +72,10 @@ Requests that the server idle (evict) a session.
 ### `DELETE /v1/state/:id`
 
 Requests deletion of a session state by id.
+
+Notes:
+- `:id` refers to the session id, not the `template_id` used in `state/save`.
+- Deleting a session removes the in-memory state and the session’s own on-disk file `~/.hugind/sessions/<session_id>.bin`.
 
 ## Response Codes (Common)
 

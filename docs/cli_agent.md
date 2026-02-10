@@ -10,15 +10,15 @@
 
 ## DESCRIPTION
 
-The agent command runs an agent definition or workflow and provides placeholders
-for install/remove functionality.
+The agent command runs agent definitions or workflows and supports listing,
+installing, and removing agents.
 
 ## SUBCOMMANDS
 
 ### `hugind agent run <path> [-- <args...>]`
 
-Runs an agent from a file path, passing any additional arguments through to the
-agent runtime.
+Runs an agent or workflow from a file path, passing any additional arguments
+through to the agent runtime.
 
 ### `hugind agent list`
 
@@ -53,7 +53,7 @@ Notes:
 
 ### `hugind agent remove`
 
-Not implemented yet. Prints `Agent remove not implemented yet`.
+Removes an installed agent from `~/.hugind/agents/<agent-name>`.
 
 ## HELP
 
