@@ -290,6 +290,41 @@ Output:
 {"id":"0fdcde06-6129-4d07-a19c-efa9b3f300ef","object":"chat.completion","created":1770667060,"model":"gemmea-b4","choices":[{"index":0,"message":{"role":"assistant","content":"As an AI, I don't know your name! You haven't told me. \n\nYou can tell me if you'd like."},"finish_reason":"Eos"}],"usage":null}
 ```
 
+## Agent demo
+
+```bash
+hugind agent install https://github.com/netdur/hugind/tree/main/agent/audit                               
+
+Requested permissions:
+- Network access: No
+- File access: Yes (actions: read; can access outside agent folder)
+- Run system commands: No
+> Grant these permissions and install this agent? Yes
+✅ Installed agent 'audit' to /Users/adel/.hugind/agents/audit
+
+hugind agent run audit agent/ocr                                                                          
+Checking server health at http://127.0.0.1:8080/v1/monitor...
+Server is up. Starting agent...
+{
+  "Alignment": "PASS - The code reads image URLs, extracts text, and returns structured JSON as described in the agent.yaml.",
+  "Security": "PASS - The agent adheres to the specified permissions, avoiding network access and shell commands while allowing filesystem access within the permitted paths.",
+  "Notes": "The code reads files from the allowed path `/Users/adel/Downloads`. It uses the `fs.read_bytes` function which should be restricted by the agent's permissions.",
+  "Confidence": "high"
+}
+
+hugind agent run agent/ocr --image /Users/adel/Downloads/18zjgwovgbhg1.jpeg --prompt "only read the title"
+Checking server health at http://127.0.0.1:8080/v1/monitor...
+Server is up. Starting agent...
+{"blocks": [{"block_type": "text", "text": "32F looking for Moroccan match", "bbox_2d": [171, 133, 783, 223]}]}
+
+more /Users/adel/.hugind/logs/agents/ocr/20260210_122933.526.txt                                                           
+[2026-02-10T12:29:33.526Z] agent.run.start name=ocr entry=/Users/adel/Workspace/hugind/agent/ocr/main.js args_len=87 args=["--image","/Users/adel/Downloads/18zjgwovgbhg1.jpeg","--prompt","only read the title"]
+[2026-02-10T12:29:33.530Z] host.fs.read_bytes path=/Users/adel/Downloads/18zjgwovgbhg1.jpeg
+[2026-02-10T12:29:35.014Z] host.llm.chat_stream input=object messages=Some(1) model=
+[2026-02-10T12:29:41.198Z] host.llm.chat_stream response_len=111
+[2026-02-10T12:29:41.198Z] agent.run.complete status=ok
+```
+
 ## License
 
 MIT

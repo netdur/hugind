@@ -32,20 +32,12 @@ async fn input(prompt: String) -> String {
 
 pub async fn install(ctx: &AsyncContext, logger: Option<RunLogger>) -> Result<()> {
     ctx.async_with(|ctx| Box::pin(async move {
-        let logger_print = logger.clone();
         let print_func = Function::new(ctx.clone(), move |msg: String| {
-            if let Some(l) = &logger_print {
-                l.log_line(format!("host.sys.print len={}", msg.len()));
-            }
             print(msg);
         })?;
         ctx.globals().set("print", print_func)?;
 
-        let logger_print_raw = logger.clone();
         let print_raw_func = Function::new(ctx.clone(), move |msg: String| {
-            if let Some(l) = &logger_print_raw {
-                l.log_line(format!("host.sys.print_raw len={}", msg.len()));
-            }
             print_raw(msg);
         })?;
         ctx.globals().set("print_raw", print_raw_func)?;
@@ -62,11 +54,7 @@ pub async fn install(ctx: &AsyncContext, logger: Option<RunLogger>) -> Result<()
         }))?;
         ctx.globals().set("input", input_func)?;
 
-        let logger_version = logger.clone();
         let version_func = Function::new(ctx.clone(), move || {
-            if let Some(l) = &logger_version {
-                l.log_line("host.sys.version");
-            }
             version()
         })?;
         ctx.globals().set("hugind_version", version_func)?;

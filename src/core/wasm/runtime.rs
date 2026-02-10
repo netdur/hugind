@@ -306,7 +306,6 @@ impl WasmRuntime {
 
         linker.func_wrap("hugind", "print", |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| {
             let msg = read_string(&mut caller, ptr, len)?;
-            log_host(&caller, format!("host.sys.print len={}", msg.len()));
             println!("{msg}");
             Ok(())
         })?;
@@ -314,7 +313,6 @@ impl WasmRuntime {
         linker.func_wrap("hugind", "print_raw", |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| {
             use std::io::Write;
             let msg = read_string(&mut caller, ptr, len)?;
-            log_host(&caller, format!("host.sys.print_raw len={}", msg.len()));
             let mut out = std::io::stdout();
             let _ = out.write_all(msg.as_bytes());
             let _ = out.flush();
@@ -756,7 +754,6 @@ impl WasmRuntime {
             "version",
             |mut caller: Caller<'_, HostState>| Box::new(async move {
                 let version = caller.data().hugind_version.clone();
-                log_host(&caller, "host.sys.version");
                 let (out_ptr, out_len) = write_bytes_async(&mut caller, version.as_bytes()).await?;
                 Ok(pack_ptr_len(out_ptr, out_len))
             }),

@@ -87,7 +87,9 @@ pub enum AgentCommand {
         path: String,
     },
     
-    Remove,
+    Remove {
+        name: String,
+    },
 
     List,
 }

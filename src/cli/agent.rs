@@ -66,8 +66,22 @@ pub async fn install(path: String) -> Result<()> {
     Ok(())
 }
 
-pub fn remove() -> Result<()> {
-    println!("Agent remove not implemented yet");
+pub fn remove(name: String) -> Result<()> {
+    let dir = paths::agents_dir();
+    let sanitized = sanitize_agent_name(&name);
+    let target = dir.join(&sanitized);
+
+    if !target.exists() {
+        return Err(anyhow::anyhow!(
+            "Agent '{}' not found at {}",
+            name,
+            target.display()
+        ));
+    }
+
+    fs::remove_dir_all(&target)
+        .with_context(|| format!("Failed to remove {}", target.display()))?;
+    println!("Removed agent '{}' from {}", sanitized, dir.display());
     Ok(())
 }
 
@@ -143,16 +157,7 @@ fn extract_local_zip_agent(path: &str) -> Result<PathBuf> {
 }
 
 async fn download_agent(path: &str) -> Result<(PathBuf, AgentConfig, Option<TempDir>)> {
-    let base_url = if path.ends_with("agent.yaml") {
-        Url::parse(path)?
-            .join(".")?
-    } else {
-        let mut url = Url::parse(path)?;
-        if !path.ends_with('/') {
-            url = Url::parse(&(path.to_string() + "/"))?;
-        }
-        url
-    };
+    let base_url = resolve_agent_base_url(path)?;
 
     let agent_url = base_url.join("agent.yaml")?;
     let temp = tempfile::tempdir()?;
@@ -189,6 +194,60 @@ async fn download_zip_agent(path: &str) -> Result<(PathBuf, AgentConfig, Option<
     let agent_root = find_agent_root(&root)?;
     let config = AgentConfig::load_from_dir(&agent_root)?;
     Ok((agent_root, config, Some(temp)))
+}
+
+fn resolve_agent_base_url(path: &str) -> Result<Url> {
+    let url = Url::parse(path)?;
+
+    if let Some(raw_base) = github_raw_base(&url) {
+        return Ok(raw_base);
+    }
+
+    if path.ends_with("agent.yaml") {
+        return Ok(url.join(".")?);
+    }
+
+    if path.ends_with('/') {
+        return Ok(url);
+    }
+
+    Url::parse(&(path.to_string() + "/")).map_err(Into::into)
+}
+
+fn github_raw_base(url: &Url) -> Option<Url> {
+    if url.host_str() != Some("github.com") {
+        return None;
+    }
+
+    let segments: Vec<_> = url.path_segments()?.collect();
+    if segments.len() < 4 {
+        return None;
+    }
+
+    let owner = segments[0];
+    let repo = segments[1];
+    let kind = segments[2];
+
+    if kind != "tree" && kind != "blob" {
+        return None;
+    }
+
+    let branch = segments[3];
+    let path_parts = &segments[4..];
+    let mut base = format!("https://raw.githubusercontent.com/{}/{}/{}/", owner, repo, branch);
+
+    if !path_parts.is_empty() {
+        let mut dir_parts = path_parts.to_vec();
+        if kind == "blob" && !dir_parts.is_empty() {
+            dir_parts.pop();
+        }
+        if !dir_parts.is_empty() {
+            base.push_str(&dir_parts.join("/"));
+            base.push('/');
+        }
+    }
+
+    Url::parse(&base).ok()
 }
 
 async fn fetch_text(url: &Url) -> Result<String> {

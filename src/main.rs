@@ -18,7 +18,7 @@ async fn main() {
             let result = match command {
                 AgentCommand::Run { path, args } => agent::run(path, args).await,
                 AgentCommand::Install { path } => agent::install(path).await,
-                AgentCommand::Remove => agent::remove(),
+                AgentCommand::Remove { name } => agent::remove(name),
                 AgentCommand::List => agent::list(),
             };
 
