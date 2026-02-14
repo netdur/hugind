@@ -6,6 +6,7 @@ use crate::core::config::agent::{AgentConfig, NetPermissions};
 use crate::core::runtime::util::{is_private_ip, parse_duration_string, parse_memory_string};
 use crate::shared::logging::RunLogger;
 
+#[derive(rquickjs::JsLifetime)]
 #[rquickjs::class]
 pub struct Net {
     client: reqwest::Client,

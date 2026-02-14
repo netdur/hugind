@@ -219,9 +219,6 @@ async fn dispatch_method(method: &str, params: Option<JsonValue>, mode: EventMod
                     let emitter = std::sync::Arc::new(McpEmitter::new(id, outbox));
                     run_agent_with_emitter(params, emitter).await?
                 }
-                EventMode::None => {
-                    run_agent_with_emitter(params, std::sync::Arc::new(NoopEmitter)).await?
-                }
             };
             Ok(serde_json::to_value(result)?)
         }
@@ -273,10 +270,6 @@ async fn dispatch_method(method: &str, params: Option<JsonValue>, mode: EventMod
                     let emitter = McpEmitter::new(id, outbox);
                     add_model_with_emitter(params, &emitter).await?
                 }
-                EventMode::None => {
-                    let emitter = NoopProgressSink;
-                    add_model_with_emitter(params, &emitter).await?
-                }
             };
             Ok(serde_json::to_value(result)?)
         }
@@ -320,6 +313,14 @@ fn is_mcp_message(value: &JsonValue) -> bool {
 
 async fn handle_mcp_message(value: JsonValue, outbox: Outbox) -> Result<()> {
     let req: McpRequest = serde_json::from_value(value).context("Invalid MCP request")?;
+    if req.jsonrpc.as_deref() != Some("2.0") {
+        outbox.send(mcp_error_response(
+            req.id.unwrap_or(JsonValue::Null),
+            -32600,
+            "Invalid Request: jsonrpc must be '2.0'".to_string(),
+        ));
+        return Ok(());
+    }
     let Some(method) = Some(req.method.as_str()) else {
         return Ok(());
     };
@@ -460,12 +461,7 @@ trait StatusEmitter: Send + Sync {
 enum EventMode {
     Stdio { id: String, outbox: Outbox },
     Mcp { id: JsonValue, outbox: Outbox },
-    None,
 }
-
-struct NoopEmitter;
-
-struct NoopProgressSink;
 
 impl StdioEmitter {
     fn new(id: String, outbox: Outbox) -> Self {
@@ -608,21 +604,6 @@ impl PrintSink for McpEmitter {
     fn print_raw(&self, msg: &str) {
         self.log(msg.to_string());
     }
-}
-
-impl StatusEmitter for NoopEmitter {
-    fn status(&self, _message: &str) {}
-}
-
-impl PrintSink for NoopEmitter {
-    fn print(&self, _msg: &str) {}
-    fn print_raw(&self, _msg: &str) {}
-}
-
-impl ProgressSink for NoopProgressSink {
-    fn on_start(&self, _repo: &str, _filename: &str, _total_bytes: Option<u64>) {}
-    fn on_progress(&self, _repo: &str, _filename: &str, _downloaded: u64, _total_bytes: Option<u64>) {}
-    fn on_finish(&self, _repo: &str, _filename: &str, _final_path: &PathBuf) {}
 }
 
 #[derive(Debug, Serialize)]

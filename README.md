@@ -12,7 +12,7 @@
 
 Two execution runtimes:
 
-* JavaScript runtime via `rquickjs`
+* Javascript runtime via `rquickjs`
 * WASM runtime via Wasmtime (run WASM modules built from your favorite language)
 
 ## Server

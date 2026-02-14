@@ -1,6 +1,6 @@
 #!/bin/bash
 
-SERVER_URL="http://localhost:8081/v1/chat/completions"
+SERVER_URL="http://localhost:8080/v1/chat/completions"
 MODEL="gemma-3-4b-it"
 IMAGE_PATH="assets/madonna.jpg"
 IMAGE_B64="$(base64 < "$IMAGE_PATH" | tr -d '\n')"

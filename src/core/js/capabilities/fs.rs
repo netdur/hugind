@@ -4,6 +4,7 @@ use crate::core::config::agent::{AgentConfig, RuntimeFsMode};
 use crate::core::fs::FsAccess;
 use crate::shared::logging::RunLogger;
 
+#[derive(rquickjs::JsLifetime)]
 #[rquickjs::class]
 pub struct Fs {
     access: FsAccess,

@@ -46,6 +46,7 @@ number ::= ("-"? ([0-9] | [1-9] [0-9]{0,15})) ("." [0-9]+)? ([eE] [-+]? [0-9] [1
 # Optional space: by convention, applied in this grammar after literal chars when allowed
 ws ::= | " " | "\n" [ \t]{0,20}
 "#;
+const MTMD_MEDIA_MARKER: &str = "<__media__>";
 
 async fn load_image_bytes(url: &str) -> Result<Vec<u8>, String> {
     if url.starts_with("data:") {
@@ -109,7 +110,7 @@ pub async fn chat_completions(
                             match load_image_bytes(&image_url.url).await {
                                 Ok(data) => {
                                     images.push(data);
-                                    content.push_str("<image>");
+                                    content.push_str(MTMD_MEDIA_MARKER);
                                 }
                                 Err(e) => {
                                     return (StatusCode::BAD_REQUEST, e).into_response();

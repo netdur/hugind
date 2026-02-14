@@ -6,6 +6,7 @@ use crate::core::config::backend::resolve_backend;
 use crate::shared::logging::RunLogger;
 
 
+#[derive(rquickjs::JsLifetime)]
 #[rquickjs::class]
 pub struct Llm {
     client: reqwest::Client,

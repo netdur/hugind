@@ -104,6 +104,13 @@ impl<'a> LlmEngine<'a> {
         let (prep_result_tx, prep_rx) = mpsc::channel::<PrepResult>();
 
         let worker_mmproj = mmproj.clone();
+        let mm_debug = std::env::var("HUGIND_LLAMA_DEBUG")
+            .ok()
+            .map(|v| {
+                let v = v.trim().to_ascii_lowercase();
+                matches!(v.as_str(), "1" | "true" | "yes" | "on" | "debug")
+            })
+            .unwrap_or(false);
         let _prep_handle = Some(thread::spawn(move || {
             while let Ok(job) = prep_job_rx.recv() {
                 let result = match &worker_mmproj {
@@ -143,7 +150,29 @@ impl<'a> LlmEngine<'a> {
                                         multimodal_meta,
                                     })
                                 }
-                                Err(e) => Err(format!("Multimodal tokenization failed: {}", e)),
+                                Err(e) => {
+                                    let image_marker_count = job.prompt.matches("<image>").count();
+                                    let media_marker_count = job.prompt.matches("<__media__>").count();
+                                    if mm_debug {
+                                        let snippet: String = job.prompt.chars().take(300).collect();
+                                        eprintln!(
+                                            "[MM DEBUG] tokenize failed: images={}, <image>={}, <__media__>={}, prompt_chars={}, prompt_prefix={:?}",
+                                            images.len(),
+                                            image_marker_count,
+                                            media_marker_count,
+                                            job.prompt.chars().count(),
+                                            snippet
+                                        );
+                                    }
+                                    Err(format!(
+                                        "Multimodal tokenization failed: {} (images={}, <image> markers={}, <__media__> markers={}, prompt_chars={})",
+                                        e,
+                                        images.len(),
+                                        image_marker_count,
+                                        media_marker_count,
+                                        job.prompt.chars().count()
+                                    ))
+                                }
                             }
                         }
                     }
