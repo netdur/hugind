@@ -1,0 +1,105 @@
+{
+  "sessionId": "1771326736855-hu0tqa",
+  "goal": "Submit the search (press Enter or tap the search/first suggestion result) and wait for nearby bar results to load.",
+  "startTime": "2026-02-17T11:12:16.855Z",
+  "endTime": "2026-02-17T11:13:16.811Z",
+  "totalSteps": 5,
+  "successCount": 5,
+  "failCount": 0,
+  "completed": false,
+  "steps": [
+    {
+      "step": 1,
+      "timestamp": "2026-02-17T11:12:23.524Z",
+      "foregroundApp": null,
+      "elementCount": 36,
+      "screenChanged": true,
+      "llmDecision": {
+        "action": "type",
+        "coordinates": [
+          539,
+          165
+        ],
+        "text": "bar near me"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Typed \"bar near me\""
+      },
+      "llmLatencyMs": 3473,
+      "actionLatencyMs": 612
+    },
+    {
+      "step": 2,
+      "timestamp": "2026-02-17T11:12:33.225Z",
+      "foregroundApp": null,
+      "elementCount": 41,
+      "screenChanged": true,
+      "llmDecision": {
+        "action": "tap",
+        "coordinates": [
+          539,
+          165
+        ]
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Tapped (539, 165)"
+      },
+      "llmLatencyMs": 5091,
+      "actionLatencyMs": 113
+    },
+    {
+      "step": 3,
+      "timestamp": "2026-02-17T11:12:46.909Z",
+      "foregroundApp": null,
+      "elementCount": 41,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 7126,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 4,
+      "timestamp": "2026-02-17T11:13:01.413Z",
+      "foregroundApp": null,
+      "elementCount": 41,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "tap",
+        "coordinates": [
+          523,
+          369
+        ]
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Tapped (523, 369)"
+      },
+      "llmLatencyMs": 9367,
+      "actionLatencyMs": 120
+    },
+    {
+      "step": 5,
+      "timestamp": "2026-02-17T11:13:16.811Z",
+      "foregroundApp": null,
+      "elementCount": 34,
+      "screenChanged": true,
+      "llmDecision": {
+        "action": "done"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "done"
+      },
+      "llmLatencyMs": 10792,
+      "actionLatencyMs": 0
+    }
+  ]
+}

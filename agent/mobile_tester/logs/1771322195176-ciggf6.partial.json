@@ -1,0 +1,44 @@
+{
+  "sessionId": "1771322195176-ciggf6",
+  "goal": "Open Google Keep and create a note with text: buy wine. Finish when saved.",
+  "startTime": "2026-02-17T09:56:35.176Z",
+  "endTime": "2026-02-17T09:56:56.868Z",
+  "totalSteps": 2,
+  "successCount": 2,
+  "failCount": 0,
+  "completed": false,
+  "steps": [
+    {
+      "step": 1,
+      "timestamp": "2026-02-17T09:56:48.062Z",
+      "foregroundApp": null,
+      "elementCount": 0,
+      "screenChanged": true,
+      "llmDecision": {
+        "action": "launch"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Launched intent"
+      },
+      "llmLatencyMs": 1339,
+      "actionLatencyMs": 7408
+    },
+    {
+      "step": 2,
+      "timestamp": "2026-02-17T09:56:56.868Z",
+      "foregroundApp": null,
+      "elementCount": 0,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 984,
+      "actionLatencyMs": 2000
+    }
+  ]
+}

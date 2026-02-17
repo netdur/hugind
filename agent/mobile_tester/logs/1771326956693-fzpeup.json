@@ -1,0 +1,80 @@
+{
+  "sessionId": "1771326956693-fzpeup",
+  "goal": "Submit the search (press Enter or tap the search/first suggestion result) and wait for nearby bar results to load.",
+  "startTime": "2026-02-17T11:15:56.693Z",
+  "endTime": "2026-02-17T11:16:26.702Z",
+  "totalSteps": 4,
+  "successCount": 4,
+  "failCount": 0,
+  "completed": true,
+  "steps": [
+    {
+      "step": 1,
+      "timestamp": "2026-02-17T11:16:01.185Z",
+      "foregroundApp": null,
+      "elementCount": 37,
+      "screenChanged": true,
+      "llmDecision": {
+        "action": "enter",
+        "text": "bar near me"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Pressed Enter"
+      },
+      "llmLatencyMs": 1794,
+      "actionLatencyMs": 158
+    },
+    {
+      "step": 2,
+      "timestamp": "2026-02-17T11:16:09.907Z",
+      "foregroundApp": null,
+      "elementCount": 37,
+      "screenChanged": true,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid decision format (missing action). Raw: {}\n"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 2192,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 3,
+      "timestamp": "2026-02-17T11:16:18.020Z",
+      "foregroundApp": null,
+      "elementCount": 37,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "enter",
+        "text": "bar near me"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Pressed Enter"
+      },
+      "llmLatencyMs": 3350,
+      "actionLatencyMs": 151
+    },
+    {
+      "step": 4,
+      "timestamp": "2026-02-17T11:16:26.702Z",
+      "foregroundApp": null,
+      "elementCount": 25,
+      "screenChanged": true,
+      "llmDecision": {
+        "action": "done",
+        "reason": "Search submitted and results loaded."
+      },
+      "actionResult": {
+        "success": true,
+        "message": "done"
+      },
+      "llmLatencyMs": 4267,
+      "actionLatencyMs": 0
+    }
+  ]
+}

@@ -15,10 +15,16 @@ installing, and removing agents.
 
 ## SUBCOMMANDS
 
-### `hugind agent run <path> [-- <args...>]`
+### `hugind agent run <path> [--cwd <path>] [-- <args...>]`
 
 Runs an agent or workflow from a file path, passing any additional arguments
 through to the agent runtime.
+
+Options:
+- `--cwd <path>`: override runtime working directory and host filesystem root
+  for this run. JS/WASM module loading still stays scoped to the agent folder.
+  If `--cwd` points outside the agent root, set
+  `permissions.filesystem.allow_outside_agent_root: true` in `agent.yaml`.
 
 ### `hugind agent list`
 

@@ -734,7 +734,7 @@ where
     let _sink_guard = PrintSinkGuard::new(sink);
 
     emitter.status("agent.run.start");
-    let result = crate::core::orchestrator::execute_with_result(params.path, params.args).await?;
+    let result = crate::core::orchestrator::execute_with_result(params.path, params.args, None).await?;
     emitter.status("agent.run.finish");
     Ok(AgentRunResult {
         status: "ok".to_string(),

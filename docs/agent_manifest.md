@@ -126,9 +126,15 @@ Controls host filesystem APIs. This does not restrict WASI mounts.
 
 - `allow`: master switch for host FS access.
 - `read`, `write`, `create`, `delete`: fine-grained operations.
+- `allow_outside_agent_root`: allows runtime scope override outside agent root.
 - `allowed_paths`: list of allowed path prefixes.
 - `denied_paths`: optional deny list (if supported).
 - `follow_symlinks`: optional, recommended `false`.
+
+Runtime note:
+- `hugind agent run --cwd <path>` overrides runtime filesystem root for that
+  run. If `<path>` is outside the agent directory, this is only allowed when
+  `allow_outside_agent_root` is `true`.
 
 ### `shell`
 

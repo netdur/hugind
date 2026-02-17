@@ -10,10 +10,10 @@ use zip::read::ZipArchive;
 use crate::core::config::agent::{AgentConfig, FileSystemPermission, NetPermissions, Permissions, ShellPermission};
 use crate::shared::paths;
 
-pub async fn run(path: String, args_vec: Vec<String>) -> Result<()> {
+pub async fn run(path: String, cwd: Option<String>, args_vec: Vec<String>) -> Result<()> {
     let resolved = resolve_agent_path(&path)?;
     let resolved_args = resolve_args_paths(args_vec)?;
-    crate::core::orchestrator::execute(resolved, resolved_args).await
+    crate::core::orchestrator::execute(resolved, resolved_args, cwd).await
 }
 
 pub async fn install(path: String) -> Result<()> {

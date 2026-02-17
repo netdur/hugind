@@ -16,7 +16,7 @@ async fn main() {
     match cli.command {
         Commands::Agent { command } => {
             let result = match command {
-                AgentCommand::Run { path, args } => agent::run(path, args).await,
+                AgentCommand::Run { path, cwd, args } => agent::run(path, cwd, args).await,
                 AgentCommand::Install { path } => agent::install(path).await,
                 AgentCommand::Remove { name } => agent::remove(name),
                 AgentCommand::List => agent::list(),

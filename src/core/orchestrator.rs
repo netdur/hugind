@@ -7,11 +7,15 @@ use crate::shared::logging::{create_agent_logger, RunLogger};
 use semver::{Version, VersionReq};
 use std::path::Path;
 
-pub async fn execute(path: String, args_vec: Vec<String>) -> anyhow::Result<()> {
-    execute_with_result(path, args_vec).await.map(|_| ())
+pub async fn execute(path: String, args_vec: Vec<String>, cwd_override: Option<String>) -> anyhow::Result<()> {
+    execute_with_result(path, args_vec, cwd_override).await.map(|_| ())
 }
 
-pub async fn execute_with_result(path: String, args_vec: Vec<String>) -> anyhow::Result<serde_json::Value> {
+pub async fn execute_with_result(
+    path: String,
+    args_vec: Vec<String>,
+    cwd_override: Option<String>,
+) -> anyhow::Result<serde_json::Value> {
     let target_path = PathBuf::from(&path).canonicalize().map_err(|e| {
         anyhow::anyhow!("Error resolving path {}: {}", path, e)
     })?;
@@ -36,6 +40,16 @@ pub async fn execute_with_result(path: String, args_vec: Vec<String>) -> anyhow:
             .to_path_buf();
         (root, target_path, crate::core::config::agent::AgentConfig::default())
     };
+    let runtime_cwd = resolve_runtime_cwd(&agent_root, &config, cwd_override)?;
+    if runtime_cwd != agent_root {
+        if let Some(perms) = config.permissions.as_mut() {
+            if let Some(shell) = perms.shell.as_mut() {
+                if shell.working_dir.is_none() {
+                    shell.working_dir = Some(runtime_cwd.to_string_lossy().into_owned());
+                }
+            }
+        }
+    }
 
     let logger = init_agent_logger(&config, &agent_root);
     if let Some(l) = &logger {
@@ -69,13 +83,13 @@ pub async fn execute_with_result(path: String, args_vec: Vec<String>) -> anyhow:
     });
 
     let run_result = if entry_path.extension().and_then(|s| s.to_str()) == Some("wasm") {
-        let wasm = WasmRuntime::new(agent_root, &config, logger.clone())
+        let wasm = WasmRuntime::new(agent_root.clone(), runtime_cwd.clone(), &config, logger.clone())
             .map_err(|e| anyhow::anyhow!("Runtime error: {}", e))?;
         wasm.run_module(&entry_path, initial_data)
             .await
             .map_err(|e| anyhow::anyhow!("Execution error: {}", e))
     } else {
-        let js = JsRuntime::new(agent_root, &config, logger.clone())
+        let js = JsRuntime::new(agent_root.clone(), runtime_cwd.clone(), &config, logger.clone())
             .await
             .map_err(|e| anyhow::anyhow!("Runtime error: {}", e))?;
         let res = js
@@ -126,7 +140,7 @@ async fn run_workflow(workflow: crate::core::config::workflow::WorkflowConfig, r
         let entry = agent_dir.join(&config.entry_point);
         
         if entry.extension().and_then(|s| s.to_str()) == Some("wasm") {
-            let wasm = WasmRuntime::new(agent_dir, &config, logger.clone())
+            let wasm = WasmRuntime::new(agent_dir.clone(), agent_dir.clone(), &config, logger.clone())
                 .map_err(|e| anyhow::anyhow!("Runtime error: {}", e))?;
             let res = wasm
                 .run_module(&entry, last_output)
@@ -140,7 +154,7 @@ async fn run_workflow(workflow: crate::core::config::workflow::WorkflowConfig, r
             }
             last_output = res?;
         } else {
-            let js = JsRuntime::new(agent_dir, &config, logger.clone())
+            let js = JsRuntime::new(agent_dir.clone(), agent_dir.clone(), &config, logger.clone())
                 .await
                 .map_err(|e| anyhow::anyhow!("Runtime error: {}", e))?;
             let res = js
@@ -229,4 +243,39 @@ fn log_agent_name(
         .and_then(|s| s.to_str())
         .unwrap_or("agent")
         .to_string()
+}
+
+fn resolve_runtime_cwd(
+    agent_root: &Path,
+    config: &crate::core::config::agent::AgentConfig,
+    cwd_override: Option<String>,
+) -> anyhow::Result<PathBuf> {
+    let Some(raw) = cwd_override else {
+        return Ok(agent_root.to_path_buf());
+    };
+
+    let cwd = PathBuf::from(raw)
+        .canonicalize()
+        .map_err(|e| anyhow::anyhow!("Invalid --cwd path: {}", e))?;
+
+    if cwd.starts_with(agent_root) {
+        return Ok(cwd);
+    }
+
+    let allow_outside = config
+        .permissions
+        .as_ref()
+        .and_then(|p| p.filesystem.as_ref())
+        .map(|f| f.allow_outside_agent_root)
+        .unwrap_or(false);
+
+    if allow_outside {
+        Ok(cwd)
+    } else {
+        Err(anyhow::anyhow!(
+            "--cwd '{}' is outside agent root '{}' but permissions.filesystem.allow_outside_agent_root is false",
+            cwd.display(),
+            agent_root.display()
+        ))
+    }
 }

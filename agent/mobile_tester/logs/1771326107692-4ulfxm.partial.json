@@ -1,0 +1,71 @@
+{
+  "sessionId": "1771326107692-4ulfxm",
+  "goal": "Focus the Maps search field and type the query exactly.\n\nFORM DATA TO FILL:\n- search_query: bar near me\n\nFind each field on screen and enter the corresponding value.",
+  "startTime": "2026-02-17T11:01:47.692Z",
+  "endTime": "2026-02-17T11:02:17.094Z",
+  "totalSteps": 3,
+  "successCount": 3,
+  "failCount": 0,
+  "completed": false,
+  "steps": [
+    {
+      "step": 1,
+      "timestamp": "2026-02-17T11:01:56.179Z",
+      "foregroundApp": null,
+      "elementCount": 27,
+      "screenChanged": true,
+      "llmDecision": {
+        "action": "tap",
+        "reason": "Tap the search field to focus it",
+        "coordinates": [
+          400,
+          165
+        ]
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Tapped (400, 165)"
+      },
+      "llmLatencyMs": 5918,
+      "actionLatencyMs": 102
+    },
+    {
+      "step": 2,
+      "timestamp": "2026-02-17T11:02:06.044Z",
+      "foregroundApp": null,
+      "elementCount": 39,
+      "screenChanged": true,
+      "llmDecision": {
+        "action": "type",
+        "coordinates": [
+          539,
+          165
+        ],
+        "text": "bar near me"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Typed \"bar near me\""
+      },
+      "llmLatencyMs": 4622,
+      "actionLatencyMs": 716
+    },
+    {
+      "step": 3,
+      "timestamp": "2026-02-17T11:02:17.094Z",
+      "foregroundApp": null,
+      "elementCount": 37,
+      "screenChanged": true,
+      "llmDecision": {
+        "action": "done",
+        "reason": "Query 'bar near me' successfully typed and focused in the search field."
+      },
+      "actionResult": {
+        "success": true,
+        "message": "done"
+      },
+      "llmLatencyMs": 6520,
+      "actionLatencyMs": 0
+    }
+  ]
+}

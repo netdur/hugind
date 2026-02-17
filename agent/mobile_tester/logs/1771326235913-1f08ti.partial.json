@@ -1,0 +1,28 @@
+{
+  "sessionId": "1771326235913-1f08ti",
+  "goal": "Confirm a single bar place card is open and visible with venue details, then finish.",
+  "startTime": "2026-02-17T11:03:55.913Z",
+  "endTime": "2026-02-17T11:04:00.743Z",
+  "totalSteps": 1,
+  "successCount": 1,
+  "failCount": 0,
+  "completed": false,
+  "steps": [
+    {
+      "step": 1,
+      "timestamp": "2026-02-17T11:04:00.743Z",
+      "foregroundApp": null,
+      "elementCount": 32,
+      "screenChanged": true,
+      "llmDecision": {
+        "action": "done"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "done"
+      },
+      "llmLatencyMs": 2338,
+      "actionLatencyMs": 0
+    }
+  ]
+}

@@ -101,6 +101,16 @@ Executes a shell command using `permissions.shell`:
 
 `runCommand(cmd)` is an alias for `run_command(cmd)`.
 
+### `spawn(program: string, args: string[]) -> Promise<string>`
+
+Executes a command directly without a shell, bypassing shell escaping issues.
+Arguments are passed exactly as provided.
+
+- `allow` must be `true`.
+- `whitelist` is enforced if present.
+- `blacklist` blocks if present.
+- `timeout`, `max_output`, `env_clear`, and `working_dir` are applied.
+
 ### `fs.*` (host filesystem API)
 
 Host filesystem calls are gated by `permissions.filesystem` and

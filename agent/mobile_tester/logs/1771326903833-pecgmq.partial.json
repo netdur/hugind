@@ -1,0 +1,79 @@
+{
+  "sessionId": "1771326903833-pecgmq",
+  "goal": "Open Google Maps and wait until the main map/search UI is visible.",
+  "startTime": "2026-02-17T11:15:03.833Z",
+  "endTime": "2026-02-17T11:15:37.906Z",
+  "totalSteps": 4,
+  "successCount": 4,
+  "failCount": 0,
+  "completed": false,
+  "steps": [
+    {
+      "step": 1,
+      "timestamp": "2026-02-17T11:15:09.860Z",
+      "foregroundApp": null,
+      "elementCount": 28,
+      "screenChanged": true,
+      "llmDecision": {
+        "action": "switch_app"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Switched to com.google.android.apps.maps"
+      },
+      "llmLatencyMs": 1591,
+      "actionLatencyMs": 352
+    },
+    {
+      "step": 2,
+      "timestamp": "2026-02-17T11:15:17.897Z",
+      "foregroundApp": null,
+      "elementCount": 28,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid decision format (missing action). Raw: {}\n"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 1636,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 3,
+      "timestamp": "2026-02-17T11:15:27.597Z",
+      "foregroundApp": null,
+      "elementCount": 28,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Wait until map UI appears"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 2645,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 4,
+      "timestamp": "2026-02-17T11:15:37.906Z",
+      "foregroundApp": null,
+      "elementCount": 28,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Wait until map UI appears"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 3373,
+      "actionLatencyMs": 2000
+    }
+  ]
+}

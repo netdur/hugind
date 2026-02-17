@@ -1,0 +1,49 @@
+{
+  "sessionId": "1771326942326-9s3y68",
+  "goal": "Focus the Maps search field and type the query exactly.\n\nFORM DATA TO FILL:\n- search_query: bar near me\n\nFind each field on screen and enter the corresponding value.",
+  "startTime": "2026-02-17T11:15:42.326Z",
+  "endTime": "2026-02-17T11:15:54.291Z",
+  "totalSteps": 2,
+  "successCount": 2,
+  "failCount": 0,
+  "completed": true,
+  "steps": [
+    {
+      "step": 1,
+      "timestamp": "2026-02-17T11:15:47.367Z",
+      "foregroundApp": null,
+      "elementCount": 28,
+      "screenChanged": true,
+      "llmDecision": {
+        "action": "type",
+        "coordinates": [
+          400,
+          165
+        ],
+        "text": "bar near me"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Typed \"bar near me\""
+      },
+      "llmLatencyMs": 1906,
+      "actionLatencyMs": 616
+    },
+    {
+      "step": 2,
+      "timestamp": "2026-02-17T11:15:54.291Z",
+      "foregroundApp": null,
+      "elementCount": 37,
+      "screenChanged": true,
+      "llmDecision": {
+        "action": "done"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "done"
+      },
+      "llmLatencyMs": 2313,
+      "actionLatencyMs": 0
+    }
+  ]
+}

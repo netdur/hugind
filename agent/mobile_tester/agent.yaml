@@ -13,7 +13,11 @@ permissions:
     allow: true
     allowed_domains: []
   filesystem:
-    allow: false
+    allow: true
+    read: true
+    write: true
+    create: true
+    delete: true
   shell:
     allow: true
     whitelist:

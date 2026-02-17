@@ -1,0 +1,224 @@
+{
+  "sessionId": "1771323914223-4zx0eb",
+  "goal": "Open Google Keep and create a note with text: buy wine. Finish when saved.",
+  "startTime": "2026-02-17T10:25:14.223Z",
+  "endTime": "2026-02-17T10:27:53.970Z",
+  "totalSteps": 12,
+  "successCount": 12,
+  "failCount": 0,
+  "completed": false,
+  "steps": [
+    {
+      "step": 1,
+      "timestamp": "2026-02-17T10:25:21.483Z",
+      "foregroundApp": null,
+      "elementCount": 25,
+      "screenChanged": true,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid decision format (missing action). Raw: {\n  \"launch\": {\n    \"package\": \"com.google.android.keep\"\n  }\n}"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 2731,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 2,
+      "timestamp": "2026-02-17T10:25:29.957Z",
+      "foregroundApp": null,
+      "elementCount": 25,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "launch"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Launched com.google.android.keep"
+      },
+      "llmLatencyMs": 3668,
+      "actionLatencyMs": 293
+    },
+    {
+      "step": 3,
+      "timestamp": "2026-02-17T10:25:42.071Z",
+      "foregroundApp": null,
+      "elementCount": 35,
+      "screenChanged": true,
+      "llmDecision": {
+        "action": "tap",
+        "coordinates": [
+          956,
+          2150
+        ]
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Tapped (956, 2150)"
+      },
+      "llmLatencyMs": 6474,
+      "actionLatencyMs": 124
+    },
+    {
+      "step": 4,
+      "timestamp": "2026-02-17T10:25:55.903Z",
+      "foregroundApp": null,
+      "elementCount": 41,
+      "screenChanged": true,
+      "llmDecision": {
+        "action": "tap",
+        "coordinates": [
+          899,
+          1969
+        ]
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Tapped (899, 1969)"
+      },
+      "llmLatencyMs": 9218,
+      "actionLatencyMs": 121
+    },
+    {
+      "step": 5,
+      "timestamp": "2026-02-17T10:26:04.489Z",
+      "foregroundApp": null,
+      "elementCount": 46,
+      "screenChanged": true,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid decision format (missing action). Raw: {\n  \"error\": \"error message\"\n}\n"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 524,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 6,
+      "timestamp": "2026-02-17T10:26:18.971Z",
+      "foregroundApp": null,
+      "elementCount": 46,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid decision format (missing action). Raw: {\n  \"id\": \"87678767876787678767\",\n  \"name\": \"Bilal A. K.\",\n  \"contact\": {\n    \"email\": \"bilal@example.com\",\n    \"phone\": \"+91 1234567890\"\n  },\n  \"role\": \"Sales "
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 7809,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 7,
+      "timestamp": "2026-02-17T10:26:43.253Z",
+      "foregroundApp": null,
+      "elementCount": 46,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid decision format (missing action). Raw: {\n  \"id\": \"87678767876787678767\",\n  \"name\": \"Bilal A. K.\",\n  \"contact\": {\n    \"email\": \"bilal@example.com\",\n    \"phone\": \"+91 1234567890\"\n  },\n  \"role\": \"Sales "
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 17124,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 8,
+      "timestamp": "2026-02-17T10:26:51.517Z",
+      "foregroundApp": null,
+      "elementCount": 46,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "scroll"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Scrolled up"
+      },
+      "llmLatencyMs": 2830,
+      "actionLatencyMs": 401
+    },
+    {
+      "step": 9,
+      "timestamp": "2026-02-17T10:27:02.225Z",
+      "foregroundApp": null,
+      "elementCount": 46,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "type",
+        "text": "buy wine"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Typed \"buy wine\""
+      },
+      "llmLatencyMs": 5356,
+      "actionLatencyMs": 293
+    },
+    {
+      "step": 10,
+      "timestamp": "2026-02-17T10:27:25.673Z",
+      "foregroundApp": null,
+      "elementCount": 48,
+      "screenChanged": true,
+      "llmDecision": {
+        "action": "tap",
+        "reason": "Tap to confirm note creation",
+        "coordinates": [
+          275,
+          919
+        ]
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Tapped (275, 919)"
+      },
+      "llmLatencyMs": 17499,
+      "actionLatencyMs": 129
+    },
+    {
+      "step": 11,
+      "timestamp": "2026-02-17T10:27:40.320Z",
+      "foregroundApp": null,
+      "elementCount": 48,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid decision format (missing action). Raw: {\n  \"id\": \"87678767876787678767\",\n  \"name\": \"Bilal A. K.\",\n  \"contact\": {\n    \"email\": \"bilal@example.com\",\n    \"phone\": \"+91 1234567890\"\n  },\n  \"role\": \"Sales "
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 7989,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 12,
+      "timestamp": "2026-02-17T10:27:53.970Z",
+      "foregroundApp": null,
+      "elementCount": 48,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid decision format (missing action). Raw: {\n  \"id\": \"87678767876787678767\",\n  \"name\": \"Bilal A. K.\",\n  \"contact\": {\n    \"email\": \"bilal@example.com\",\n    \"phone\": \"+91 1234567890\"\n  },\n  \"role\": \"Sales "
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 6565,
+      "actionLatencyMs": 2000
+    }
+  ]
+}

@@ -217,7 +217,7 @@ fn fs_err(err: anyhow::Error) -> rquickjs::Error {
 pub async fn install(
     ctx: &AsyncContext,
     config: &AgentConfig,
-    agent_root: &std::path::Path,
+    fs_root: &std::path::Path,
     logger: Option<RunLogger>,
 ) -> Result<()> {
     let fs_mode = config
@@ -226,7 +226,7 @@ pub async fn install(
         .map(|w| w.runtime_fs_mode.clone())
         .unwrap_or_default();
     let fs_access = FsAccess::new(
-        agent_root.to_path_buf(),
+        fs_root.to_path_buf(),
         config
             .permissions
             .as_ref()

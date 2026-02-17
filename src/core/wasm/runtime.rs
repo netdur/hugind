@@ -56,6 +56,7 @@ impl WasiPreview1View for HostState {
 pub struct WasmRuntime {
     engine: Engine,
     agent_root: PathBuf,
+    fs_root: PathBuf,
     config: AgentConfig,
     logger: Option<RunLogger>,
 }
@@ -63,6 +64,7 @@ pub struct WasmRuntime {
 impl WasmRuntime {
     pub fn new(
         agent_root: PathBuf,
+        fs_root: PathBuf,
         config: &AgentConfig,
         logger: Option<RunLogger>,
     ) -> Result<Self> {
@@ -89,6 +91,7 @@ impl WasmRuntime {
         Ok(Self {
             engine,
             agent_root,
+            fs_root,
             config: config.clone(),
             logger,
         })
@@ -138,7 +141,7 @@ impl WasmRuntime {
             .unwrap_or_default();
 
         let fs_access = FsAccess::new(
-            self.agent_root.clone(),
+            self.fs_root.clone(),
             self.config.permissions.as_ref().and_then(|p| p.filesystem.clone()),
         );
 
@@ -408,6 +411,100 @@ impl WasmRuntime {
                 let output = output_res.map_err(|e| anyhow!("Failed to execute command: {}", e))?;
 
                 
+                let max_len = perm.max_output.as_deref().and_then(parse_memory_string).unwrap_or(1024 * 1024); 
+
+                let result_str = if output.status.success() {
+                    if output.stdout.len() > max_len {
+                        let mut s = String::from_utf8_lossy(&output.stdout[..max_len]).to_string();
+                        s.push_str("...[truncated]");
+                        s
+                    } else {
+                        String::from_utf8_lossy(&output.stdout).to_string()
+                    }
+                } else {
+                     let mut s = format!("Error: {}", String::from_utf8_lossy(&output.stderr));
+                     if s.len() > max_len {
+                        let mut actual_len = max_len;
+                        while !s.is_char_boundary(actual_len) {
+                            actual_len -= 1;
+                        }
+                        s.truncate(actual_len);
+                        s.push_str("...[truncated]");
+                     }
+                     s
+                };
+                
+                let (out_ptr, out_len) = write_bytes_async(&mut caller, result_str.as_bytes()).await?;
+                Ok(pack_ptr_len(out_ptr, out_len))
+            }),
+        )?;
+
+        linker.func_wrap2_async(
+            "hugind",
+            "spawn",
+            |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| Box::new(async move {
+                let json_args = read_string(&mut caller, ptr, len)?;
+                let args_vec: Vec<String> = serde_json::from_str(&json_args)
+                    .map_err(|e| anyhow!("spawn arguments must be a JSON array of strings: {}", e))?;
+                
+                if args_vec.is_empty() {
+                    bail!("Spawn: empty arguments");
+                }
+                
+                let program = &args_vec[0];
+                let args = &args_vec[1..];
+                
+                log_host(&caller, format!("host.shell.spawn program={} args={:?}", program, args));
+                
+                let perm = caller.data().shell_permission.clone().unwrap_or_default();
+                if !perm.allow {
+                     bail!("Shell execution is disabled.");
+                }
+
+                if let Some(whitelist) = &perm.whitelist {
+                    if !whitelist.iter().any(|cmd| cmd == program) {
+                        bail!("Command '{}' is not whitelisted.", program);
+                    }
+                }
+
+                if let Some(blacklist) = &perm.blacklist {
+                    if blacklist.iter().any(|cmd| cmd == program) {
+                        bail!("Command '{}' is blacklisted.", program);
+                    }
+                }
+
+                let mut command = if cfg!(target_os = "macos") {
+                    let profile = "(version 1) (allow default)";
+                    let mut cmd = Command::new("sandbox-exec");
+                    cmd.arg("-p").arg(profile).arg(program);
+                    cmd
+                } else {
+                    Command::new(program)
+                };
+                
+                command.args(args);
+
+                if perm.env_clear {
+                    command.env_clear();
+                }
+                if let Some(wd) = &perm.working_dir {
+                    command.current_dir(wd);
+                }
+
+                let timeout = perm.timeout.as_deref().and_then(parse_duration_string);
+
+                let output_fut = command.output();
+                let output_res = if let Some(t) = timeout {
+                     match tokio::time::timeout(t, output_fut).await {
+                         Ok(res) => res,
+                         Err(_) => bail!("Shell command timed out"),
+                     }
+                } else {
+                    output_fut.await
+                };
+
+                let output = output_res.map_err(|e| anyhow!("Failed to execute command: {}", e))?;
+
                 let max_len = perm.max_output.as_deref().and_then(parse_memory_string).unwrap_or(1024 * 1024); 
 
                 let result_str = if output.status.success() {

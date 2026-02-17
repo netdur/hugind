@@ -5,13 +5,14 @@ use crate::core::config::agent::{AgentConfig, ShellPermission};
 use crate::core::runtime::util::{parse_duration_string, parse_memory_string};
 use crate::shared::logging::RunLogger;
 
-async fn run_command_inner(
-    cmd_str: String,
+async fn run_process(
+    program: String,
+    args: Vec<String>,
     perm: ShellPermission,
     logger: Option<RunLogger>,
 ) -> Result<String> {
     if let Some(l) = &logger {
-        l.log_line(format!("host.shell.run_command cmd={}", cmd_str));
+        l.log_line(format!("host.shell.spawn program={} args={:?}", program, args));
     }
     if !perm.allow {
         return Err(rquickjs::Error::new_loading_message(
@@ -20,17 +21,8 @@ async fn run_command_inner(
         ));
     }
 
-    let parts: Vec<&str> = cmd_str.split_whitespace().collect();
-    if parts.is_empty() {
-        return Err(rquickjs::Error::new_loading_message(
-            "Shell Error",
-            "Empty command",
-        ));
-    }
-    let program = parts[0];
-
     if let Some(whitelist) = &perm.whitelist {
-        if !whitelist.iter().any(|cmd| cmd == program) {
+        if !whitelist.iter().any(|cmd| cmd == &program) {
             return Err(rquickjs::Error::new_loading_message(
                 "Shell Error",
                 format!("Command '{}' is not whitelisted.", program),
@@ -39,7 +31,7 @@ async fn run_command_inner(
     }
 
     if let Some(blacklist) = &perm.blacklist {
-        if blacklist.iter().any(|cmd| cmd == program) {
+        if blacklist.iter().any(|cmd| cmd == &program) {
             return Err(rquickjs::Error::new_loading_message(
                 "Shell Error",
                 format!("Command '{}' is blacklisted.", program),
@@ -50,14 +42,14 @@ async fn run_command_inner(
     let mut command = if cfg!(target_os = "macos") {
         let profile = "(version 1) (allow default)";
         let mut cmd = Command::new("sandbox-exec");
-        cmd.arg("-p").arg(profile).arg(program);
+        cmd.arg("-p").arg(profile).arg(&program);
         cmd
     } else {
-        Command::new(program)
+        Command::new(&program)
     };
 
-    if parts.len() > 1 {
-        command.args(&parts[1..]);
+    if !args.is_empty() {
+        command.args(&args);
     }
 
     if perm.env_clear {
@@ -118,6 +110,33 @@ async fn run_command_inner(
     Ok(result_str)
 }
 
+async fn run_command_inner(
+    cmd_str: String,
+    perm: ShellPermission,
+    logger: Option<RunLogger>,
+) -> Result<String> {
+    let parts: Vec<&str> = cmd_str.split_whitespace().collect();
+    if parts.is_empty() {
+        return Err(rquickjs::Error::new_loading_message(
+            "Shell Error",
+            "Empty command",
+        ));
+    }
+    let program = parts[0].to_string();
+    let args = parts[1..].iter().map(|s| s.to_string()).collect();
+    
+    run_process(program, args, perm, logger).await
+}
+
+async fn spawn_inner(
+    program: String,
+    args: Vec<String>,
+    perm: ShellPermission,
+    logger: Option<RunLogger>,
+) -> Result<String> {
+    run_process(program, args, perm, logger).await
+}
+
 pub async fn install(ctx: &AsyncContext, config: &AgentConfig, logger: Option<RunLogger>) -> Result<()> {
     let perm = if let Some(p) = &config.permissions {
         p.shell.clone().unwrap_or_default()
@@ -143,8 +162,15 @@ pub async fn install(ctx: &AsyncContext, config: &AgentConfig, logger: Option<Ru
                 async move { run_command_inner(cmd, perm, logger).await }
             }))?;
 
+            let spawn_fn = Function::new(ctx.clone(), Async(move |program: String, args: Vec<String>| {
+                let perm = perm.clone();
+                let logger = logger.clone();
+                async move { spawn_inner(program, args, perm, logger).await }
+            }))?;
+
             ctx.globals().set("run_command", run_command_fn)?;
             ctx.globals().set("runCommand", run_command_fn_camel)?;
+            ctx.globals().set("spawn", spawn_fn)?;
             Ok(())
         })
     })

@@ -1,0 +1,215 @@
+{
+  "sessionId": "1771322853874-dmgs2g",
+  "goal": "Open Google Keep and create a note with text: buy wine. Finish when saved.",
+  "startTime": "2026-02-17T10:07:33.874Z",
+  "endTime": "2026-02-17T10:09:33.696Z",
+  "totalSteps": 12,
+  "successCount": 12,
+  "failCount": 0,
+  "completed": false,
+  "steps": [
+    {
+      "step": 1,
+      "timestamp": "2026-02-17T10:07:41.261Z",
+      "foregroundApp": null,
+      "elementCount": 0,
+      "screenChanged": true,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid decision format (missing action). Raw: {\n  \"launch\": {\n    \"package\": \"com.google.android.keep\"\n  }\n}"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 1571,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 2,
+      "timestamp": "2026-02-17T10:07:48.749Z",
+      "foregroundApp": null,
+      "elementCount": 0,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "launch"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Launched com.google.android.keep"
+      },
+      "llmLatencyMs": 1344,
+      "actionLatencyMs": 338
+    },
+    {
+      "step": 3,
+      "timestamp": "2026-02-17T10:07:58.417Z",
+      "foregroundApp": null,
+      "elementCount": 0,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Waiting for app to load fully."
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 1653,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 4,
+      "timestamp": "2026-02-17T10:08:09.519Z",
+      "foregroundApp": null,
+      "elementCount": 0,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid action JSON after retry: tap requires coordinates [x, y]"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 4119,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 5,
+      "timestamp": "2026-02-17T10:08:19.146Z",
+      "foregroundApp": null,
+      "elementCount": 0,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid action JSON after retry: tap requires coordinates [x, y]"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 2357,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 6,
+      "timestamp": "2026-02-17T10:08:29.424Z",
+      "foregroundApp": null,
+      "elementCount": 0,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid action JSON after retry: tap requires coordinates [x, y]"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 2618,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 7,
+      "timestamp": "2026-02-17T10:08:39.642Z",
+      "foregroundApp": null,
+      "elementCount": 0,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid action JSON after retry: tap requires coordinates [x, y]"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 2896,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 8,
+      "timestamp": "2026-02-17T10:08:49.864Z",
+      "foregroundApp": null,
+      "elementCount": 0,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid action JSON after retry: tap requires coordinates [x, y]"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 3088,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 9,
+      "timestamp": "2026-02-17T10:09:00.118Z",
+      "foregroundApp": null,
+      "elementCount": 0,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid action JSON after retry: tap requires coordinates [x, y]"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 3276,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 10,
+      "timestamp": "2026-02-17T10:09:10.516Z",
+      "foregroundApp": null,
+      "elementCount": 0,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid action JSON after retry: tap requires coordinates [x, y]"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 3539,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 11,
+      "timestamp": "2026-02-17T10:09:21.100Z",
+      "foregroundApp": null,
+      "elementCount": 0,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid action JSON after retry: tap requires coordinates [x, y]"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 3684,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 12,
+      "timestamp": "2026-02-17T10:09:31.696Z",
+      "foregroundApp": null,
+      "elementCount": 0,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid action JSON after retry: tap requires coordinates [x, y]"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 3674,
+      "actionLatencyMs": 2000
+    }
+  ]
+}

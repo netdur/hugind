@@ -8,13 +8,14 @@ use std::{
 pub struct JsRuntime {
     _runtime: AsyncRuntime,
     context: AsyncContext,
-    agent_root: PathBuf,
+    module_root: PathBuf,
     logger: Option<crate::shared::logging::RunLogger>,
 }
 
 impl JsRuntime {
     pub async fn new(
-        agent_root: PathBuf,
+        module_root: PathBuf,
+        fs_root: PathBuf,
         config: &crate::core::config::agent::AgentConfig,
         logger: Option<crate::shared::logging::RunLogger>,
     ) -> rquickjs::Result<Self> {
@@ -23,17 +24,17 @@ impl JsRuntime {
 
         runtime.set_loader(
             LocalOnlyResolver {
-                root: agent_root.clone(),
+                root: module_root.clone(),
             },
             rquickjs::loader::ScriptLoader::default(),
         ).await;
 
-        install_globals(&context, config, &agent_root, logger.clone()).await?;
+        install_globals(&context, config, &fs_root, logger.clone()).await?;
 
         Ok(Self {
             _runtime: runtime,
             context,
-            agent_root,
+            module_root,
             logger,
         })
     }
@@ -43,7 +44,7 @@ impl JsRuntime {
             .canonicalize()
             .map_err(|e| Error::new_loading_message(entry.display().to_string(), e.to_string()))?;
 
-        if !entry.starts_with(&self.agent_root) {
+        if !entry.starts_with(&self.module_root) {
             return Err(Error::new_loading_message(
                 entry.display().to_string(),
                 "entry escapes agent root".to_string(),

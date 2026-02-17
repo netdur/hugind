@@ -1,0 +1,245 @@
+{
+  "sessionId": "1771324502305-nekyby",
+  "goal": "Open SMS app, find contact Loubna, open the chat, type message 'BB', and stop before sending.",
+  "startTime": "2026-02-17T10:35:02.305Z",
+  "endTime": "2026-02-17T10:38:27.440Z",
+  "totalSteps": 14,
+  "successCount": 14,
+  "failCount": 0,
+  "completed": false,
+  "steps": [
+    {
+      "step": 1,
+      "timestamp": "2026-02-17T10:35:15.398Z",
+      "foregroundApp": null,
+      "elementCount": 25,
+      "screenChanged": true,
+      "llmDecision": {
+        "action": "launch"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Launched com.android.mms"
+      },
+      "llmLatencyMs": 2492,
+      "actionLatencyMs": 8112
+    },
+    {
+      "step": 2,
+      "timestamp": "2026-02-17T10:35:25.324Z",
+      "foregroundApp": null,
+      "elementCount": 25,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 3418,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 3,
+      "timestamp": "2026-02-17T10:35:44.583Z",
+      "foregroundApp": null,
+      "elementCount": 25,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "switch_app"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Switched to com.android.mms"
+      },
+      "llmLatencyMs": 5162,
+      "actionLatencyMs": 8112
+    },
+    {
+      "step": 4,
+      "timestamp": "2026-02-17T10:35:59.036Z",
+      "foregroundApp": null,
+      "elementCount": 25,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 6501,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 5,
+      "timestamp": "2026-02-17T10:36:13.331Z",
+      "foregroundApp": null,
+      "elementCount": 25,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "home"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Went home"
+      },
+      "llmLatencyMs": 8357,
+      "actionLatencyMs": 95
+    },
+    {
+      "step": 6,
+      "timestamp": "2026-02-17T10:36:29.174Z",
+      "foregroundApp": null,
+      "elementCount": 25,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid decision format (missing action). Raw: {\n  \"id\": \"87678767876787678767\",\n  \"name\": \"Bilal A. K.\",\n  \"contact\": {\n    \"email\": \"bilal@example.com\",\n    \"phone\": \"+91 1234567890\"\n  },\n  \"role\": \"Sales "
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 7876,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 7,
+      "timestamp": "2026-02-17T10:36:44.933Z",
+      "foregroundApp": null,
+      "elementCount": 25,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid decision format (missing action). Raw: {\n  \"id\": \"87678767876787678767\",\n  \"name\": \"Bilal A. K.\",\n  \"contact\": {\n    \"email\": \"bilal@example.com\",\n    \"phone\": \"+91 1234567890\"\n  },\n  \"role\": \"Sales "
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 7919,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 8,
+      "timestamp": "2026-02-17T10:37:00.853Z",
+      "foregroundApp": null,
+      "elementCount": 25,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid decision format (missing action). Raw: {\n  \"id\": \"87678767876787678767\",\n  \"name\": \"Bilal A. K.\",\n  \"contact\": {\n    \"email\": \"bilal@example.com\",\n    \"phone\": \"+91 1234567890\"\n  },\n  \"role\": \"Sales "
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 7964,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 9,
+      "timestamp": "2026-02-17T10:37:09.313Z",
+      "foregroundApp": null,
+      "elementCount": 25,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid decision format (missing action). Raw: {\n  \"error\": \"error message\"\n}\n"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 547,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 10,
+      "timestamp": "2026-02-17T10:37:25.118Z",
+      "foregroundApp": null,
+      "elementCount": 25,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid decision format (missing action). Raw: {\n  \"id\": \"87678767876787678767\",\n  \"name\": \"Bilal A. K.\",\n  \"contact\": {\n    \"email\": \"bilal@example.com\",\n    \"phone\": \"+91 1234567890\"\n  },\n  \"role\": \"Sales "
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 7949,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 11,
+      "timestamp": "2026-02-17T10:38:00.032Z",
+      "foregroundApp": null,
+      "elementCount": 25,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid decision format (missing action). Raw: {\n  \"id\": \"87678767876787678767\",\n  \"name\": \"Bilal A. K.\",\n  \"contact\": {\n    \"email\": \"bilal@example.com\",\n    \"phone\": \"+91 1234567890\"\n  },\n  \"role\": \"Sales "
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 26975,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 12,
+      "timestamp": "2026-02-17T10:38:08.530Z",
+      "foregroundApp": null,
+      "elementCount": 25,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid decision format (missing action). Raw: {\n  \"error\": \"error message\"\n}\n"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 549,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 13,
+      "timestamp": "2026-02-17T10:38:17.001Z",
+      "foregroundApp": null,
+      "elementCount": 25,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid decision format (missing action). Raw: {\n  \"error\": \"error message\"\n}\n"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 554,
+      "actionLatencyMs": 2000
+    },
+    {
+      "step": 14,
+      "timestamp": "2026-02-17T10:38:25.440Z",
+      "foregroundApp": null,
+      "elementCount": 25,
+      "screenChanged": false,
+      "llmDecision": {
+        "action": "wait",
+        "reason": "Invalid decision format (missing action). Raw: {\n  \"error\": \"error message\"\n}\n"
+      },
+      "actionResult": {
+        "success": true,
+        "message": "Waited 2s"
+      },
+      "llmLatencyMs": 554,
+      "actionLatencyMs": 2000
+    }
+  ]
+}
