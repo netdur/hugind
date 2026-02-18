@@ -264,9 +264,11 @@ fn kill_by_port(port: u16) -> Result<Vec<i32>> {
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
+    let self_pid = std::process::id() as i32;
     let pids: Vec<i32> = stdout
         .lines()
         .filter_map(|line| line.trim().parse::<i32>().ok())
+        .filter(|pid| *pid != self_pid)
         .collect();
 
     if pids.is_empty() {

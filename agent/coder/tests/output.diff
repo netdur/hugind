@@ -1,0 +1,21 @@
+diff --git a/src/login/LoginForm.js b/src/login/LoginForm.js
+--- a/src/login/LoginForm.js
++++ b/src/login/LoginForm.js
+@@ -1,5 +1,6 @@
+ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+ import { loginRequest } from "../auth/api";
++import { showErrorDialog } from "../ui/dialog";
+ 
+ const Status = Object.freeze({
+   idle: "idle",
+@@ -72,6 +73,10 @@
+       // TASK will ask to add a proper error dialog here.
+       setStatus(Status.error);
+       setServerHint(e && e.message ? e.message : "Login failed");
++      showErrorDialog({
++        title: "Login failed",
++        message: e && e.message ? e.message : "Login failed. Please try again."
++      });
+     }
+   }, [username, password, onLogin]);
+ 

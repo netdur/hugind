@@ -79,7 +79,10 @@ pub async fn execute_with_result(
     println!("Server is up. Starting agent...");
 
     let initial_data = serde_json::json!({
-        "args": args_vec
+        "args": args_vec,
+        "meta": {
+            "session": config.runtime_session.clone(),
+        }
     });
 
     let run_result = if entry_path.extension().and_then(|s| s.to_str()) == Some("wasm") {
@@ -107,10 +110,9 @@ pub async fn execute_with_result(
         }
     }
 
-    let output = run_result?;
-
     cleanup_fresh_session(&backend, &config).await;
 
+    let output = run_result?;
     Ok(output)
 }
 
@@ -152,6 +154,7 @@ async fn run_workflow(workflow: crate::core::config::workflow::WorkflowConfig, r
                     Err(err) => l.log_line(format!("agent.run.complete status=error error={}", err)),
                 }
             }
+            cleanup_fresh_session(&backend, &config).await;
             last_output = res?;
         } else {
             let js = JsRuntime::new(agent_dir.clone(), agent_dir.clone(), &config, logger.clone())
@@ -168,10 +171,9 @@ async fn run_workflow(workflow: crate::core::config::workflow::WorkflowConfig, r
                     Err(err) => l.log_line(format!("agent.run.complete status=error error={}", err)),
                 }
             }
+            cleanup_fresh_session(&backend, &config).await;
             last_output = res?;
         }
-
-        cleanup_fresh_session(&backend, &config).await;
     }
 
     println!("Workflow completed.");
@@ -189,8 +191,17 @@ async fn cleanup_fresh_session(backend: &ResolvedBackend, config: &crate::core::
     };
     let url = format!("{}/state/{}", backend.base_url.trim_end_matches('/'), id);
     let client = reqwest::Client::new();
-    if let Err(e) = client.delete(&url).send().await.and_then(|r| r.error_for_status()) {
-        eprintln!("Warning: failed to delete session {}: {}", id, e);
+    match client.delete(&url).send().await {
+        Ok(resp) => {
+            let status = resp.status();
+            if status.is_success() || status == reqwest::StatusCode::NOT_FOUND {
+                return;
+            }
+            eprintln!("Warning: failed to delete session {}: HTTP {}", id, status);
+        }
+        Err(e) => {
+            eprintln!("Warning: failed to delete session {}: {}", id, e);
+        }
     }
 }
 

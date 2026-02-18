@@ -1,0 +1,27 @@
+name: "coder_merger"
+version: "0.1.0"
+description: "Stages, commits with an LLM-generated message, and merges a worktree branch into a repo."
+author: "hugind"
+license: "MIT"
+hugind_version: ">=0.6.0"
+entry_point: "main.js"
+backend:
+  url: "http://127.0.0.1:8080/v1"
+  session:
+    mode: fresh
+permissions:
+  network:
+    allow: false
+  filesystem:
+    allow: true
+    read: true
+    write: true
+    create: true
+    allow_outside_agent_root: true
+  shell:
+    allow: true
+    whitelist:
+      - "git"
+dependencies:
+  mcp: []
+env: []

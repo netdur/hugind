@@ -1,0 +1,26 @@
+name: "coder_patcher"
+version: "0.1.0"
+description: "Applies a unified diff patch to a project workspace."
+author: "hugind"
+license: "MIT"
+hugind_version: ">=0.6.0"
+entry_point: "main.js"
+backend:
+  url: "http://127.0.0.1:8080/v1"
+  session:
+    mode: fresh
+permissions:
+  network:
+    allow: false
+  filesystem:
+    allow: true
+    read: true
+    write: true
+    create: true
+    delete: true
+    allow_outside_agent_root: true
+  shell:
+    allow: false
+dependencies:
+  mcp: []
+env: []

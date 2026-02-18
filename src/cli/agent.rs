@@ -12,7 +12,11 @@ use crate::shared::paths;
 
 pub async fn run(path: String, cwd: Option<String>, args_vec: Vec<String>) -> Result<()> {
     let resolved = resolve_agent_path(&path)?;
-    let resolved_args = resolve_args_paths(args_vec)?;
+    let resolved_args = if cwd.is_some() {
+        args_vec
+    } else {
+        resolve_args_paths(args_vec)?
+    };
     crate::core::orchestrator::execute(resolved, resolved_args, cwd).await
 }
 

@@ -2,6 +2,7 @@ use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use tokio::io::{self, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader, BufWriter};
 use tokio::sync::mpsc;
 
@@ -289,10 +290,8 @@ async fn dispatch_method(method: &str, params: Option<JsonValue>, mode: EventMod
         }
         "server.start" => {
             let params: ServerStartParams = parse_params(params)?;
-            tokio::spawn(async move {
-                let _ = crate::cli::server::run_start(params.config, params.port).await;
-            });
-            Ok(serde_json::to_value(ServerStartResult { status: "starting".to_string() })?)
+            let result = start_server(params)?;
+            Ok(serde_json::to_value(result)?)
         }
         _ => Err(anyhow!("Unknown method {}", method)),
     }
@@ -1356,6 +1355,22 @@ struct ServerStartResult {
     status: String,
 }
 
+fn start_server(params: ServerStartParams) -> Result<ServerStartResult> {
+    let exe = std::env::current_exe().with_context(|| "Failed to resolve current executable path")?;
+    let mut cmd = Command::new(exe);
+    cmd.arg("server").arg("start").arg(params.config);
+    if let Some(port) = params.port {
+        cmd.arg("--port").arg(port.to_string());
+    }
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::null());
+    cmd.stderr(Stdio::null());
+    cmd.spawn().with_context(|| "Failed to spawn detached server process")?;
+    Ok(ServerStartResult {
+        status: "starting".to_string(),
+    })
+}
+
 async fn list_servers() -> Result<Vec<ServerItem>> {
     let config_dir = paths::configs_dir();
     if !config_dir.exists() {
@@ -1470,9 +1485,11 @@ fn kill_by_port(port: u16) -> Result<Vec<i32>> {
         return Ok(Vec::new());
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
+    let self_pid = std::process::id() as i32;
     let pids: Vec<i32> = stdout
         .lines()
         .filter_map(|line| line.trim().parse::<i32>().ok())
+        .filter(|pid| *pid != self_pid)
         .collect();
     if pids.is_empty() {
         return Ok(Vec::new());
