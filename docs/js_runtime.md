@@ -111,6 +111,18 @@ Arguments are passed exactly as provided.
 - `blacklist` blocks if present.
 - `timeout`, `max_output`, `env_clear`, and `working_dir` are applied.
 
+### `tools.list() -> Promise<string>`
+
+Returns a JSON string array of MCP tools available to the agent.
+
+### `tools.call(name: string, args: object) -> Promise<string>`
+
+Calls an MCP tool by name and returns the tool result as a JSON string.
+
+Tool naming:
+- When multiple MCP servers are configured, use `server:tool`.
+- With a single MCP server, unqualified `tool` is accepted.
+
 ### `fs.*` (host filesystem API)
 
 Host filesystem calls are gated by `permissions.filesystem` and

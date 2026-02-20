@@ -122,6 +122,39 @@ export default async function main(input) {
     };
   }
 
+  function parseContextPaths(rawText) {
+    let doc;
+    try {
+      doc = JSON.parse(String(rawText || ""));
+    } catch (e) {
+      throw new Error(`invalid context JSON: ${String(e)}`);
+    }
+
+    const ordered = [];
+    const seen = {};
+
+    function pushPath(rawPath) {
+      const p = String(rawPath || "").trim();
+      if (!p || seen[p]) return;
+      seen[p] = true;
+      ordered.push(p);
+    }
+
+    const targetFiles = Array.isArray(doc && doc.target_files) ? doc.target_files : [];
+    const supportingFiles = Array.isArray(doc && doc.supporting_files) ? doc.supporting_files : [];
+
+    for (let i = 0; i < targetFiles.length; i += 1) {
+      const item = targetFiles[i] || {};
+      pushPath(item.path);
+    }
+    for (let i = 0; i < supportingFiles.length; i += 1) {
+      const item = supportingFiles[i] || {};
+      pushPath(item.path);
+    }
+
+    return ordered;
+  }
+
   try {
     const sessionMeta = input && input.meta && input.meta.session ? input.meta.session : null;
     if (sessionMeta) {
@@ -163,12 +196,14 @@ export default async function main(input) {
     const issuePath = opts.issue ? joinPath(cwd, opts.issue) : "";
     const outputPath = joinPath(cwd, opts.output);
     const projectRoot = joinPath(cwd, opts.project || ".");
+    const contextPath = opts.context ? joinPath(cwd, opts.context) : "";
     result.output_diff_path = outputPath;
 
     print(`[coder] host_cwd=${hostCwd}`);
     print(`[coder] cwd=${cwd}`);
     print(`[coder] task=${taskPath}`);
     if (issuePath) print(`[coder] issue=${issuePath}`);
+    if (contextPath) print(`[coder] context=${contextPath}`);
     print(`[coder] output=${outputPath}`);
     print(`[coder] project=${projectRoot}`);
 
@@ -203,6 +238,13 @@ export default async function main(input) {
       result.audit = audit;
       return finish(result);
     }
+    if (contextPath && (!fs.exists(contextPath) || !fs.is_file(contextPath))) {
+      result.status = "failed";
+      result.summary = "Context file not found";
+      result.errors.push(`context file missing: ${contextPath}`);
+      result.audit = audit;
+      return finish(result);
+    }
 
     noteRead(taskPath);
     const taskText = safeReadText(taskPath);
@@ -230,6 +272,46 @@ export default async function main(input) {
     const priorErrors = [];
     const history = [];
     let edits = null;
+
+    if (contextPath) {
+      noteRead(contextPath);
+      let contextPaths;
+      try {
+        contextPaths = parseContextPaths(safeReadText(contextPath));
+      } catch (e) {
+        result.status = "failed";
+        result.summary = "Invalid context file";
+        result.errors.push(String(e));
+        result.audit = audit;
+        return finish(result);
+      }
+
+      let seeded = 0;
+      for (let i = 0; i < contextPaths.length; i += 1) {
+        if (knownFiles.length >= opts.maxFiles) break;
+        const rawPath = contextPaths[i];
+        const resolved = resolveModelPath(projectRoot, cwd, rawPath, { requireExistingFile: true });
+        if (!resolved.ok) {
+          priorErrors.push(`context path outside project rejected: ${rawPath}`);
+          continue;
+        }
+        const absPath = resolved.absPath;
+        if (!fs.exists(absPath) || !fs.is_file(absPath)) {
+          priorErrors.push(`context path missing or not file: ${rawPath}`);
+          continue;
+        }
+        const relPath = toRepoRelative(cwd, absPath);
+        if (knownFileMap[relPath]) continue;
+
+        const content = safeReadText(absPath);
+        noteRead(absPath);
+        knownFileMap[relPath] = true;
+        knownFiles.push({ relPath, content });
+        seeded += 1;
+      }
+      history.push(`seed_context_loaded=${seeded}`);
+      if (opts.debugLlm) print(`[coder] seeded context files=${seeded}`);
+    }
 
     const maxTurns = Math.max(3, opts.maxIters * 3);
     let turn = 0;

@@ -83,6 +83,9 @@ pub enum AgentCommand {
         
         #[arg(long)]
         cwd: Option<String>,
+
+        #[arg(long)]
+        log_file: Option<String>,
         
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,

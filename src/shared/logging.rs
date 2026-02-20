@@ -1,6 +1,6 @@
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -35,6 +35,17 @@ pub fn create_agent_logger(agent_name: &str) -> Result<RunLogger> {
 
     let ts = Utc::now().format("%Y%m%d_%H%M%S%.3f");
     let path = dir.join(format!("{}.txt", ts));
+    create_logger_at_path(path)
+}
+
+pub fn create_agent_logger_at(path: impl AsRef<Path>) -> Result<RunLogger> {
+    create_logger_at_path(path.as_ref().to_path_buf())
+}
+
+fn create_logger_at_path(path: PathBuf) -> Result<RunLogger> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     let file = OpenOptions::new()
         .create(true)
         .append(true)

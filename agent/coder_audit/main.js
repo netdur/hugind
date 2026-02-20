@@ -1,5 +1,5 @@
 function usage() {
-  print("Usage: hugind agent run agent/coder_audit -- --task <path> --issue <path> --diff <path> --project <path> [--cwd <path>] [--debug]");
+  print("Usage: hugind agent run agent/coder_audit -- --task <path> --issue <path> --diff <path> --project <path> [--context <path>] [--cwd <path>] [--debug]");
 }
 
 function finish(result) {
@@ -99,6 +99,7 @@ function parseCliArgs(rawArgs) {
     issue: "",
     diff: "",
     project: ".",
+    context: "",
     cwd: "",
     maxIters: 3,
     maxFiles: 20,
@@ -132,7 +133,7 @@ function parseCliArgs(rawArgs) {
       continue;
     }
 
-    if (token === "--task" || token === "--issue" || token === "--diff" || token === "--project" || token === "--cwd") {
+    if (token === "--task" || token === "--issue" || token === "--diff" || token === "--project" || token === "--context" || token === "--cwd") {
       const value = args[i + 1];
       if (value === undefined || String(value).startsWith("--")) {
         errors.push(`missing value for ${token}`);
@@ -143,6 +144,7 @@ function parseCliArgs(rawArgs) {
       if (token === "--issue") setSingle("issue", value, token);
       if (token === "--diff") setSingle("diff", value, token);
       if (token === "--project") setSingle("project", value, token);
+      if (token === "--context") setSingle("context", value, token);
       if (token === "--cwd") setSingle("cwd", value, token);
       i += 2;
       continue;
@@ -372,6 +374,36 @@ function buildAuditPrompt(params) {
   ].join("\n");
 }
 
+function parseContextPaths(rawText) {
+  let doc;
+  try {
+    doc = JSON.parse(String(rawText || ""));
+  } catch (e) {
+    throw new Error(`invalid context JSON: ${String(e)}`);
+  }
+
+  const ordered = [];
+  const seen = {};
+  function pushPath(rawPath) {
+    const p = String(rawPath || "").trim();
+    if (!p || seen[p]) return;
+    seen[p] = true;
+    ordered.push(p);
+  }
+
+  const targetFiles = Array.isArray(doc && doc.target_files) ? doc.target_files : [];
+  const supportingFiles = Array.isArray(doc && doc.supporting_files) ? doc.supporting_files : [];
+
+  for (let i = 0; i < targetFiles.length; i += 1) {
+    pushPath((targetFiles[i] || {}).path);
+  }
+  for (let i = 0; i < supportingFiles.length; i += 1) {
+    pushPath((supportingFiles[i] || {}).path);
+  }
+
+  return ordered;
+}
+
 export default async function main(input) {
   const result = {
     status: "failed",
@@ -422,6 +454,7 @@ export default async function main(input) {
     const issuePath = joinPath(cwd, opts.issue);
     const diffPath = joinPath(cwd, opts.diff);
     const projectRoot = joinPath(cwd, opts.project || ".");
+    const contextPath = opts.context ? joinPath(cwd, opts.context) : "";
 
     result.issue_path = issuePath;
 
@@ -432,6 +465,7 @@ export default async function main(input) {
       print(`[coder_audit] issue=${issuePath}`);
       print(`[coder_audit] diff=${diffPath}`);
       print(`[coder_audit] project=${projectRoot}`);
+      if (contextPath) print(`[coder_audit] context=${contextPath}`);
     }
 
     if (!fs.exists(cwd) || !fs.is_dir(cwd)) {
@@ -452,6 +486,11 @@ export default async function main(input) {
     if (!fs.exists(diffPath) || !fs.is_file(diffPath)) {
       result.summary = "Diff file not found";
       result.errors.push(`diff file missing: ${diffPath}`);
+      return finish(result);
+    }
+    if (contextPath && (!fs.exists(contextPath) || !fs.is_file(contextPath))) {
+      result.summary = "Context file not found";
+      result.errors.push(`context file missing: ${contextPath}`);
       return finish(result);
     }
 
@@ -476,6 +515,44 @@ export default async function main(input) {
     const knownFiles = [];
     const history = [];
     const priorErrors = [];
+
+    if (contextPath) {
+      noteRead(contextPath);
+      let contextPaths;
+      try {
+        contextPaths = parseContextPaths(fs.read_text(contextPath));
+      } catch (e) {
+        result.summary = "Invalid context file";
+        result.errors.push(String(e));
+        return finish(result);
+      }
+
+      let seeded = 0;
+      for (let i = 0; i < contextPaths.length; i += 1) {
+        if (knownFiles.length >= opts.maxFiles) break;
+        const rawPath = contextPaths[i];
+        const resolved = resolveProjectPath(projectRoot, cwd, rawPath);
+        if (!resolved.ok) {
+          priorErrors.push(`context path rejected: ${rawPath}`);
+          continue;
+        }
+        const absPath = resolved.absPath;
+        if (!fs.exists(absPath) || !fs.is_file(absPath)) {
+          priorErrors.push(`context path missing or not file: ${rawPath}`);
+          continue;
+        }
+        const relPath = toRepoRelative(cwd, absPath);
+        if (knownFileMap[relPath]) continue;
+
+        const content = fs.read_text(absPath);
+        noteRead(absPath);
+        knownFiles.push({ relPath, content });
+        knownFileMap[relPath] = true;
+        seeded += 1;
+      }
+      history.push(`seed_context_loaded=${seeded}`);
+      if (opts.debug) print(`[coder_audit] seeded context files=${seeded}`);
+    }
 
     const maxTurns = Math.max(2, opts.maxIters * 2);
     let turn = 0;

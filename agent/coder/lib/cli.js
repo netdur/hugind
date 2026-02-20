@@ -9,6 +9,7 @@ export function parseCliArgs(rawArgs) {
     issue: "",
     output: "",
     project: ".",
+    context: "",
     cwd: "",
     checks: [],
     maxIters: 3,
@@ -44,7 +45,7 @@ export function parseCliArgs(rawArgs) {
       continue;
     }
 
-    if (token === "--task" || token === "--issue" || token === "--output" || token === "--project" || token === "--cwd") {
+    if (token === "--task" || token === "--issue" || token === "--output" || token === "--project" || token === "--context" || token === "--cwd") {
       const value = args[i + 1];
       if (value === undefined || String(value).startsWith("--")) {
         errors.push(`missing value for ${token}`);
@@ -55,6 +56,7 @@ export function parseCliArgs(rawArgs) {
       if (token === "--issue") setSingle("issue", value, token);
       if (token === "--output") setSingle("output", value, token);
       if (token === "--project") setSingle("project", value, token);
+      if (token === "--context") setSingle("context", value, token);
       if (token === "--cwd") setSingle("cwd", value, token);
       i += 2;
       continue;

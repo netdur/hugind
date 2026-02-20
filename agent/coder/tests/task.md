@@ -1,7 +1,5 @@
 # Task: Add error dialog on login failure
 
-Target module: `src/login/LoginForm.js`
-
 ## Objective
 When login fails (the `catch` path in `submit()`), show a user-facing error dialog.
 

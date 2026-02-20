@@ -108,6 +108,26 @@ Executes a shell command using `permissions.shell`:
 
 On macOS, commands are run via `sandbox-exec` with a minimal profile.
 
+### `hugind.tools_list() -> string`
+
+Returns a JSON array of MCP tools available to the agent. Each entry includes
+server-qualified tool name, description, and input schema when provided.
+
+If no MCP dependencies are configured, returns `[]`.
+
+### `hugind.tools_call(request_json) -> string`
+
+Calls an MCP tool and returns the MCP result as a JSON string.
+
+`request_json` must be JSON with shape:
+
+```json
+{"name":"server:tool","args":{}}
+```
+
+If only one MCP server is configured, unqualified names are accepted (same
+resolution behavior as JS runtime tools).
+
 ### `hugind_fs.*`
 
 Host filesystem calls (gated by `permissions.filesystem` and `runtime_fs_mode`):

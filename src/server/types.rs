@@ -167,6 +167,12 @@ pub struct StateIdleRequest {
     pub session_id: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct StateStatusResponse {
+    pub session_id: String,
+    pub exists: bool,
+}
+
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct EmbeddingRequest {

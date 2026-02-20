@@ -12,8 +12,10 @@ use futures::StreamExt;
 use crate::core::config::agent::{AgentConfig, NetPermissions, ShellPermission, RuntimeFsMode};
 use crate::core::fs::FsAccess;
 use crate::core::config::backend::resolve_backend;
+use crate::core::mcp::McpManager;
 use crate::core::runtime::util::{is_private_ip, parse_duration_string, parse_memory_string};
 use crate::shared::logging::RunLogger;
+use std::sync::Arc;
 
 struct HostState {
     args_json: String,
@@ -259,12 +261,17 @@ impl WasmRuntime {
         let module = Module::from_file(&self.engine, &entry)
             .with_context(|| format!("failed to load wasm module: {}", entry.display()))?;
 
+        let mcp_manager = McpManager::new(&self.config)
+            .await
+            .map_err(|e| anyhow!("MCP Error: {}", e))?
+            .map(Arc::new);
+
         let mut linker = Linker::new(&self.engine);
         
         
         wasmtime_wasi::preview2::preview1::add_to_linker_async(&mut linker)?;
 
-        Self::link_host_functions(&mut linker)?;
+        Self::link_host_functions(&mut linker, mcp_manager)?;
 
         let instance = linker
             .instantiate_async(&mut store, &module)
@@ -300,7 +307,10 @@ impl WasmRuntime {
         Ok(result)
     }
 
-    fn link_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
+    fn link_host_functions(
+        linker: &mut Linker<HostState>,
+        mcp_manager: Option<Arc<McpManager>>,
+    ) -> Result<()> {
         linker.func_wrap("env", "abort", |caller: Caller<'_, HostState>, _msg: i32, _file: i32, line: i32, col: i32| -> Result<()> {
             log_host(&caller, format!("host.sys.abort line={} col={}", line, col));
             eprintln!("Guest Error: abort() called at line {}:{}", line, col);
@@ -866,6 +876,59 @@ impl WasmRuntime {
             },
         )?;
 
+        let tools_list_manager = mcp_manager.clone();
+        linker.func_wrap0_async(
+            "hugind",
+            "tools_list",
+            move |mut caller: Caller<'_, HostState>| {
+                let tools_list_manager = tools_list_manager.clone();
+                Box::new(async move {
+                    log_host(&caller, "host.tools.list");
+                    let tools = match &tools_list_manager {
+                        Some(m) => m.list_tools().await?,
+                        None => Vec::new(),
+                    };
+                    let json = serde_json::to_string(&tools)
+                        .map_err(|e| anyhow!("failed to serialize tools list: {}", e))?;
+                    let (out_ptr, out_len) = write_bytes_async(&mut caller, json.as_bytes()).await?;
+                    Ok(pack_ptr_len(out_ptr, out_len))
+                })
+            },
+        )?;
+
+        let tools_call_manager = mcp_manager.clone();
+        linker.func_wrap2_async(
+            "hugind",
+            "tools_call",
+            move |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| {
+                let tools_call_manager = tools_call_manager.clone();
+                Box::new(async move {
+                    let req_json = read_string(&mut caller, ptr, len)?;
+                    let req: ToolsCallInput = serde_json::from_str(&req_json)
+                        .map_err(|e| anyhow!("tools_call expects JSON {{name,args}}: {}", e))?;
+
+                    let mut args = req.args;
+                    if args.is_null() {
+                        args = serde_json::Value::Object(serde_json::Map::new());
+                    }
+                    let args_len = serde_json::to_string(&args).map(|s| s.len()).unwrap_or(0);
+                    log_host(
+                        &caller,
+                        format!("host.tools.call name={} args_len={}", req.name, args_len),
+                    );
+
+                    let manager = tools_call_manager
+                        .as_ref()
+                        .ok_or_else(|| anyhow!("No MCP tools configured"))?;
+                    let result = manager.call_tool(&req.name, args).await?;
+                    let json = serde_json::to_string(&result)
+                        .map_err(|e| anyhow!("failed to serialize tool result: {}", e))?;
+                    let (out_ptr, out_len) = write_bytes_async(&mut caller, json.as_bytes()).await?;
+                    Ok(pack_ptr_len(out_ptr, out_len))
+                })
+            },
+        )?;
+
         Self::link_fs_hostcalls(linker)?;
 
         Ok(())
@@ -1156,6 +1219,13 @@ fn extract_llm_content(body_text: &str) -> String {
     }
 
     body_text.to_string()
+}
+
+#[derive(serde::Deserialize)]
+struct ToolsCallInput {
+    name: String,
+    #[serde(default)]
+    args: serde_json::Value,
 }
 
 fn ensure_host_fs_enabled(caller: &Caller<'_, HostState>) -> Result<()> {

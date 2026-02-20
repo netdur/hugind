@@ -362,6 +362,42 @@ pub async fn idle_state(
     }
 }
 
+pub async fn get_state(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let sessions = state.kv_manager.sessions.read();
+    let available = if let Some(session) = sessions.get(&id) {
+        let has_vram = session.tier == crate::engine::kv_cache::CacheTier::Vram
+            && session.vram_seq_id.is_some();
+        let has_ram = session.ram_state.is_some();
+        let has_disk = session
+            .disk_path
+            .as_ref()
+            .is_some_and(|p| p.exists());
+        has_vram || has_ram || has_disk
+    } else {
+        false
+    };
+
+    if available {
+        Json(StateStatusResponse {
+            session_id: id,
+            exists: true,
+        })
+        .into_response()
+    } else {
+        (
+            StatusCode::NOT_FOUND,
+            Json(StateStatusResponse {
+                session_id: id,
+                exists: false,
+            }),
+        )
+            .into_response()
+    }
+}
+
 pub async fn delete_state(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,

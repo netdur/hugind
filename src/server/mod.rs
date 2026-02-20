@@ -46,7 +46,7 @@ pub async fn run_server(
         .route("/v1/monitor", get(routes::monitor))
         .route("/v1/state/save", post(routes::save_state))
         .route("/v1/state/idle", post(routes::idle_state))
-        .route("/v1/state/:id", axum::routing::delete(routes::delete_state))
+        .route("/v1/state/:id", get(routes::get_state).delete(routes::delete_state))
         .route("/v1/embeddings", post(routes::embeddings))
         
         

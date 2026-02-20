@@ -3,18 +3,24 @@ use crate::core::js::runtime::JsRuntime;
 use crate::core::wasm::runtime::WasmRuntime;
 use crate::core::config::backend::{prepare_backend, ResolvedBackend};
 use crate::core::config::agent::SessionMode;
-use crate::shared::logging::{create_agent_logger, RunLogger};
+use crate::shared::logging::{create_agent_logger, create_agent_logger_at, RunLogger};
 use semver::{Version, VersionReq};
 use std::path::Path;
 
-pub async fn execute(path: String, args_vec: Vec<String>, cwd_override: Option<String>) -> anyhow::Result<()> {
-    execute_with_result(path, args_vec, cwd_override).await.map(|_| ())
+pub async fn execute(
+    path: String,
+    args_vec: Vec<String>,
+    cwd_override: Option<String>,
+    log_file: Option<String>,
+) -> anyhow::Result<()> {
+    execute_with_result(path, args_vec, cwd_override, log_file).await.map(|_| ())
 }
 
 pub async fn execute_with_result(
     path: String,
     args_vec: Vec<String>,
     cwd_override: Option<String>,
+    log_file: Option<String>,
 ) -> anyhow::Result<serde_json::Value> {
     let target_path = PathBuf::from(&path).canonicalize().map_err(|e| {
         anyhow::anyhow!("Error resolving path {}: {}", path, e)
@@ -23,7 +29,13 @@ pub async fn execute_with_result(
     if target_path.is_file() && target_path.extension().and_then(|s| s.to_str()) == Some("yaml") {
         
         if let Ok(workflow) = crate::core::config::workflow::WorkflowConfig::load_from_file(&target_path) {
-            return run_workflow(workflow, target_path.parent().unwrap().to_path_buf(), args_vec).await;
+            return run_workflow(
+                workflow,
+                target_path.parent().unwrap().to_path_buf(),
+                args_vec,
+                log_file,
+            )
+            .await;
         }
     }
 
@@ -51,7 +63,7 @@ pub async fn execute_with_result(
         }
     }
 
-    let logger = init_agent_logger(&config, &agent_root);
+    let logger = init_agent_logger(&config, &agent_root, log_file.as_deref());
     if let Some(l) = &logger {
         let args_json = serde_json::to_string(&args_vec).unwrap_or_default();
         l.log_line(format!(
@@ -116,7 +128,12 @@ pub async fn execute_with_result(
     Ok(output)
 }
 
-async fn run_workflow(workflow: crate::core::config::workflow::WorkflowConfig, root: PathBuf, initial_args: Vec<String>) -> anyhow::Result<serde_json::Value> {
+async fn run_workflow(
+    workflow: crate::core::config::workflow::WorkflowConfig,
+    root: PathBuf,
+    initial_args: Vec<String>,
+    log_file: Option<String>,
+) -> anyhow::Result<serde_json::Value> {
     println!("Starting workflow: {}", workflow.name);
     
     let mut last_output = serde_json::json!({
@@ -127,7 +144,7 @@ async fn run_workflow(workflow: crate::core::config::workflow::WorkflowConfig, r
         println!("==> Step: {}", step.name);
         let agent_dir = root.join(&step.agent);
         let mut config = crate::core::config::agent::AgentConfig::load_from_dir(&agent_dir)?;
-        let logger = init_agent_logger(&config, &agent_dir);
+        let logger = init_agent_logger(&config, &agent_dir, log_file.as_deref());
         if let Some(l) = &logger {
             let args_json = serde_json::to_string(&last_output).unwrap_or_default();
             l.log_line(format!(
@@ -230,9 +247,14 @@ fn enforce_hugind_version(config: &crate::core::config::agent::AgentConfig) -> a
 fn init_agent_logger(
     config: &crate::core::config::agent::AgentConfig,
     agent_root: &Path,
+    log_file: Option<&str>,
 ) -> Option<RunLogger> {
     let name = log_agent_name(config, agent_root);
-    match create_agent_logger(&name) {
+    let logger_result = match log_file {
+        Some(path) => create_agent_logger_at(path),
+        None => create_agent_logger(&name),
+    };
+    match logger_result {
         Ok(logger) => Some(logger),
         Err(err) => {
             eprintln!("Warning: failed to initialize agent log: {}", err);

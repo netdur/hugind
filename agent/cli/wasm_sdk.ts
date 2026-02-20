@@ -21,6 +21,12 @@ declare function host_llm_chat_stream(ptr: i32, len: i32): i64;
 @external("hugind", "run_command")
 declare function host_run_command(ptr: i32, len: i32): i64;
 
+@external("hugind", "tools_list")
+declare function host_tools_list(): i64;
+
+@external("hugind", "tools_call")
+declare function host_tools_call(ptr: i32, len: i32): i64;
+
 @external("hugind", "get_args")
 declare function host_get_args(): i64;
 
@@ -138,6 +144,19 @@ export function llmChatStream(prompt: string): string {
 export function runCommand(cmd: string): string {
   const buf = String.UTF8.encode(cmd, false);
   const res = host_run_command(changetype<i32>(buf), buf.byteLength);
+  return readStringFromHost(res);
+}
+
+// Returns JSON array string of available tools.
+export function toolsList(): string {
+  return readStringFromHost(host_tools_list());
+}
+
+// requestJson shape: {"name":"server:tool","args":{...}}
+// Returns JSON string from MCP tools/call result.
+export function toolsCall(requestJson: string): string {
+  const buf = String.UTF8.encode(requestJson, false);
+  const res = host_tools_call(changetype<i32>(buf), buf.byteLength);
   return readStringFromHost(res);
 }
 

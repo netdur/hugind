@@ -43,6 +43,22 @@ invoke it for each streamed delta, letting the agent decide whether to print.
 
 Executes a shell command via `hugind.run_command` and returns the output.
 
+### `toolsList(): string`
+
+Returns a JSON string containing the MCP tools available to this agent.
+
+### `toolsCall(requestJson: string): string`
+
+Calls an MCP tool via `hugind.tools_call`.
+
+`requestJson` must look like:
+
+```json
+{"name":"server:tool","args":{}}
+```
+
+The return value is the tool result JSON string.
+
 ### `getArgsJson(): string`
 
 Returns the initial input JSON string (currently `{ "args": [...] }`).

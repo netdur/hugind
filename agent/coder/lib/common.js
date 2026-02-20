@@ -1,5 +1,5 @@
 export function usage() {
-  print("Usage: hugind agent run agent/coder -- --task <path> [--issue <path>] --output <path> [--project <path>] [--cwd <path>]");
+  print("Usage: hugind agent run agent/coder -- --task <path> [--issue <path>] --output <path> [--project <path>] [--context <path>] [--cwd <path>]");
 }
 
 export function finish(result) {

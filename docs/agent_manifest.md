@@ -135,6 +135,8 @@ Runtime note:
 - `hugind agent run --cwd <path>` overrides runtime filesystem root for that
   run. If `<path>` is outside the agent directory, this is only allowed when
   `allow_outside_agent_root` is `true`.
+- `hugind agent run --log-file <path>` writes runtime audit logs for that run
+  to the specified file path (instead of the default per-agent log location).
 
 ### `shell`
 
@@ -179,6 +181,12 @@ Tool names:
 JavaScript runtime:
 - A global `tools` object is available with async `list()` and `call(name, args)`.
 - Both methods return JSON strings (use `JSON.parse(...)`).
+
+WASM runtime:
+- Hostcalls `hugind.tools_list()` and `hugind.tools_call(request_json)` are
+  available.
+- `tools_call` expects JSON like `{"name":"server:tool","args":{...}}` and
+  returns JSON string output.
 
 ## `env` Section
 

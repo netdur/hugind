@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
-use tokio::sync::oneshot;
+use tokio::sync::{Mutex as AsyncMutex, oneshot};
 
 use crate::core::config::agent::AgentConfig;
 #[derive(Debug, Deserialize, Clone)]
@@ -122,7 +122,7 @@ struct ToolDescriptor {
 
 struct McpClient {
     name: String,
-    stdin: Arc<Mutex<ChildStdin>>,
+    stdin: Arc<AsyncMutex<ChildStdin>>,
     pending: Arc<Mutex<HashMap<u64, oneshot::Sender<serde_json::Value>>>>,
     next_id: AtomicU64,
     _child: Child,
@@ -160,7 +160,7 @@ impl McpClient {
 
         let client = Self {
             name: config.name.clone(),
-            stdin: Arc::new(Mutex::new(stdin)),
+            stdin: Arc::new(AsyncMutex::new(stdin)),
             pending,
             next_id: AtomicU64::new(1),
             _child: child,
@@ -251,7 +251,7 @@ impl McpClient {
 
     async fn send_message(&self, msg: &serde_json::Value) -> Result<()> {
         let line = serde_json::to_string(msg)?;
-        let mut stdin = self.stdin.lock().unwrap();
+        let mut stdin = self.stdin.lock().await;
         stdin.write_all(line.as_bytes()).await?;
         stdin.write_all(b"\n").await?;
         stdin.flush().await?;
