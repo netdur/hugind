@@ -60,6 +60,7 @@ Top-level fields:
 - `target_files`: ranked primary candidates
 - `supporting_files`: additional candidates
 - `recommendations`
+- `project.profile` (inferred framework/languages/architecture hints)
 
 Each entry in `target_files` / `supporting_files` includes:
 
@@ -77,6 +78,8 @@ Recommended downstream behavior:
 
 - enforce edits to `target_files` when confidence is `high` or `medium`
 - fail fast / request clarification when confidence is `low`
+- if `recommendations.likely_requires_new_files` is `true`, prefer creating new
+  feature files under `recommendations.suggested_new_file_roots`
 
 ## Example
 

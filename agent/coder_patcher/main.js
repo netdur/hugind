@@ -150,6 +150,10 @@ function parseUnifiedDiff(text) {
 
   while (i < lines.length) {
     const line = lines[i];
+    if (line.startsWith("diff --git ") || line.startsWith("index ")) {
+      i += 1;
+      continue;
+    }
     if (!line.startsWith("--- ")) {
       i += 1;
       continue;
@@ -179,7 +183,12 @@ function parseUnifiedDiff(text) {
 
       while (i < lines.length) {
         const hl = lines[i];
-        if (hl.startsWith("@@ ") || hl.startsWith("--- ")) break;
+        if (
+          hl.startsWith("@@ ") ||
+          hl.startsWith("--- ") ||
+          hl.startsWith("diff --git ") ||
+          hl.startsWith("index ")
+        ) break;
         if (hl === "") {
           // Allow blank separator lines between hunks/files.
           i += 1;

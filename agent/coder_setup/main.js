@@ -160,7 +160,11 @@ async function runGit(repo, args, audit) {
   const cmd = ["git", "-C", repo].concat(args);
   audit.commands_run.push(cmd.join(" "));
   const out = await spawn("git", ["-C", repo].concat(args));
-  return String(out || "").trim();
+  const text = String(out || "").trim();
+  if (text.startsWith("Error:")) {
+    throw new Error(`git command failed: ${cmd.join(" ")}\n${text}`);
+  }
+  return text;
 }
 
 function parseWorktreePorcelain(text) {
@@ -190,6 +194,32 @@ function parseWorktreePorcelain(text) {
   }
   if (cur) items.push(cur);
   return items;
+}
+
+function pathsEqual(a, b) {
+  return normalizePath(a) === normalizePath(b);
+}
+
+function findRegisteredWorktree(worktrees, expectedPath, branch) {
+  const byPath = worktrees.find((w) => pathsEqual(w.path, expectedPath));
+  if (byPath) return byPath;
+  const byBranch = worktrees.find((w) => w.branch === branch);
+  if (byBranch) return byBranch;
+  return null;
+}
+
+async function resolveRegisteredWorktreePath(repoPath, expectedPath, branch, audit) {
+  const wtText = await runGit(repoPath, ["worktree", "list", "--porcelain"], audit);
+  const worktrees = parseWorktreePorcelain(wtText);
+  const match = findRegisteredWorktree(worktrees, expectedPath, branch);
+  return match ? normalizePath(match.path) : normalizePath(expectedPath);
+}
+
+async function removeDirRecursive(path, audit) {
+  const target = normalizePath(path);
+  if (!fs.exists(target)) return;
+  audit.commands_run.push(`rm -rf ${target}`);
+  await spawn("rm", ["-rf", target]);
 }
 
 export default async function main(input) {
@@ -274,14 +304,43 @@ export default async function main(input) {
     await runGit(repoPath, ["rev-parse", "--is-inside-work-tree"], result.audit);
 
     if (opts.mode === "cleanup") {
-      if (fs.exists(worktreePath)) {
+      const wtBeforeText = await runGit(repoPath, ["worktree", "list", "--porcelain"], result.audit);
+      const wtBefore = parseWorktreePorcelain(wtBeforeText);
+      const registered = findRegisteredWorktree(wtBefore, worktreePath, branch);
+
+      if (registered) {
+        const rmArgs = ["worktree", "remove"];
+        if (opts.force) rmArgs.push("--force");
+        rmArgs.push(normalizePath(registered.path));
+        try {
+          await runGit(repoPath, rmArgs, result.audit);
+        } catch (e) {
+          result.errors.push(`worktree remove failed: ${String(e)}`);
+        }
+      } else if (fs.exists(worktreePath)) {
         const rmArgs = ["worktree", "remove"];
         if (opts.force) rmArgs.push("--force");
         rmArgs.push(worktreePath);
-        await runGit(repoPath, rmArgs, result.audit);
+        try {
+          await runGit(repoPath, rmArgs, result.audit);
+        } catch (e) {
+          result.errors.push(`worktree remove fallback failed: ${String(e)}`);
+        }
       }
 
       await runGit(repoPath, ["worktree", "prune"], result.audit);
+
+      if (fs.exists(worktreePath)) {
+        await removeDirRecursive(worktreePath, result.audit);
+      }
+
+      await runGit(repoPath, ["worktree", "prune"], result.audit);
+
+      if (fs.exists(worktreePath)) {
+        result.summary = "Cleanup incomplete";
+        result.errors.push(`worktree directory still exists: ${worktreePath}`);
+        return finish(result);
+      }
 
       if (opts.deleteBranch) {
         const delArgs = ["branch", "-D", branch];
@@ -331,6 +390,23 @@ export default async function main(input) {
         result.errors.push(`reused worktree on branch ${currentBranch} (expected ${branch})`);
       }
 
+      result.worktree_path = await resolveRegisteredWorktreePath(
+        repoPath,
+        worktreePath,
+        branch,
+        result.audit,
+      );
+      if (!pathsEqual(result.worktree_path, worktreePath)) {
+        // keep canonical registered path in result for callers
+      }
+      const verifyReuse = await runGit(repoPath, ["worktree", "list", "--porcelain"], result.audit);
+      const verifyReuseItems = parseWorktreePorcelain(verifyReuse);
+      if (!findRegisteredWorktree(verifyReuseItems, result.worktree_path, branch)) {
+        result.summary = "Reuse verification failed";
+        result.errors.push(`worktree is not registered after reuse: ${result.worktree_path}`);
+        return finish(result);
+      }
+
       result.status = "success";
       result.summary = "Reused existing worktree";
       return finish(result);
@@ -345,6 +421,20 @@ export default async function main(input) {
       await runGit(repoPath, ["worktree", "add", "-b", branch, worktreePath, baseRef], result.audit);
     } catch (e) {
       await runGit(repoPath, ["worktree", "add", worktreePath, branch], result.audit);
+    }
+
+    result.worktree_path = await resolveRegisteredWorktreePath(
+      repoPath,
+      worktreePath,
+      branch,
+      result.audit,
+    );
+    const verifyBuild = await runGit(repoPath, ["worktree", "list", "--porcelain"], result.audit);
+    const verifyBuildItems = parseWorktreePorcelain(verifyBuild);
+    if (!findRegisteredWorktree(verifyBuildItems, result.worktree_path, branch)) {
+      result.summary = "Build verification failed";
+      result.errors.push(`worktree is not registered after build: ${result.worktree_path}`);
+      return finish(result);
     }
 
     result.status = "success";

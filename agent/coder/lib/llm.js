@@ -1,3 +1,5 @@
+const DEFAULT_LLM_MAX_TOKENS = 8192;
+
 export function parseJsonObject(text) {
   if (text && typeof text === "object") return text;
   const raw = String(text || "").trim();
@@ -12,8 +14,21 @@ export function parseJsonObject(text) {
   throw new Error("response is not valid JSON object");
 }
 
-export async function llmJson(prompt, maxFixups) {
-  let raw = await llm.chat(prompt);
+function normalizeMaxTokens(maxTokens) {
+  const n = Number(maxTokens);
+  if (!Number.isFinite(n) || n < 1) return DEFAULT_LLM_MAX_TOKENS;
+  return Math.trunc(n);
+}
+
+async function chatJsonPrompt(prompt, maxTokens) {
+  return llm.chat({
+    prompt,
+    max_tokens: normalizeMaxTokens(maxTokens)
+  });
+}
+
+export async function llmJson(prompt, maxFixups, maxTokens) {
+  let raw = await chatJsonPrompt(prompt, maxTokens);
   const firstRaw = String(raw || "");
   try {
     return {
@@ -39,7 +54,7 @@ export async function llmJson(prompt, maxFixups) {
       firstRaw
     ].join("\n");
 
-    raw = await llm.chat(fixPrompt);
+    raw = await chatJsonPrompt(fixPrompt, maxTokens);
     const fixedRaw = String(raw || "");
     try {
       return {

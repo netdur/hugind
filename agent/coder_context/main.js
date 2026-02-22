@@ -365,6 +365,46 @@ function walkProjectFiles(projectRoot, maxScanFiles) {
   return { files: out, scannedDirs };
 }
 
+function buildProjectTreeProfile(rootPath, maxDepth, maxEntries) {
+  const depthLimit = Math.max(1, toInt(maxDepth, 4));
+  const entryLimit = Math.max(20, toInt(maxEntries, 280));
+  const lines = [];
+  let emitted = 0;
+  let truncated = false;
+
+  function pushLine(line) {
+    if (emitted >= entryLimit) {
+      truncated = true;
+      return false;
+    }
+    lines.push(line);
+    emitted += 1;
+    return true;
+  }
+
+  function walk(absPath, relPath, depth) {
+    if (depth > depthLimit) return;
+    if (!fs.exists(absPath) || !fs.is_dir(absPath)) return;
+
+    const names = listDirNames(absPath).sort();
+    for (let i = 0; i < names.length; i += 1) {
+      if (truncated) return;
+      const name = names[i];
+      if (!name || name === "." || name === "..") continue;
+      const childAbs = joinPath(absPath, name);
+      const childRel = relPath ? `${relPath}/${name}` : name;
+      const isDir = fs.is_dir(childAbs);
+      if (!pushLine(childRel + (isDir ? "/" : ""))) return;
+      if (isDir) walk(childAbs, childRel, depth + 1);
+    }
+  }
+
+  pushLine(".");
+  walk(rootPath, "", 1);
+  if (truncated) lines.push(`... (truncated at ${entryLimit} entries)`);
+  return lines.join("\n");
+}
+
 function getPathTokens(path) {
   const rel = String(path || "").toLowerCase();
   return rel.split(/[^a-z0-9]+/).filter(Boolean);
@@ -486,6 +526,261 @@ function nowIso() {
   }
 }
 
+const DEFAULT_LLM_MAX_TOKENS = 4096;
+
+function parseJsonObject(text) {
+  if (text && typeof text === "object") return text;
+  const raw = String(text || "").trim();
+  try {
+    return JSON.parse(raw);
+  } catch (_) {
+    const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fenced && fenced[1]) return JSON.parse(fenced[1].trim());
+  }
+  throw new Error("response is not valid JSON object");
+}
+
+function normalizeMaxTokens(maxTokens) {
+  const n = Number(maxTokens);
+  if (!Number.isFinite(n) || n < 1) return DEFAULT_LLM_MAX_TOKENS;
+  return Math.trunc(n);
+}
+
+async function chatJsonPrompt(prompt, maxTokens) {
+  return llm.chat({
+    prompt,
+    max_tokens: normalizeMaxTokens(maxTokens)
+  });
+}
+
+async function llmJson(prompt, maxFixups, maxTokens) {
+  let raw = await chatJsonPrompt(prompt, maxTokens);
+  try {
+    return parseJsonObject(raw);
+  } catch (firstErr) {
+    if (maxFixups <= 0) throw firstErr;
+    const fixPrompt = [
+      "Your previous response was invalid.",
+      "Return ONLY a valid JSON object. No markdown. No explanations.",
+      "Use the required schema exactly.",
+      "",
+      "Original prompt:",
+      prompt,
+      "",
+      "Previous invalid response:",
+      String(raw || "")
+    ].join("\n");
+    raw = await chatJsonPrompt(fixPrompt, maxTokens);
+    return parseJsonObject(raw);
+  }
+}
+
+function toStringArray(value, maxLen) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  for (let i = 0; i < value.length; i += 1) {
+    const s = String(value[i] || "").trim();
+    if (!s) continue;
+    out.push(s);
+    if (out.length >= (maxLen || 20)) break;
+  }
+  return unique(out);
+}
+
+function normalizeLlmHints(raw) {
+  const data = (raw && typeof raw === "object") ? raw : {};
+  return {
+    targetPaths: toStringArray(data.target_paths, 20),
+    pathHints: toStringArray(data.path_hints, 30),
+    symbolHints: toStringArray(data.symbol_hints, 30),
+    keywords: toStringArray(data.keywords, 60).map((v) => v.toLowerCase()),
+    framework: String(data.framework || "").trim().toLowerCase(),
+    architectureHints: toStringArray(data.architecture_hints, 12).map((v) => v.toLowerCase()),
+    newFileRoots: toStringArray(data.new_file_roots, 12),
+    reason: String(data.reason || "").trim()
+  };
+}
+
+function mergeSignals(base, llmHints) {
+  const merged = {
+    explicitTargets: unique([].concat(base.explicitTargets || [], llmHints.targetPaths || [])),
+    allowedPaths: unique(base.allowedPaths || []),
+    pathHints: unique([].concat(base.pathHints || [], llmHints.pathHints || [])),
+    symbolHints: unique([].concat(base.symbolHints || [], llmHints.symbolHints || [])),
+    keywords: unique([].concat(base.keywords || [], llmHints.keywords || [])).slice(0, 80)
+  };
+  return merged;
+}
+
+function buildLlmHintPrompt(taskText, treeProfile) {
+  return [
+    "You are helping rank likely code edit targets inside a single project directory.",
+    "Do not suggest paths outside the shown tree.",
+    "Return ONLY JSON with this exact schema:",
+    "{",
+    '  "target_paths": ["..."],',
+    '  "path_hints": ["..."],',
+    '  "symbol_hints": ["..."],',
+    '  "keywords": ["..."],',
+    '  "framework": "flutter|python|node|rust|go|java|kotlin|unknown",',
+    '  "architecture_hints": ["..."],',
+    '  "new_file_roots": ["..."],',
+    '  "reason": "..."',
+    "}",
+    "",
+    "Guidance:",
+    "- target_paths: existing likely files if they appear in tree.",
+    "- new_file_roots: likely directories/files to create when feature seems new.",
+    "- Keep lists short and precise.",
+    "",
+    "Task:",
+    String(taskText || "").slice(0, 6000),
+    "",
+    "Project tree:",
+    String(treeProfile || "").slice(0, 12000)
+  ].join("\n");
+}
+
+function slugFromText(text) {
+  const raw = String(text || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  if (!raw) return "feature";
+  const words = raw.split(/\s+/).filter((w) => w.length >= 3);
+  if (words.length === 0) return "feature";
+  return words.slice(0, 3).join("_");
+}
+
+function detectProjectProfile(projectRoot, files, noteRead, maxFileBytes, llmHints) {
+  const relFiles = [];
+  const relSet = {};
+  const extCount = {};
+  for (let i = 0; i < files.length; i += 1) {
+    const rel = toRepoRelative(projectRoot, files[i]);
+    relFiles.push(rel);
+    relSet[rel.toLowerCase()] = true;
+    const dot = rel.lastIndexOf(".");
+    const ext = dot >= 0 ? rel.slice(dot).toLowerCase() : "";
+    if (ext) extCount[ext] = Number(extCount[ext] || 0) + 1;
+  }
+
+  function has(relPath) {
+    return !!relSet[String(relPath || "").toLowerCase()];
+  }
+
+  let framework = "unknown";
+  if (has("pubspec.yaml") && Number(extCount[".dart"] || 0) > 0) framework = "flutter";
+  else if (has("package.json")) framework = "node";
+  else if (has("pyproject.toml") || has("requirements.txt") || Number(extCount[".py"] || 0) > 0) framework = "python";
+  else if (has("Cargo.toml") || Number(extCount[".rs"] || 0) > 0) framework = "rust";
+
+  const architectureHints = [];
+  const hasFeatureDir = relFiles.some((p) => p.toLowerCase().startsWith("lib/features/") || p.toLowerCase().startsWith("features/"));
+  if (hasFeatureDir) architectureHints.push("feature-first");
+
+  const hasDomain = relFiles.some((p) => p.toLowerCase().includes("/domain/") || p.toLowerCase().startsWith("domain/"));
+  const hasData = relFiles.some((p) => p.toLowerCase().includes("/data/") || p.toLowerCase().startsWith("data/"));
+  const hasPresentation = relFiles.some((p) => p.toLowerCase().includes("/presentation/") || p.toLowerCase().startsWith("presentation/"));
+  if (hasDomain && hasData && hasPresentation) architectureHints.push("clean-architecture");
+
+  if (relFiles.some((p) => p.toLowerCase().includes("viewmodel"))) architectureHints.push("mvvm");
+  if (relFiles.some((p) => p.toLowerCase().includes("bloc"))) architectureHints.push("bloc");
+
+  const docCandidates = relFiles.filter((p) => {
+    const lower = p.toLowerCase();
+    if (lower.endsWith(".md") || lower.endsWith(".txt")) return true;
+    if (lower.includes("architecture")) return true;
+    return false;
+  }).slice(0, 8);
+  for (let i = 0; i < docCandidates.length; i += 1) {
+    const abs = joinPath(projectRoot, docCandidates[i]);
+    try {
+      const statRaw = fs.stat(abs);
+      const stat = JSON.parse(String(statRaw || "{}"));
+      const size = Number(stat && stat.size ? stat.size : 0);
+      if (size <= 0 || size > maxFileBytes) continue;
+      const text = String(fs.read_text(abs) || "");
+      noteRead(abs);
+      if (/\bkiss\b/i.test(text)) {
+        architectureHints.push("kiss");
+        break;
+      }
+    } catch (_) {}
+  }
+
+  const languageMap = {
+    ".dart": "dart",
+    ".py": "python",
+    ".js": "javascript",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".jsx": "javascript",
+    ".kt": "kotlin",
+    ".java": "java",
+    ".rs": "rust",
+    ".go": "go",
+    ".swift": "swift",
+    ".cpp": "cpp",
+    ".c": "c"
+  };
+  const langPairs = [];
+  for (const ext in extCount) {
+    const lang = languageMap[ext];
+    if (!lang) continue;
+    langPairs.push({ lang, count: extCount[ext] });
+  }
+  langPairs.sort((a, b) => b.count - a.count || a.lang.localeCompare(b.lang));
+  const languages = unique(langPairs.map((v) => v.lang)).slice(0, 5);
+
+  let anchorOrder = ["README.md", "readme.md"];
+  if (framework === "flutter") {
+    anchorOrder = ["pubspec.yaml", "lib/main.dart", "lib/app.dart", "analysis_options.yaml", "README.md"];
+  } else if (framework === "python") {
+    anchorOrder = ["pyproject.toml", "requirements.txt", "main.py", "app.py", "README.md"];
+  } else if (framework === "node") {
+    anchorOrder = ["package.json", "src/index.ts", "src/index.js", "README.md"];
+  } else if (framework === "rust") {
+    anchorOrder = ["Cargo.toml", "src/main.rs", "src/lib.rs", "README.md"];
+  }
+  const anchorFiles = [];
+  for (let i = 0; i < anchorOrder.length; i += 1) {
+    if (has(anchorOrder[i])) anchorFiles.push(anchorOrder[i]);
+  }
+
+  const llmFramework = String(llmHints && llmHints.framework ? llmHints.framework : "").toLowerCase();
+  if (framework === "unknown" && llmFramework) framework = llmFramework;
+  const finalArchHints = unique([].concat(architectureHints, (llmHints && llmHints.architectureHints) || []));
+
+  return {
+    framework,
+    languages,
+    architecture_hints: finalArchHints,
+    anchor_files: anchorFiles
+  };
+}
+
+function suggestedNewFileRoots(profile, taskTitle) {
+  const slug = slugFromText(taskTitle);
+  if (profile.framework === "flutter") {
+    return [
+      `lib/features/${slug}/`,
+      `lib/features/${slug}/presentation/`,
+      `lib/features/${slug}/state/`
+    ];
+  }
+  if (profile.framework === "python") {
+    return [
+      `src/${slug}/`,
+      `${slug}.py`
+    ];
+  }
+  if (profile.framework === "node") {
+    return [
+      `src/features/${slug}/`,
+      `src/${slug}.ts`
+    ];
+  }
+  return [`src/${slug}/`];
+}
+
 export default async function main(input) {
   const result = {
     status: "failed",
@@ -565,27 +860,26 @@ export default async function main(input) {
 
     noteRead(taskPath);
     const taskText = String(fs.read_text(taskPath) || "");
-    const signals = parseTaskSignals(taskText);
-
-    const explicitTargets = [];
-    for (let i = 0; i < signals.explicitTargets.length; i += 1) {
-      const rel = normalizeToProjectRelative(projectRoot, cwd, signals.explicitTargets[i]);
-      if (rel && rel !== ".") explicitTargets.push(rel.toLowerCase());
+    const parsedSignals = parseTaskSignals(taskText);
+    const treeProfile = buildProjectTreeProfile(projectRoot, 4, 280);
+    let llmHints = {
+      targetPaths: [],
+      pathHints: [],
+      symbolHints: [],
+      keywords: [],
+      framework: "",
+      architectureHints: [],
+      newFileRoots: [],
+      reason: ""
+    };
+    try {
+      const hintPrompt = buildLlmHintPrompt(taskText, treeProfile);
+      const hintRaw = await llmJson(hintPrompt, 1);
+      llmHints = normalizeLlmHints(hintRaw);
+    } catch (e) {
+      print(`[coder_context] llm hint pass skipped: ${String(e)}`);
     }
-
-    const allowedRoots = [];
-    for (let i = 0; i < signals.allowedPaths.length; i += 1) {
-      const rel = normalizeToProjectRelative(projectRoot, cwd, signals.allowedPaths[i]);
-      if (rel) allowedRoots.push(rel.toLowerCase().replace(/\/$/, ""));
-    }
-
-    const keywordSet = {};
-    for (let i = 0; i < signals.keywords.length; i += 1) keywordSet[signals.keywords[i]] = true;
-
-    const walked = walkProjectFiles(projectRoot, opts.maxScanFiles);
-    const files = walked.files;
-    result.files_scanned = files.length;
-    print(`[coder_context] file_scan complete: ${files.length} file(s), ${walked.scannedDirs} dir(s)`);
+    const signals = mergeSignals(parsedSignals, llmHints);
 
     const textExt = {
       ".js": true, ".jsx": true, ".ts": true, ".tsx": true, ".mjs": true, ".cjs": true,
@@ -596,45 +890,103 @@ export default async function main(input) {
       ".php": true, ".sql": true
     };
 
-    const scored = [];
-    const projectRootNorm = normalizePath(projectRoot);
-    for (let i = 0; i < files.length; i += 1) {
-      const abs = files[i];
-      const rel = toRepoRelative(projectRootNorm, abs);
-      let contentText = "";
-      let readOk = false;
-
-      try {
-        const statRaw = fs.stat(abs);
-        const stat = JSON.parse(String(statRaw || "{}"));
-        const size = Number(stat && stat.size ? stat.size : 0);
-        const dot = rel.lastIndexOf(".");
-        const ext = dot >= 0 ? rel.slice(dot).toLowerCase() : "";
-        if (size > 0 && size <= opts.maxFileBytes && (textExt[ext] || rel.indexOf(".") < 0)) {
-          contentText = String(fs.read_text(abs) || "");
-          readOk = true;
-          noteRead(abs);
-        }
-      } catch (_) {
-        readOk = false;
+    function scoreForProject(activeProjectRoot) {
+      const explicitTargets = [];
+      for (let i = 0; i < signals.explicitTargets.length; i += 1) {
+        const rel = normalizeToProjectRelative(activeProjectRoot, cwd, signals.explicitTargets[i]);
+        if (rel && rel !== ".") explicitTargets.push(rel.toLowerCase());
       }
 
-      const scoreData = scoreFile({ rel }, contentText, signals, explicitTargets, allowedRoots, keywordSet);
-      if (scoreData.score <= 0) continue;
+      const allowedRoots = [];
+      for (let i = 0; i < signals.allowedPaths.length; i += 1) {
+        const rel = normalizeToProjectRelative(activeProjectRoot, cwd, signals.allowedPaths[i]);
+        if (rel) allowedRoots.push(rel.toLowerCase().replace(/\/$/, ""));
+      }
 
-      scored.push({
-        path: rel,
-        score: scoreData.score,
-        reasons: trimReasons(scoreData.reasons, 4),
-        sampled_content: readOk
+      const keywordSet = {};
+      for (let i = 0; i < signals.keywords.length; i += 1) keywordSet[signals.keywords[i]] = true;
+
+      const walked = walkProjectFiles(activeProjectRoot, opts.maxScanFiles);
+      const files = walked.files;
+      print(`[coder_context] file_scan complete: ${files.length} file(s), ${walked.scannedDirs} dir(s), root=${activeProjectRoot}`);
+
+      const scored = [];
+      const projectRootNorm = normalizePath(activeProjectRoot);
+      for (let i = 0; i < files.length; i += 1) {
+        const abs = files[i];
+        const rel = toRepoRelative(projectRootNorm, abs);
+        let contentText = "";
+        let readOk = false;
+
+        try {
+          const statRaw = fs.stat(abs);
+          const stat = JSON.parse(String(statRaw || "{}"));
+          const size = Number(stat && stat.size ? stat.size : 0);
+          const dot = rel.lastIndexOf(".");
+          const ext = dot >= 0 ? rel.slice(dot).toLowerCase() : "";
+          if (size > 0 && size <= opts.maxFileBytes && (textExt[ext] || rel.indexOf(".") < 0)) {
+            contentText = String(fs.read_text(abs) || "");
+            readOk = true;
+            noteRead(abs);
+          }
+        } catch (_) {
+          readOk = false;
+        }
+
+        const scoreData = scoreFile({ rel }, contentText, signals, explicitTargets, allowedRoots, keywordSet);
+        if (scoreData.score <= 0) continue;
+
+        scored.push({
+          path: rel,
+          score: scoreData.score,
+          reasons: trimReasons(scoreData.reasons, 4),
+          sampled_content: readOk
+        });
+      }
+
+      if (scored.length === 0) {
+        for (let i = 0; i < files.length; i += 1) {
+          const rel = toRepoRelative(projectRootNorm, files[i]);
+          const base = basename(rel).toLowerCase();
+          let fallbackScore = 0;
+          if (base === "main.py" || base === "main.ts" || base === "main.js" || base === "main.rs") fallbackScore = 34;
+          else if (base === "app.py" || base === "app.ts" || base === "app.js") fallbackScore = 31;
+          else if (base === "index.py" || base === "index.ts" || base === "index.js") fallbackScore = 28;
+          if (fallbackScore <= 0) continue;
+          scored.push({
+            path: rel,
+            score: fallbackScore,
+            reasons: ["fallback entrypoint heuristic"],
+            sampled_content: false
+          });
+        }
+      }
+
+      scored.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return a.path.localeCompare(b.path);
       });
+
+      return {
+        projectRoot: activeProjectRoot,
+        files,
+        scored,
+        explicitTargets
+      };
     }
+
+    const activeScan = scoreForProject(projectRoot);
+
+    const files = activeScan.files;
+    const scored = activeScan.scored;
+    const explicitTargets = activeScan.explicitTargets;
+    result.files_scanned = files.length;
+    result.files_considered = scored.length;
 
     scored.sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       return a.path.localeCompare(b.path);
     });
-    result.files_considered = scored.length;
 
     const minTargetScore = 20;
     const pickedMap = {};
@@ -685,6 +1037,12 @@ export default async function main(input) {
     result.target_files = targetFiles;
     result.supporting_files = supportingFiles;
 
+    const titleText = extractMarkdownSection(taskText, "title");
+    const projectProfile = detectProjectProfile(projectRoot, files, noteRead, opts.maxFileBytes, llmHints);
+    const likelyRequiresNewFiles = targetFiles.length === 0 || confidence === "low";
+    const heuristicNewFileRoots = likelyRequiresNewFiles ? suggestedNewFileRoots(projectProfile, titleText) : [];
+    const newFileRoots = unique([].concat(llmHints.newFileRoots || [], heuristicNewFileRoots));
+
     const contextDoc = {
       schema_version: "coder_context/v1",
       generated_at: nowIso(),
@@ -695,19 +1053,27 @@ export default async function main(input) {
         allowed_paths: signals.allowedPaths,
         path_hints: signals.pathHints,
         symbol_hints: signals.symbolHints,
-        keywords: signals.keywords.slice(0, 30)
+        keywords: signals.keywords.slice(0, 30),
+        llm_hints: {
+          reason: llmHints.reason || "",
+          framework: llmHints.framework || "",
+          architecture_hints: llmHints.architectureHints || []
+        }
       },
       project: {
         root: toRepoRelative(cwd, projectRoot),
         scanned_files: files.length,
-        scored_files: scored.length
+        scored_files: scored.length,
+        profile: projectProfile
       },
       confidence,
       target_files: targetFiles,
       supporting_files: supportingFiles,
       recommendations: {
         enforce_target_files_only: confidence !== "low",
-        require_manual_target_when_low_confidence: confidence === "low"
+        require_manual_target_when_low_confidence: confidence === "low",
+        likely_requires_new_files: likelyRequiresNewFiles,
+        suggested_new_file_roots: newFileRoots
       }
     };
 
@@ -718,7 +1084,7 @@ export default async function main(input) {
 
     result.status = "success";
     if (targetFiles.length === 0) {
-      result.summary = "No candidate files found; add Target module or stronger hints";
+      result.summary = `No candidate files found in project root (${toRepoRelative(cwd, projectRoot)}); likely requires new files`;
     } else {
       result.summary = `Context built with ${targetFiles.length} target file(s), confidence=${confidence}`;
     }

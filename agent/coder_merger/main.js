@@ -133,7 +133,31 @@ async function runGit(repo, args, audit) {
   const cmdText = cmd.join(" ");
   audit.commands_run.push(cmdText);
   const out = await spawn("git", ["-C", repo].concat(args));
-  return String(out || "").trim();
+  const text = String(out || "").trim();
+  if (text.startsWith("Error:")) {
+    throw new Error(`git command failed: ${cmdText}\n${text}`);
+  }
+  return text;
+}
+
+async function resolveBranch(repoPath, requestedBranch, audit) {
+  const direct = String(requestedBranch || "").trim();
+  if (!direct) throw new Error("branch cannot be empty");
+
+  try {
+    await runGit(repoPath, ["show-ref", "--verify", "--quiet", `refs/heads/${direct}`], audit);
+    return direct;
+  } catch (_) {
+    // Fall through to common setup branch prefix.
+  }
+
+  const prefixed = `agent/${direct}`;
+  try {
+    await runGit(repoPath, ["show-ref", "--verify", "--quiet", `refs/heads/${prefixed}`], audit);
+    return prefixed;
+  } catch (_) {
+    throw new Error(`branch not found: ${direct} (also tried ${prefixed})`);
+  }
 }
 
 function buildCommitPrompt(taskText, docsText, diffText) {
@@ -260,6 +284,9 @@ export default async function main(input) {
     await runGit(repoPath, ["rev-parse", "--is-inside-work-tree"], result.audit);
     await runGit(worktreePath, ["rev-parse", "--is-inside-work-tree"], result.audit);
 
+    const mergeBranch = await resolveBranch(repoPath, opts.branch, result.audit);
+    result.branch = mergeBranch;
+
     let commitMessage = String(opts.message || "").trim();
     if (!commitMessage && opts.llmMessage) {
       let docsText = "";
@@ -307,7 +334,7 @@ export default async function main(input) {
     result.commit_sha = await runGit(worktreePath, ["rev-parse", "HEAD"], result.audit);
 
     if (opts.merge) {
-      await runGit(repoPath, ["merge", "--ff-only", opts.branch], result.audit);
+      await runGit(repoPath, ["merge", "--ff-only", mergeBranch], result.audit);
       result.merged = true;
     }
 
