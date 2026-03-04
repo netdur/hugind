@@ -10,15 +10,6 @@ pub use params::ContextParams;
 
 pub struct Context {
     ptr: NonNull<llama_cpp::llama_context>,
-    
-    
-    
-    
-    
-    
-    
-    
-    
 }
 
 unsafe impl Send for Context {}
@@ -27,69 +18,49 @@ unsafe impl Sync for Context {}
 impl Context {
     pub fn new(model: &Model, params: &ContextParams) -> Result<Self> {
         let c_params = params.to_c_params();
-        let ptr = unsafe {
-            llama_cpp::llama_new_context_with_model(model.as_ptr(), c_params)
-        };
-        
-        
+        let ptr = unsafe { llama_cpp::llama_new_context_with_model(model.as_ptr(), c_params) };
+
         let non_null = ffi_guard::ensure_non_null(ptr, "Failed to create context")?;
-        
+
         Ok(Self { ptr: non_null })
     }
 
     pub fn as_ptr(&self) -> *mut llama_cpp::llama_context {
         self.ptr.as_ptr()
     }
-    
+
     pub fn decode(&mut self, batch: &mut Batch) -> Result<()> {
-        let ret = unsafe {
-            llama_cpp::llama_decode(self.ptr.as_ptr(), batch.handle)
-        };
-        
+        let ret = unsafe { llama_cpp::llama_decode(self.ptr.as_ptr(), batch.handle) };
+
         if ret != 0 {
             return Err(Error::DecodeFailed);
         }
         Ok(())
     }
-    
+
     pub fn encode(&mut self, batch: &mut Batch) -> Result<()> {
-        let ret = unsafe {
-            llama_cpp::llama_encode(self.ptr.as_ptr(), batch.handle)
-        };
-        
+        let ret = unsafe { llama_cpp::llama_encode(self.ptr.as_ptr(), batch.handle) };
+
         if ret != 0 {
             return Err(Error::DecodeFailed);
         }
         Ok(())
     }
-    
 
-    
-    
     pub fn get_logits(&self, batch_token_index: i32) -> *mut f32 {
-        unsafe {
-            llama_cpp::llama_get_logits_ith(self.as_ptr(), batch_token_index)
-        }
+        unsafe { llama_cpp::llama_get_logits_ith(self.as_ptr(), batch_token_index) }
     }
 
-    
-    
     pub fn get_embeddings(&self, batch_token_index: i32) -> *mut f32 {
-        unsafe {
-            llama_cpp::llama_get_embeddings_ith(self.as_ptr(), batch_token_index)
-        }
+        unsafe { llama_cpp::llama_get_embeddings_ith(self.as_ptr(), batch_token_index) }
     }
 
     pub fn get_embeddings_seq(&self, seq_id: i32) -> *mut f32 {
-        unsafe {
-            llama_cpp::llama_get_embeddings_seq(self.as_ptr(), seq_id)
-        }
+        unsafe { llama_cpp::llama_get_embeddings_seq(self.as_ptr(), seq_id) }
     }
 
     pub fn get_embeddings_all(&self) -> *mut f32 {
-        unsafe {
-            llama_cpp::llama_get_embeddings(self.as_ptr())
-        }
+        unsafe { llama_cpp::llama_get_embeddings(self.as_ptr()) }
     }
 
     pub fn kv_cache_seq_rm(&mut self, seq_id: i32, p0: i32, p1: i32) -> bool {
@@ -112,17 +83,26 @@ impl Context {
         }
     }
 
-    
+    pub fn kv_cache_can_shift(&self) -> bool {
+        unsafe {
+            let mem = llama_cpp::llama_get_memory(self.as_ptr());
+            if mem.is_null() {
+                return false;
+            }
+            llama_cpp::llama_memory_can_shift(mem)
+        }
+    }
+
     pub fn state_seq_get_data(&self, seq_id: i32) -> Result<Vec<u8>> {
         unsafe {
             let size = llama_cpp::llama_state_seq_get_size(self.as_ptr(), seq_id);
             if size == 0 {
-                return Err(Error::ContextSizeInvalid); 
+                return Err(Error::ContextSizeInvalid);
             }
             let mut buf = vec![0u8; size];
-            let written = llama_cpp::llama_state_seq_get_data(self.as_ptr(), buf.as_mut_ptr(), size, seq_id);
+            let written =
+                llama_cpp::llama_state_seq_get_data(self.as_ptr(), buf.as_mut_ptr(), size, seq_id);
             if written != size {
-                
                 return Err(Error::ContextSizeInvalid);
             }
             Ok(buf)
@@ -138,22 +118,26 @@ impl Context {
     pub fn state_seq_save_file(&self, filepath: &str, seq_id: i32, tokens: &[i32]) -> usize {
         let c_filepath = std::ffi::CString::new(filepath).unwrap();
         unsafe {
-            
             llama_cpp::llama_state_seq_save_file(
-                self.as_ptr(), 
-                c_filepath.as_ptr(), 
-                seq_id, 
-                tokens.as_ptr(), 
-                tokens.len()
+                self.as_ptr(),
+                c_filepath.as_ptr(),
+                seq_id,
+                tokens.as_ptr(),
+                tokens.len(),
             )
         }
     }
 
-    pub fn state_seq_load_file(&mut self, filepath: &str, dest_seq_id: i32, token_capacity: usize) -> Result<(usize, Vec<i32>)> {
+    pub fn state_seq_load_file(
+        &mut self,
+        filepath: &str,
+        dest_seq_id: i32,
+        token_capacity: usize,
+    ) -> Result<(usize, Vec<i32>)> {
         let c_filepath = std::ffi::CString::new(filepath).unwrap();
         let mut tokens = vec![0i32; token_capacity];
         let mut n_token_count_out = 0usize;
-        
+
         unsafe {
             let size = llama_cpp::llama_state_seq_load_file(
                 self.as_ptr(),
@@ -161,13 +145,15 @@ impl Context {
                 dest_seq_id,
                 tokens.as_mut_ptr(),
                 token_capacity,
-                &mut n_token_count_out as *mut usize
+                &mut n_token_count_out as *mut usize,
             );
-            
+
             if size == 0 {
-                return Err(Error::ModelLoadFailed("Failed to load KV state from file".to_string())); 
+                return Err(Error::ModelLoadFailed(
+                    "Failed to load KV state from file".to_string(),
+                ));
             }
-            
+
             tokens.truncate(n_token_count_out);
             Ok((size, tokens))
         }

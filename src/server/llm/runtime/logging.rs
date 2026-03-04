@@ -1,10 +1,9 @@
-use std::ffi::c_void;
 use std::ffi::CStr;
+use std::ffi::c_void;
 use std::os::raw::c_char;
 use std::sync::Once;
 
 static LOG_INIT: Once = Once::new();
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LogLevel {
@@ -14,20 +13,17 @@ pub enum LogLevel {
     Debug = 5,
 }
 
-
 pub type LogCallback = unsafe extern "C" fn(
     level: llama_cpp::ggml_log_level,
     text: *const c_char,
     user_data: *mut c_void,
 );
 
-
 unsafe extern "C" fn silent_log_cb(
     _level: llama_cpp::ggml_log_level,
     _text: *const c_char,
     _user_data: *mut c_void,
 ) {
-    
 }
 
 unsafe extern "C" fn stderr_log_cb(
@@ -51,7 +47,6 @@ fn debug_enabled() -> bool {
         })
         .unwrap_or(false)
 }
-
 
 pub fn init_silent_logging() {
     LOG_INIT.call_once(|| unsafe {

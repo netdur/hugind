@@ -145,7 +145,11 @@ fn map_model_params(config: &core_config::ServerConfig) -> backend_config::Model
     backend_config::ModelParams {
         model_path: config.model_path.to_string_lossy().to_string(),
         mmproj_path: config.mmproj_path.as_ref().map(|p| p.to_string_lossy().to_string()),
-        n_gpu_layers: cfg.n_gpu_layers,
+        n_gpu_layers: if cfg.n_gpu_layers < 0 {
+            0
+        } else {
+            cfg.n_gpu_layers as u32
+        },
         main_gpu: cfg.main_gpu as i32,
         vocab_only: cfg.vocab_only,
         use_mmap: cfg.use_mmap,

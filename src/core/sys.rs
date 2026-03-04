@@ -1,5 +1,5 @@
-use sysinfo::{System, Disks};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use sysinfo::{Disks, System};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SystemInfo {
@@ -29,40 +29,43 @@ impl SystemInspector {
 
         let os = System::name().unwrap_or_else(|| "Unknown".to_string());
         let os_ver = System::os_version().unwrap_or_else(|| "Unknown".to_string());
-        
+
         let cpu = sys.cpus().first();
-        let cpu_model = cpu.map(|c| c.brand().to_string()).unwrap_or_else(|| "Unknown".to_string());
-        
+        let cpu_model = cpu
+            .map(|c| c.brand().to_string())
+            .unwrap_or_else(|| "Unknown".to_string());
+
         let disks = Disks::new_with_refreshed_list();
         let (total_disk, avail_disk) = disks.list().iter().fold((0, 0), |(acc_t, acc_a), d| {
             (acc_t + d.total_space(), acc_a + d.available_space())
         });
 
-        
-        
-        
-        
-        
         let mut gpus = Vec::new();
         if cfg!(target_os = "macos") {
-             
-             if std::env::consts::ARCH == "aarch64" {
-                 gpus.push(GpuInfo { name: "Apple M-Series GPU".to_string(), memory: None });
-             }
+            if std::env::consts::ARCH == "aarch64" {
+                gpus.push(GpuInfo {
+                    name: "Apple M-Series GPU".to_string(),
+                    memory: None,
+                });
+            }
         } else if let Ok(output) = std::process::Command::new("nvidia-smi")
             .args(&["--query-gpu=name,memory.total", "--format=csv,noheader"])
-            .output() 
+            .output()
         {
-             let s = String::from_utf8_lossy(&output.stdout);
-             for line in s.lines() {
-                 let parts: Vec<&str> = line.split(',').collect();
-                 if !parts.is_empty() {
-                     gpus.push(GpuInfo {
-                         name: parts[0].trim().to_string(),
-                         memory: if parts.len() > 1 { Some(parts[1].trim().to_string()) } else { None },
-                     });
-                 }
-             }
+            let s = String::from_utf8_lossy(&output.stdout);
+            for line in s.lines() {
+                let parts: Vec<&str> = line.split(',').collect();
+                if !parts.is_empty() {
+                    gpus.push(GpuInfo {
+                        name: parts[0].trim().to_string(),
+                        memory: if parts.len() > 1 {
+                            Some(parts[1].trim().to_string())
+                        } else {
+                            None
+                        },
+                    });
+                }
+            }
         }
 
         SystemInfo {
@@ -77,13 +80,16 @@ impl SystemInspector {
             gpus,
         }
     }
-    
+
     pub fn recommend_preset(info: &SystemInfo) -> &'static str {
-        if info.gpus.iter().any(|g| g.name.to_lowercase().contains("nvidia")) {
+        if info
+            .gpus
+            .iter()
+            .any(|g| g.name.to_lowercase().contains("nvidia"))
+        {
             return "cuda_dedicated";
         }
         if info.os.to_lowercase().contains("macos") || info.arch == "aarch64" {
-            
             return "metal_unified";
         }
         "cpu_only"

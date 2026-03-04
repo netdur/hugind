@@ -1,10 +1,10 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
 use std::process::Stdio;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::{Mutex as AsyncMutex, oneshot};
@@ -57,7 +57,10 @@ impl McpManager {
         for dep in deps {
             let Some(server) = dependency_to_server(&dep) else {
                 if dep.required {
-                    bail!("Required MCP server '{}' is missing command configuration", dep.name);
+                    bail!(
+                        "Required MCP server '{}' is missing command configuration",
+                        dep.name
+                    );
                 }
                 continue;
             };
@@ -90,14 +93,19 @@ impl McpManager {
         Ok(out)
     }
 
-    pub async fn call_tool(&self, name: &str, args: serde_json::Value) -> Result<serde_json::Value> {
+    pub async fn call_tool(
+        &self,
+        name: &str,
+        args: serde_json::Value,
+    ) -> Result<serde_json::Value> {
         if self.clients.is_empty() {
             bail!("No MCP tools configured");
         }
         let (server, tool) = self.resolve_tool(name)?;
-        let client = self.clients.get(&server).ok_or_else(|| {
-            anyhow::anyhow!("MCP server '{}' is not available", server)
-        })?;
+        let client = self
+            .clients
+            .get(&server)
+            .ok_or_else(|| anyhow::anyhow!("MCP server '{}' is not available", server))?;
         client.call_tool(&tool, args).await
     }
 
@@ -130,7 +138,10 @@ struct McpClient {
 
 impl McpClient {
     async fn spawn(config: McpServerConfig) -> Result<Self> {
-        let transport = config.transport.clone().unwrap_or_else(|| "stdio".to_string());
+        let transport = config
+            .transport
+            .clone()
+            .unwrap_or_else(|| "stdio".to_string());
         if transport != "stdio" {
             bail!("Unsupported MCP transport '{}'", transport);
         }
@@ -149,10 +160,17 @@ impl McpClient {
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::inherit());
 
-        let mut child = cmd.spawn()
+        let mut child = cmd
+            .spawn()
             .with_context(|| format!("Failed to spawn MCP server '{}'", config.name))?;
-        let stdin = child.stdin.take().ok_or_else(|| anyhow::anyhow!("Failed to open stdin"))?;
-        let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("Failed to open stdout"))?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("Failed to open stdin"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("Failed to open stdout"))?;
 
         let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<serde_json::Value>>>> =
             Arc::new(Mutex::new(HashMap::new()));
@@ -191,15 +209,29 @@ impl McpClient {
             let result = self.request("tools/list", params).await?;
             if let Some(items) = result.get("tools").and_then(|v| v.as_array()) {
                 for item in items {
-                    let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    let description = item.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    let name = item
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let description = item
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
                     let input_schema = item.get("inputSchema").cloned();
                     if !name.is_empty() {
-                        tools.push(ToolDescriptor { name, description, input_schema });
+                        tools.push(ToolDescriptor {
+                            name,
+                            description,
+                            input_schema,
+                        });
                     }
                 }
             }
-            cursor = result.get("nextCursor").and_then(|v| v.as_str()).map(|s| s.to_string());
+            cursor = result
+                .get("nextCursor")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             if cursor.is_none() {
                 break;
             }
@@ -229,15 +261,22 @@ impl McpClient {
         });
         self.send_message(&msg).await?;
 
-        let response = rx.await
+        let response = rx
+            .await
             .map_err(|_| anyhow::anyhow!("MCP server '{}' closed", self.name))?;
 
         if let Some(err) = response.get("error") {
-            let msg = err.get("message").and_then(|m| m.as_str()).unwrap_or("Unknown error");
+            let msg = err
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("Unknown error");
             bail!("MCP error from '{}': {}", self.name, msg);
         }
 
-        Ok(response.get("result").cloned().unwrap_or(serde_json::Value::Null))
+        Ok(response
+            .get("result")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null))
     }
 
     async fn notify(&self, method: &str, params: serde_json::Value) -> Result<()> {
@@ -291,8 +330,8 @@ fn parse_mcp_dependencies(config: &AgentConfig) -> Result<Vec<McpDependency>> {
         Some(v) => v.clone(),
         None => return Ok(Vec::new()),
     };
-    let deps: DependenciesConfig = serde_yaml::from_value(deps_value)
-        .context("Invalid dependencies.mcp in agent.yaml")?;
+    let deps: DependenciesConfig =
+        serde_yaml::from_value(deps_value).context("Invalid dependencies.mcp in agent.yaml")?;
     Ok(deps.mcp.unwrap_or_default())
 }
 

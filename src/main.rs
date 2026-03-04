@@ -38,7 +38,7 @@ async fn main() {
                 ConfigCommand::Validate { path } => hugind::cli::config::validate(path),
                 ConfigCommand::Info => hugind::cli::config::info(),
                 ConfigCommand::Remove { name } => hugind::cli::config::remove(name),
-                ConfigCommand::Defaults { lib, hf_token } => hugind::cli::config::defaults(lib, hf_token),
+                ConfigCommand::Defaults { hf_token } => hugind::cli::config::defaults(hf_token),
                 ConfigCommand::Init { name, model } => hugind::cli::config_init::init(name, model),
             };
 
@@ -50,9 +50,13 @@ async fn main() {
         Commands::Model { command } => {
             let result = match command {
                 hugind::cli::args::ModelCommand::List => hugind::cli::model::list(),
-                hugind::cli::args::ModelCommand::Add { repo } => hugind::cli::model::add(repo).await,
+                hugind::cli::args::ModelCommand::Add { repo } => {
+                    hugind::cli::model::add(repo).await
+                }
                 hugind::cli::args::ModelCommand::Show { repo } => hugind::cli::model::show(repo),
-                hugind::cli::args::ModelCommand::Remove { repo } => hugind::cli::model::remove(repo),
+                hugind::cli::args::ModelCommand::Remove { repo } => {
+                    hugind::cli::model::remove(repo)
+                }
             };
 
             if let Err(e) = result {
@@ -62,25 +66,31 @@ async fn main() {
         }
         Commands::Chat { command } => {
             let result = match command {
-                Some(hugind::cli::args::ChatCommand::Start { config }) => hugind::cli::chat::run_start(config).await,
-                Some(hugind::cli::args::ChatCommand::Resume { id }) => hugind::cli::chat::run_resume(id).await,
+                Some(hugind::cli::args::ChatCommand::Start { config }) => {
+                    hugind::cli::chat::run_start(config).await
+                }
+                Some(hugind::cli::args::ChatCommand::Resume { id }) => {
+                    hugind::cli::chat::run_resume(id).await
+                }
                 Some(hugind::cli::args::ChatCommand::List) => hugind::cli::chat::run_list(),
-                Some(hugind::cli::args::ChatCommand::Delete { id }) => hugind::cli::chat::run_delete(id).await,
+                Some(hugind::cli::args::ChatCommand::Delete { id }) => {
+                    hugind::cli::chat::run_delete(id).await
+                }
                 Some(hugind::cli::args::ChatCommand::Default(args)) => {
-                     if args.is_empty() {
-                         hugind::cli::chat::run_interactive_wizard().await
-                     } else {
-                         let target = &args[0];
-                         if hugind::core::chat::session::SessionRepo::exists(target) {
-                             hugind::cli::chat::run_resume(target.clone()).await
-                         } else {
-                             hugind::cli::chat::run_start(target.clone()).await
-                         }
-                     }
-                },
+                    if args.is_empty() {
+                        hugind::cli::chat::run_interactive_wizard().await
+                    } else {
+                        let target = &args[0];
+                        if hugind::core::chat::session::SessionRepo::exists(target) {
+                            hugind::cli::chat::run_resume(target.clone()).await
+                        } else {
+                            hugind::cli::chat::run_start(target.clone()).await
+                        }
+                    }
+                }
                 None => hugind::cli::chat::run_interactive_wizard().await,
             };
-            
+
             if let Err(e) = result {
                 eprintln!("Error: {}", e);
                 std::process::exit(1);

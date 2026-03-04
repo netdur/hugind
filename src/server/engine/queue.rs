@@ -23,7 +23,6 @@ impl RequestQueue {
     }
 
     pub fn pop(&mut self) -> Option<String> {
-        
         self.pending.pop_front()
     }
 
@@ -38,7 +37,7 @@ impl RequestQueue {
         }
         false
     }
-    
+
     pub fn len(&self) -> usize {
         self.pending.len()
     }

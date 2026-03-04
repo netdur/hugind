@@ -1,4 +1,4 @@
-use rquickjs::{loader::Resolver, Ctx, Error};
+use rquickjs::{Ctx, Error, loader::Resolver};
 use std::path::{Path, PathBuf};
 
 #[derive(Clone)]
@@ -13,7 +13,6 @@ impl Resolver for LocalOnlyResolver {
         base: &str,
         name: &str,
     ) -> rquickjs::Result<String> {
-        
         if !(name.starts_with("./") || name.starts_with("../")) {
             return Err(Error::new_resolving_message(
                 base,
@@ -22,20 +21,13 @@ impl Resolver for LocalOnlyResolver {
             ));
         }
 
-        let base_dir = Path::new(base)
-            .parent()
-            .unwrap_or(&self.root);
+        let base_dir = Path::new(base).parent().unwrap_or(&self.root);
 
         let resolved = base_dir.join(name);
         let resolved = resolved.canonicalize().map_err(|e| {
-            Error::new_resolving_message(
-                base,
-                name,
-                format!("cannot resolve import: {e}"),
-            )
+            Error::new_resolving_message(base, name, format!("cannot resolve import: {e}"))
         })?;
 
-        
         if !resolved.starts_with(&self.root) {
             return Err(Error::new_resolving_message(
                 base,
@@ -44,7 +36,6 @@ impl Resolver for LocalOnlyResolver {
             ));
         }
 
-        
         if resolved.extension().and_then(|s| s.to_str()) != Some("js") {
             return Err(Error::new_resolving_message(
                 base,

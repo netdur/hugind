@@ -1,10 +1,11 @@
-use futures::StreamExt;
-use rquickjs::{AsyncContext, Class, Result};
-use rquickjs::class::Trace; 
 use crate::core::config::agent::AgentConfig;
 use crate::core::config::backend::resolve_backend;
 use crate::shared::logging::RunLogger;
+use futures::StreamExt;
+use rquickjs::class::Trace;
+use rquickjs::{AsyncContext, Class, Result};
 
+const LLM_REQUEST_TIMEOUT_SECS: u64 = 600;
 
 #[derive(rquickjs::JsLifetime)]
 #[rquickjs::class]
@@ -17,17 +18,15 @@ pub struct Llm {
 }
 
 impl<'js> Trace<'js> for Llm {
-    fn trace<'a>(&self, _tracer: rquickjs::class::Tracer<'a, 'js>) {
-        
-    }
+    fn trace<'a>(&self, _tracer: rquickjs::class::Tracer<'a, 'js>) {}
 }
-
-
 
 impl Llm {
     pub fn new(config: &AgentConfig, logger: Option<RunLogger>) -> Self {
         let resolved = resolve_backend(config)
-            .map_err(|e| rquickjs::Error::new_loading_message("Backend Config Error", e.to_string()))
+            .map_err(|e| {
+                rquickjs::Error::new_loading_message("Backend Config Error", e.to_string())
+            })
             .unwrap_or_else(|_| crate::core::config::backend::ResolvedBackend {
                 base_url: "http://127.0.0.1:8080/v1".to_string(),
                 health_url: "http://127.0.0.1:8080/v1/monitor".to_string(),
@@ -141,20 +140,22 @@ impl Llm {
         let mut request = self
             .client
             .post(&url)
-            .timeout(std::time::Duration::from_secs(120))
+            .timeout(std::time::Duration::from_secs(LLM_REQUEST_TIMEOUT_SECS))
             .json(&body);
         if let Some(id) = &self.session_id {
             request = request.header("X-Session-ID", id);
         }
-        let res = request
-            .send()
-            .await
-            .map_err(|e| rquickjs::Error::new_loading_message("LLM Request Failed", e.to_string()))?;
+        let res = request.send().await.map_err(|e| {
+            rquickjs::Error::new_loading_message("LLM Request Failed", e.to_string())
+        })?;
 
         if !res.status().is_success() {
-             let status = res.status();
-             let text = res.text().await.unwrap_or_default();
-             return Err(rquickjs::Error::new_loading_message("LLM Error", format!("{}: {}", status, text)));
+            let status = res.status();
+            let text = res.text().await.unwrap_or_default();
+            return Err(rquickjs::Error::new_loading_message(
+                "LLM Error",
+                format!("{}: {}", status, text),
+            ));
         }
 
         let body_text = read_response_limited(res).await?;
@@ -272,15 +273,14 @@ impl Llm {
         let mut request = self
             .client
             .post(&url)
-            .timeout(std::time::Duration::from_secs(120))
+            .timeout(std::time::Duration::from_secs(LLM_REQUEST_TIMEOUT_SECS))
             .json(&body);
         if let Some(id) = &self.session_id {
             request = request.header("X-Session-ID", id);
         }
-        let res = request
-            .send()
-            .await
-            .map_err(|e| rquickjs::Error::new_loading_message("LLM Request Failed", e.to_string()))?;
+        let res = request.send().await.map_err(|e| {
+            rquickjs::Error::new_loading_message("LLM Request Failed", e.to_string())
+        })?;
 
         if !res.status().is_success() {
             let status = res.status();
@@ -295,8 +295,8 @@ impl Llm {
         let mut stream = res.bytes_stream();
 
         while let Some(item) = stream.next().await {
-            let chunk = item
-                .map_err(|e| rquickjs::Error::new_loading_message("LLM Error", e.to_string()))?;
+            let chunk =
+                item.map_err(|e| rquickjs::Error::new_loading_message("LLM Error", e.to_string()))?;
             let text = String::from_utf8_lossy(&chunk);
             for line in text.lines() {
                 if !line.starts_with("data: ") {
@@ -342,7 +342,9 @@ fn js_value_to_json<'js>(value: rquickjs::Value<'js>) -> rquickjs::Result<serde_
         let n = value.as_number().unwrap();
         if n.is_finite() && (n.fract() == 0.0) {
             if n >= (i64::MIN as f64) && n <= (i64::MAX as f64) {
-                return Ok(serde_json::Value::Number(serde_json::Number::from(n as i64)));
+                return Ok(serde_json::Value::Number(serde_json::Number::from(
+                    n as i64,
+                )));
             }
         }
         Ok(serde_json::Value::Number(
@@ -373,14 +375,21 @@ fn js_value_to_json<'js>(value: rquickjs::Value<'js>) -> rquickjs::Result<serde_
     }
 }
 
-pub async fn install(ctx: &AsyncContext, config: &AgentConfig, logger: Option<RunLogger>) -> Result<()> {
+pub async fn install(
+    ctx: &AsyncContext,
+    config: &AgentConfig,
+    logger: Option<RunLogger>,
+) -> Result<()> {
     let llm = Llm::new(config, logger);
-    
-    ctx.async_with(|ctx| Box::pin(async move {
-        let llm_cls = Class::instance(ctx.clone(), llm)?;
-        ctx.globals().set("llm", llm_cls)?;
-        Ok(())
-    })).await
+
+    ctx.async_with(|ctx| {
+        Box::pin(async move {
+            let llm_cls = Class::instance(ctx.clone(), llm)?;
+            ctx.globals().set("llm", llm_cls)?;
+            Ok(())
+        })
+    })
+    .await
 }
 
 async fn read_response_limited(res: reqwest::Response) -> Result<String> {
@@ -388,8 +397,9 @@ async fn read_response_limited(res: reqwest::Response) -> Result<String> {
     let mut stream = res.bytes_stream();
 
     while let Some(item) = stream.next().await {
-        let chunk = item
-            .map_err(|e| rquickjs::Error::new_loading_message("Response Read Error", e.to_string()))?;
+        let chunk = item.map_err(|e| {
+            rquickjs::Error::new_loading_message("Response Read Error", e.to_string())
+        })?;
         content.extend_from_slice(&chunk);
     }
 

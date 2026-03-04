@@ -1,6 +1,6 @@
 pub mod params;
 
-use crate::llm::error::{Result};
+use crate::llm::error::Result;
 use crate::llm::ffi_guard;
 use crate::llm::tokenizer::Tokenizer;
 use std::ffi::CString;
@@ -20,11 +20,10 @@ impl Model {
         let c_path = CString::new(path)?;
         let c_params = params.to_c_params();
 
-        let ptr = unsafe {
-            llama_cpp::llama_load_model_from_file(c_path.as_ptr(), c_params)
-        };
+        let ptr = unsafe { llama_cpp::llama_load_model_from_file(c_path.as_ptr(), c_params) };
 
-        let non_null = ffi_guard::ensure_non_null(ptr, &format!("Failed to load model from {}", path))?;
+        let non_null =
+            ffi_guard::ensure_non_null(ptr, &format!("Failed to load model from {}", path))?;
 
         Ok(Self { ptr: non_null })
     }
@@ -34,9 +33,9 @@ impl Model {
     }
 
     pub fn tokenizer(&self) -> Tokenizer<'_> {
-        unsafe { Tokenizer::new(self.as_ptr()) } 
+        unsafe { Tokenizer::new(self.as_ptr()) }
     }
-    
+
     pub fn vocab(&self) -> *const llama_cpp::llama_vocab {
         unsafe { llama_cpp::llama_model_get_vocab(self.ptr.as_ptr()) }
     }
@@ -44,7 +43,7 @@ impl Model {
     pub fn get_metadata(&self, key: &str) -> Result<Option<String>> {
         let c_key = CString::new(key)?;
         let mut buf = vec![0u8; 1024];
-        
+
         let res = unsafe {
             llama_cpp::llama_model_meta_val_str(
                 self.ptr.as_ptr(),
@@ -53,42 +52,33 @@ impl Model {
                 buf.len(),
             )
         };
-        
+
         if res < 0 {
-            
             return Ok(None);
         }
-        
-        
-        
-        
-        
-        
+
         let len = res as usize;
         if len >= buf.len() {
-             
-             buf.resize(len + 1, 0);
-             unsafe {
+            buf.resize(len + 1, 0);
+            unsafe {
                 llama_cpp::llama_model_meta_val_str(
                     self.ptr.as_ptr(),
                     c_key.as_ptr(),
                     buf.as_mut_ptr() as *mut i8,
                     buf.len(),
                 )
-             };
+            };
         }
-        
-        
+
         let c_str = unsafe { std::ffi::CStr::from_ptr(buf.as_ptr() as *const i8) };
         Ok(Some(c_str.to_string_lossy().into_owned()))
     }
 
     pub fn chat_template(&self) -> Result<String> {
-        
         if let Some(tmpl) = self.get_metadata("tokenizer.chat_template")? {
             return Ok(tmpl);
         }
-        
+
         Ok("".to_string())
     }
 
@@ -112,9 +102,9 @@ impl Model {
     }
 
     pub fn token_bos(&self) -> llama_cpp::llama_token {
-        unsafe { 
+        unsafe {
             let vocab = llama_cpp::llama_model_get_vocab(self.ptr.as_ptr());
-            llama_cpp::llama_vocab_bos(vocab) 
+            llama_cpp::llama_vocab_bos(vocab)
         }
     }
 }

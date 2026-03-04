@@ -1,28 +1,29 @@
-use anyhow::Result;
-use std::path::Path;
-use std::fs;
-use inquire::{Select, Text, Confirm};
+use crate::core::sys::{SystemInfo, SystemInspector};
 use crate::shared::paths;
-use crate::core::sys::{SystemInspector, SystemInfo};
+use anyhow::Result;
+use inquire::{Confirm, Select, Text};
+use std::fs;
+use std::path::Path;
 
 pub fn init(name: String, model_override: Option<String>) -> Result<()> {
     ensure_default_configs()?;
-    
+
     println!("Probing hardware... (this may take a moment)");
     let info = SystemInspector::inspect();
     let recommended_preset = SystemInspector::recommend_preset(&info);
-    
+
     print_hardware_summary(&info, recommended_preset);
 
-    
     let presets = vec!["metal_unified", "cuda_dedicated", "cpu_only"];
-    let default_idx = presets.iter().position(|&p| p == recommended_preset).unwrap_or(0);
-    
+    let default_idx = presets
+        .iter()
+        .position(|&p| p == recommended_preset)
+        .unwrap_or(0);
+
     let chosen_preset = Select::new("Choose a hardware preset to apply", presets.clone())
         .with_starting_cursor(default_idx)
         .prompt()?;
 
-    
     let base_content = include_str!("../resources/config.yml");
     let preset_content = match chosen_preset {
         "metal_unified" => include_str!("../resources/metal_unified.yml"),
@@ -31,9 +32,7 @@ pub fn init(name: String, model_override: Option<String>) -> Result<()> {
         _ => "",
     };
 
-    
     let (model_path, model_size_gb) = if let Some(m) = model_override {
-        
         let size = if let Ok(meta) = fs::metadata(&m) {
             meta.len() as f64 / 1_073_741_824.0
         } else {
@@ -43,73 +42,82 @@ pub fn init(name: String, model_override: Option<String>) -> Result<()> {
     } else {
         use crate::core::model::registry::RepoManager;
         let repos = RepoManager::list_repos().unwrap_or_default();
-        
+
         if repos.is_empty() {
-             let path = Text::new("No repositories found in data home. Enter absolute path to .gguf file:")
-                .with_help_message("Could not find any models in data directory.")
-                .prompt()?;
-             let size = if let Ok(meta) = fs::metadata(&path) {
+            let path =
+                Text::new("No repositories found in data home. Enter absolute path to .gguf file:")
+                    .with_help_message("Could not find any models in data directory.")
+                    .prompt()?;
+            let size = if let Ok(meta) = fs::metadata(&path) {
                 meta.len() as f64 / 1_073_741_824.0
-             } else {
+            } else {
                 0.0
-             };
-             (path, size)
+            };
+            (path, size)
         } else {
-             
-             let repo_options: Vec<String> = repos.iter().map(|r| r.full_name()).collect();
-             let repo_selection = Select::new("Select a Model Repository", repo_options)
+            let repo_options: Vec<String> = repos.iter().map(|r| r.full_name()).collect();
+            let repo_selection = Select::new("Select a Model Repository", repo_options)
                 .with_page_size(10)
                 .prompt()?;
-             
-             let repo_idx = repos.iter().position(|r| r.full_name() == repo_selection).unwrap();
-             let selected_repo = &repos[repo_idx];
 
-             
-             let files = RepoManager::list_repo_files(selected_repo)?;
-             let gguf_files: Vec<&crate::core::model::registry::ModelFile> = files.iter()
+            let repo_idx = repos
+                .iter()
+                .position(|r| r.full_name() == repo_selection)
+                .unwrap();
+            let selected_repo = &repos[repo_idx];
+
+            let files = RepoManager::list_repo_files(selected_repo)?;
+            let gguf_files: Vec<&crate::core::model::registry::ModelFile> = files
+                .iter()
                 .filter(|f| f.name.ends_with(".gguf") && !f.name.starts_with("mmproj"))
                 .collect();
 
-             if gguf_files.is_empty() {
-                 anyhow::bail!("No .gguf model files found in repository {}", repo_selection);
-             }
+            if gguf_files.is_empty() {
+                anyhow::bail!(
+                    "No .gguf model files found in repository {}",
+                    repo_selection
+                );
+            }
 
-             let file_options: Vec<String> = gguf_files.iter()
-                .map(|f| f.name.clone())
-                .collect();
-             
-             let file_selection = Select::new("Select the Model File", file_options)
+            let file_options: Vec<String> = gguf_files.iter().map(|f| f.name.clone()).collect();
+
+            let file_selection = Select::new("Select the Model File", file_options)
                 .with_page_size(10)
                 .prompt()?;
-             
-             let file_idx = gguf_files.iter().position(|f| f.name == file_selection).unwrap();
-             let selected_file = gguf_files[file_idx];
-             
-             (selected_file.path.to_string_lossy().to_string(), selected_file.size_gb())
+
+            let file_idx = gguf_files
+                .iter()
+                .position(|f| f.name == file_selection)
+                .unwrap();
+            let selected_file = gguf_files[file_idx];
+
+            (
+                selected_file.path.to_string_lossy().to_string(),
+                selected_file.size_gb(),
+            )
         }
     };
 
-    
     let mmproj_path = detect_sibling(&model_path, &["mmproj", "projector", "vision"]);
     if let Some(ref mm) = mmproj_path {
-        println!("✨ Auto-detected Vision Projector: {}", Path::new(mm).file_name().unwrap_or_default().to_string_lossy());
+        println!(
+            "✨ Auto-detected Vision Projector: {}",
+            Path::new(mm)
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+        );
     }
 
-    
     let chosen_format = "auto";
 
-    
     println!("\n🧠 Memory Analysis:");
     let sys_mem_gb = info.memory_bytes as f64 / 1_073_741_824.0;
     println!("  System RAM: {:.1} GB", sys_mem_gb);
     println!("  Model Size: {:.1} GB", model_size_gb);
-    
-    
-    
-    
-    
-    let available_for_ctx = (sys_mem_gb - model_size_gb - 2.0).max(0.5); 
-    
+
+    let available_for_ctx = (sys_mem_gb - model_size_gb - 2.0).max(0.5);
+
     let est_tokens = (available_for_ctx * 10.0 * 1024.0) as u64;
     println!("  Est. Max Context: ~{} tokens", est_tokens);
 
@@ -120,76 +128,87 @@ pub fn init(name: String, model_override: Option<String>) -> Result<()> {
         ctx_options.push(next_ctx);
         next_ctx *= 2;
     }
-    
-    let recommended_ctx = ctx_options.iter()
+
+    let recommended_ctx = ctx_options
+        .iter()
         .filter(|&&c| c as u64 <= est_tokens)
         .last()
         .copied()
         .unwrap_or(2048);
 
-    let ctx_options_display: Vec<String> = ctx_options.iter().map(|&c| {
-        if c == recommended_ctx {
-            format!("{} (Recommended)", c)
-        } else {
-            c.to_string()
-        }
-    }).collect();
+    let ctx_options_display: Vec<String> = ctx_options
+        .iter()
+        .map(|&c| {
+            if c == recommended_ctx {
+                format!("{} (Recommended)", c)
+            } else {
+                c.to_string()
+            }
+        })
+        .collect();
 
-    let ctx_idx = ctx_options.iter().position(|&c| c == recommended_ctx).unwrap_or(1);
-    
+    let ctx_idx = ctx_options
+        .iter()
+        .position(|&c| c == recommended_ctx)
+        .unwrap_or(1);
+
     let final_ctx_str = Select::new("Select Context Size (Ctx)", ctx_options_display)
         .with_starting_cursor(ctx_idx)
         .prompt()?;
-    
-    let final_ctx = final_ctx_str.split_whitespace().next().unwrap().parse::<u64>()?;
 
-    
-    
-    
-    let library_path = ""; 
+    let final_ctx = final_ctx_str
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .parse::<u64>()?;
 
-    
     let mut final_content = base_content.to_string();
-    
-    
+
     for line in preset_content.lines() {
         if let Some((k, v)) = parse_yaml_line(line) {
             final_content = replace_value(&final_content, &k, &v);
         }
     }
 
-    final_content = replace_value(&final_content, "path", &format!("\"{}\"", shorten_path(&model_path)));
-    
+    final_content = replace_value(
+        &final_content,
+        "path",
+        &format!("\"{}\"", shorten_path(&model_path)),
+    );
+
     if let Some(mm) = &mmproj_path {
-        final_content = replace_value(&final_content, "mmproj_path", &format!("\"{}\"", shorten_path(mm)));
+        final_content = replace_value(
+            &final_content,
+            "mmproj_path",
+            &format!("\"{}\"", shorten_path(mm)),
+        );
         final_content = replace_value(&final_content, "batch_size", "8192");
     }
 
-    if !library_path.is_empty() {
-        final_content = replace_value(&final_content, "library_path", &format!("\"{}\"", library_path));
-    }
-
     let unified_memory_mode = chosen_preset == "metal_unified";
-    final_content = replace_value(&final_content, "unified_memory_mode", if unified_memory_mode { "true" } else { "false" });
+    final_content = replace_value(
+        &final_content,
+        "unified_memory_mode",
+        if unified_memory_mode { "true" } else { "false" },
+    );
     final_content = replace_value(&final_content, "format", chosen_format);
     final_content = replace_value(&final_content, "size", &final_ctx.to_string());
 
-    
     let dest_dir = paths::configs_dir();
     fs::create_dir_all(&dest_dir)?;
     let dest_file = dest_dir.join(format!("{}.yml", name));
-    
+
     if dest_file.exists() {
         if !Confirm::new(&format!("Config \"{}\" exists. Overwrite?", name))
             .with_default(false)
-            .prompt()? 
+            .prompt()?
         {
             return Ok(());
         }
     }
 
     fs::write(&dest_file, final_content)?;
-    
+
     println!("\n✔ Config written to {:?}", dest_file);
     println!("  • Preset: {}", chosen_preset);
     println!("  • Model: {}", shorten_path(&model_path));
@@ -205,8 +224,14 @@ fn ensure_default_configs() -> Result<()> {
     let defaults = [
         ("config.yml", include_str!("../resources/config.yml")),
         ("cpu_only.yml", include_str!("../resources/cpu_only.yml")),
-        ("cuda_dedicated.yml", include_str!("../resources/cuda_dedicated.yml")),
-        ("metal_unified.yml", include_str!("../resources/metal_unified.yml")),
+        (
+            "cuda_dedicated.yml",
+            include_str!("../resources/cuda_dedicated.yml"),
+        ),
+        (
+            "metal_unified.yml",
+            include_str!("../resources/metal_unified.yml"),
+        ),
     ];
 
     for (name, content) in defaults {
@@ -221,19 +246,27 @@ fn ensure_default_configs() -> Result<()> {
 
 fn print_hardware_summary(info: &SystemInfo, recommendation: &str) {
     println!("System probe complete:");
-    println!("  CPU: {} ({}c/{}t)", info.cpu_model, info.physical_cores, info.logical_cores);
-    println!("  Memory: {:.1} GB", info.memory_bytes as f64 / 1_073_741_824.0);
-    
+    println!(
+        "  CPU: {} ({}c/{}t)",
+        info.cpu_model, info.physical_cores, info.logical_cores
+    );
+    println!(
+        "  Memory: {:.1} GB",
+        info.memory_bytes as f64 / 1_073_741_824.0
+    );
+
     println!("Recommended preset: {}", recommendation);
 }
 
 fn detect_sibling(main_path: &str, keywords: &[&str]) -> Option<String> {
     let path = Path::new(main_path);
-    if !path.exists() { return None; }
-    
+    if !path.exists() {
+        return None;
+    }
+
     let parent = path.parent()?;
     let main_name = path.file_name()?.to_str()?.to_lowercase();
-    
+
     if let Ok(entries) = fs::read_dir(parent) {
         for entry in entries.filter_map(Result::ok) {
             let p = entry.path();
@@ -255,25 +288,22 @@ fn detect_sibling(main_path: &str, keywords: &[&str]) -> Option<String> {
 fn shorten_path(path: &str) -> String {
     if let Some(home) = dirs::home_dir() {
         let home_str = home.to_string_lossy();
-         if path.starts_with(home_str.as_ref()) {
-             return path.replacen(home_str.as_ref(), "~", 1);
-         }
+        if path.starts_with(home_str.as_ref()) {
+            return path.replacen(home_str.as_ref(), "~", 1);
+        }
     }
     path.to_string()
 }
 
-
 fn replace_value(content: &str, key: &str, new_value: &str) -> String {
     let mut output = String::new();
     let key_pat = format!("{}:", key);
-    
+
     for line in content.lines() {
         let trimmed = line.trim_start();
         if trimmed.starts_with(&key_pat) {
-            
-            
             let indent = &line[0..line.len() - trimmed.len()];
-            
+
             let parts: Vec<&str> = trimmed.splitn(2, ':').collect();
             if parts.len() == 2 {
                 let rest = parts[1];
@@ -283,8 +313,18 @@ fn replace_value(content: &str, key: &str, new_value: &str) -> String {
                 } else {
                     ""
                 };
-                
-                output.push_str(&format!("{}{}: {}{}\n", indent, key, new_value, if comment.is_empty() { String::new() } else { format!("  {}", comment) }));
+
+                output.push_str(&format!(
+                    "{}{}: {}{}\n",
+                    indent,
+                    key,
+                    new_value,
+                    if comment.is_empty() {
+                        String::new()
+                    } else {
+                        format!("  {}", comment)
+                    }
+                ));
                 continue;
             }
         }
@@ -296,7 +336,9 @@ fn replace_value(content: &str, key: &str, new_value: &str) -> String {
 
 fn parse_yaml_line(line: &str) -> Option<(String, String)> {
     let line = line.trim();
-    if line.starts_with('#') || line.is_empty() { return None; }
+    if line.starts_with('#') || line.is_empty() {
+        return None;
+    }
     let parts: Vec<&str> = line.splitn(2, ':').collect();
     if parts.len() == 2 {
         let key = parts[0].trim().to_string();

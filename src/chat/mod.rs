@@ -1,2 +1,2 @@
-pub mod repl;
 pub mod formatter;
+pub mod repl;

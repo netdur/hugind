@@ -1,6 +1,8 @@
 use crate::llm::error::Error;
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
-
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 #[derive(Debug, Clone)]
 pub struct Event {
@@ -30,14 +32,25 @@ impl RequestHandle {
 
 #[derive(Debug, Clone)]
 pub enum EventKind {
-    
-    Text { text: String, request: RequestHandle },
-    
-    Finish { request: RequestHandle, reason: StopReason },
-    
-    Embedding { embedding: Vec<f32>, request: RequestHandle },
-    
-    Error { message: String, request: RequestHandle },
+    Text {
+        text: String,
+        request: RequestHandle,
+    },
+
+    Finish {
+        request: RequestHandle,
+        reason: StopReason,
+    },
+
+    Embedding {
+        embedding: Vec<f32>,
+        request: RequestHandle,
+    },
+
+    Error {
+        message: String,
+        request: RequestHandle,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,7 +60,6 @@ pub enum StopReason {
     StopString,
     Cancelled,
 }
-
 
 pub fn err(msg: impl Into<String>) -> Error {
     Error::BackendError(msg.into())

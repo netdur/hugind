@@ -1,8 +1,9 @@
 use crate::core::config::server::*;
 use crate::shared::paths;
 use anyhow::{Context, Result};
-use std::path::{Path, PathBuf};
+use serde::Deserialize;
 use std::fs;
+use std::path::{Path, PathBuf};
 
 pub struct ConfigLoader;
 
@@ -11,165 +12,235 @@ impl ConfigLoader {
         let content = fs::read_to_string(path)
             .with_context(|| format!("Failed to read config file: {:?}", path))?;
 
-        let yaml: serde_yaml::Value = serde_yaml::from_str(&content)
-            .with_context(|| "Failed to parse YAML")?;
+        let raw: RawConfigFile =
+            serde_yaml::from_str(&content).with_context(|| "Failed to parse YAML")?;
 
-        let name = path.file_stem()
+        let name = path
+            .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("unknown")
             .to_string();
 
-        let server_section = yaml.get("server").unwrap_or(&serde_yaml::Value::Null);
-        let model_section = yaml.get("model").unwrap_or(&serde_yaml::Value::Null);
-        let context_section = yaml.get("context").unwrap_or(&serde_yaml::Value::Null);
-        let sampling_section = yaml.get("sampling").unwrap_or(&serde_yaml::Value::Null);
-        let chat_section = yaml.get("chat").unwrap_or(&serde_yaml::Value::Null);
+        let host = raw.server.host;
+        let port = raw.server.port;
+        let api_key = trim_non_empty(raw.server.api_key);
+        let max_slots = raw.server.max_slots.unwrap_or(raw.context.n_seq_max);
 
-        
-        let resolve_path = |p: Option<&str>| -> Option<PathBuf> {
-            p.map(|s| resolve_path_relative(s, path))
-        };
-
-        
-        let host = server_section["host"].as_str().unwrap_or("0.0.0.0").to_string();
-        let port = server_section["port"].as_u64().unwrap_or(8080) as u16;
-        let api_key = server_section["api_key"]
-            .as_str()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
-        
-        let library_path = resolve_path(server_section["library_path"].as_str());
-        
-        
-        let system_prompt_file = server_section["system_prompt_file"]
-            .as_str()
-            .map(|p| p.trim())
-            .filter(|p| !p.is_empty())
-            .map(|p| resolve_path_relative(p, path));
+        let system_prompt_file =
+            trim_non_empty(raw.server.system_prompt_file).map(|p| resolve_path_relative(&p, path));
         let system_prompt = if let Some(p) = &system_prompt_file {
-            fs::read_to_string(p).unwrap_or_else(|_| "You are a helpful assistant.".to_string())
+            fs::read_to_string(p).unwrap_or(raw.server.system_prompt)
         } else {
-            "You are a helpful assistant.".to_string()
+            raw.server.system_prompt
         };
 
-        let embeddings_enabled = server_section["embeddings"].as_bool()
-            .or_else(|| server_section["embeddings"].as_str().map(|s| s.eq_ignore_ascii_case("true")))
+        let embeddings_enabled = raw
+            .server
+            .embeddings
+            .as_ref()
+            .and_then(Boolish::as_bool)
+            .unwrap_or(raw.context.embeddings);
+        let unified_memory_mode = raw
+            .server
+            .unified_memory_mode
+            .as_ref()
+            .and_then(Boolish::as_bool)
+            .unwrap_or(false);
+        let verbose = raw
+            .server
+            .verbose
+            .as_ref()
+            .and_then(Boolish::as_bool)
             .unwrap_or(false);
 
-        let unified_memory_mode = server_section["unified_memory_mode"].as_bool()
-            .or_else(|| server_section["unified_memory_mode"].as_str().map(|s| s.eq_ignore_ascii_case("true")))
-            .unwrap_or(false);
+        let session_home = trim_non_empty(raw.server.session_home)
+            .map(|s| resolve_path_relative(&s, path))
+            .unwrap_or_else(paths::sessions_dir);
 
-        let session_home = if let Some(s) = server_section["session_home"].as_str() {
-             resolve_path_relative(s, path)
-        } else {
-             paths::sessions_dir()
-        };
-
-        
-        let model_name = model_section["name"]
-            .as_str()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
-        let model_path_str = model_section["path"].as_str().unwrap_or("");
-        let model_path = resolve_path_relative(model_path_str, path);
-        
-        if !model_path.exists() && !model_path_str.is_empty() {
-             
-             
-             anyhow::bail!("Model file not found at: {:?}", model_path);
+        let model_name = trim_non_empty(raw.model.name);
+        let model_path_str = raw.model.path.trim().to_string();
+        let model_path = resolve_path_relative(&model_path_str, path);
+        if !model_path_str.is_empty() && model_path_str != "@PLACEHOLDER" && !model_path.exists() {
+            anyhow::bail!("Model file not found at: {:?}", model_path);
         }
 
-        let mmproj_path = resolve_path(model_section["mmproj_path"].as_str());
-        
-        
-        let max_slots = server_section["max_slots"].as_u64().unwrap_or(4) as u32;
+        let mmproj_path =
+            trim_non_empty(raw.model.mmproj_path).map(|p| resolve_path_relative(&p, path));
 
-        let mut batch_size = context_section["batch_size"].as_u64().unwrap_or(
-            if mmproj_path.is_some() { 8192 } else { 2048 }
-        ) as u32;
+        let mut model_params = raw.model.params;
+        let mut context_params = raw.context;
+        let multimodal_params = raw.multimodal;
+        let mut sampler_params = raw.sampling;
+        let chat_params = raw.chat;
+        let mut lora_params = raw.lora;
+        let fit_params = raw.fit;
+        let quantize_params = raw.quantize;
+        let advanced_params = raw.advanced;
 
-        if mmproj_path.is_some() && batch_size < 8192 {
-             println!("Vision model detected with low batch size. Auto-increasing to 8192.");
-             batch_size = 8192;
+        // Preserve legacy `server.max_slots` behavior while supporting `context.seq_max`.
+        context_params.n_seq_max = max_slots;
+        context_params.embeddings = embeddings_enabled;
+
+        // For vision models, keep n_batch large enough for stable image token eval.
+        if mmproj_path.is_some() && context_params.n_batch < 8192 {
+            println!("Vision model detected with low batch size. Auto-increasing to 8192.");
+            context_params.n_batch = 8192;
         }
 
-        let model_params = ModelParams {
-            n_gpu_layers: model_section["gpu_layers"].as_u64().unwrap_or(99) as u32,
-            split_mode: parse_split_mode(model_section["split_mode"].as_str()),
-            main_gpu: model_section["main_gpu"].as_u64().unwrap_or(0) as u32,
-            use_mmap: model_section["use_mmap"].as_bool().unwrap_or(true),
-            use_mlock: model_section["use_mlock"].as_bool().unwrap_or(false),
-            vocab_only: model_section["vocab_only"].as_bool().unwrap_or(false),
-        };
+        // Keep explicit flash-attn enum aligned when alias is enabled.
+        if context_params.flash_attention && context_params.flash_attn_type == FlashAttnType::Auto {
+            context_params.flash_attn_type = FlashAttnType::On;
+        }
 
-        let context_params = ContextParams {
-            n_ctx: context_section["size"].as_u64().unwrap_or(4096) as u32,
-            n_batch: batch_size,
-            n_ubatch: context_section["ubatch_size"].as_u64().unwrap_or(512) as u32,
-            n_seq_max: max_slots, 
-            n_threads: context_section["threads"].as_u64().unwrap_or(8) as u32,
-            n_threads_batch: context_section["threads_batch"].as_u64().unwrap_or(8) as u32,
-            flash_attention: parse_flash_attn(&context_section["flash_attention"]),
-            type_k: parse_cache_type(context_section["cache_type_k"].as_str()),
-            type_v: parse_cache_type(context_section["cache_type_v"].as_str()),
-            offload_kqv: context_section["offload_kqv"].as_bool().unwrap_or(true),
-            embeddings: embeddings_enabled,
-        };
+        // Empty grammar should behave like "disabled".
+        sampler_params.grammar = sampler_params.grammar.trim().to_string();
 
-        let sampler_params = SamplerParams {
-            temp: sampling_section["temp"].as_f64().unwrap_or(0.7) as f32,
-            top_k: sampling_section["top_k"].as_u64().unwrap_or(40) as u32,
-            top_p: sampling_section["top_p"].as_f64().unwrap_or(0.95) as f32,
-            min_p: sampling_section["min_p"].as_f64().unwrap_or(0.05) as f32,
-            dry_multiplier: sampling_section["dry_multiplier"].as_f64().unwrap_or(0.0) as f32,
-            repeat_last_n: sampling_section["repeat_last_n"].as_u64().unwrap_or(64) as u32,
-            repeat_penalty: sampling_section["repeat_penalty"].as_f64().unwrap_or(1.1) as f32,
-            frequency_penalty: sampling_section["frequency_penalty"].as_f64().unwrap_or(0.0) as f32,
-            presence_penalty: sampling_section["presence_penalty"].as_f64().unwrap_or(0.0) as f32,
-            dry_base: sampling_section["dry_base"].as_f64().unwrap_or(1.75) as f32,
-            dry_allowed_length: sampling_section["dry_allowed_length"].as_u64().unwrap_or(2) as u32,
-            xtc_probability: sampling_section["xtc_probability"].as_f64().unwrap_or(0.0) as f32,
-            xtc_threshold: sampling_section["xtc_threshold"].as_f64().unwrap_or(0.1) as f32,
-        };
+        // Resolve relative LoRA/control-vector paths against config location.
+        lora_params.adapters = lora_params
+            .adapters
+            .into_iter()
+            .map(|p| resolve_path_relative(&p.to_string_lossy(), path))
+            .collect();
+        for adapter in &mut lora_params.scaled_adapters {
+            adapter.path = resolve_path_relative(&adapter.path.to_string_lossy(), path);
+        }
+        for vector in &mut lora_params.control_vectors {
+            vector.path = resolve_path_relative(&vector.path.to_string_lossy(), path);
+        }
 
-        let chat_format = parse_chat_format(chat_section["format"].as_str());
+        let chat_format = chat_params.format;
+
+        // Ensure main_gpu is valid if no explicit devices were chosen.
+        if model_params.devices.is_empty() && model_params.main_gpu < 0 {
+            model_params.main_gpu = 0;
+        }
 
         Ok(ServerConfig {
             name,
             host,
             port,
-            library_path,
             api_key,
-            concurrency: server_section["concurrency"].as_u64().unwrap_or(1) as u32,
             max_slots,
-            timeout_seconds: server_section["timeout_seconds"].as_u64().unwrap_or(600) as u64,
             system_prompt,
             system_prompt_file,
             embeddings_enabled,
             session_home,
             unified_memory_mode,
-            verbose: server_section["verbose"].as_bool().unwrap_or(false),
+            verbose,
             model_path,
             mmproj_path,
             model_name,
             model_params,
             context_params,
+            multimodal_params,
             sampler_params,
+            chat_params,
+            lora_params,
+            fit_params,
+            quantize_params,
+            advanced_params,
             chat_format,
         })
     }
 }
 
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct RawConfigFile {
+    server: RawServerSection,
+    model: RawModelSection,
+    context: ContextParams,
+    multimodal: MultimodalParams,
+    sampling: SamplerParams,
+    chat: ChatParams,
+    lora: LoraParams,
+    fit: FitParams,
+    quantize: QuantizeParams,
+    advanced: AdvancedParams,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+struct RawServerSection {
+    host: String,
+    port: u16,
+    api_key: Option<String>,
+    max_slots: Option<u32>,
+    system_prompt: String,
+    system_prompt_file: Option<String>,
+    embeddings: Option<Boolish>,
+    session_home: Option<String>,
+    unified_memory_mode: Option<Boolish>,
+    verbose: Option<Boolish>,
+}
+
+impl Default for RawServerSection {
+    fn default() -> Self {
+        Self {
+            host: "0.0.0.0".to_string(),
+            port: 8080,
+            api_key: None,
+            max_slots: None,
+            system_prompt: "You are a helpful assistant.".to_string(),
+            system_prompt_file: None,
+            embeddings: None,
+            session_home: None,
+            unified_memory_mode: None,
+            verbose: None,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+struct RawModelSection {
+    path: String,
+    mmproj_path: Option<String>,
+    name: Option<String>,
+    #[serde(flatten)]
+    params: ModelParams,
+}
+
+impl Default for RawModelSection {
+    fn default() -> Self {
+        Self {
+            path: String::new(),
+            mmproj_path: None,
+            name: None,
+            params: ModelParams::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum Boolish {
+    Bool(bool),
+    String(String),
+}
+
+impl Boolish {
+    fn as_bool(&self) -> Option<bool> {
+        match self {
+            Self::Bool(v) => Some(*v),
+            Self::String(s) => {
+                let normalized = s.trim().to_ascii_lowercase();
+                match normalized.as_str() {
+                    "true" | "on" | "yes" | "enabled" | "1" => Some(true),
+                    "false" | "off" | "no" | "disabled" | "0" => Some(false),
+                    _ => None,
+                }
+            }
+        }
+    }
+}
 
 fn resolve_path_relative(raw_path: &str, config_path: &Path) -> PathBuf {
     if raw_path.is_empty() {
         return PathBuf::new();
     }
-    
+
     let mut resolved = raw_path.to_string();
-    
-    
     if resolved.starts_with('~') {
         if let Some(home) = dirs::home_dir() {
             resolved = resolved.replacen("~", home.to_string_lossy().as_ref(), 1);
@@ -184,46 +255,38 @@ fn resolve_path_relative(raw_path: &str, config_path: &Path) -> PathBuf {
     }
 }
 
-fn parse_split_mode(val: Option<&str>) -> SplitMode {
-    match val {
-        Some("none") => SplitMode::None,
-        Some("layer") => SplitMode::Layer,
-        Some("row") => SplitMode::Row,
-        _ => SplitMode::Layer,
-    }
+fn trim_non_empty(value: Option<String>) -> Option<String> {
+    value
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
 }
 
-fn parse_flash_attn(val: &serde_yaml::Value) -> bool {
-    match val {
-        serde_yaml::Value::Bool(b) => *b,
-        serde_yaml::Value::String(s) => s.eq_ignore_ascii_case("true") || s.eq_ignore_ascii_case("enabled"),
-        _ => false,
-    }
-}
+#[cfg(test)]
+mod tests {
+    use super::ConfigLoader;
+    use std::fs;
 
-fn parse_cache_type(val: Option<&str>) -> CacheType {
-    match val {
-        Some("f32") => CacheType::F32,
-        Some("f16") => CacheType::F16,
-        Some("q4_0") => CacheType::Q4_0,
-        Some("q4_1") => CacheType::Q4_1,
-        Some("q5_0") => CacheType::Q5_0,
-        Some("q5_1") => CacheType::Q5_1,
-        Some("q8_0") => CacheType::Q8_0,
-        _ => CacheType::F16,
-    }
-}
+    #[test]
+    fn parses_realistic_template_shape() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let model_path = dir.path().join("model.gguf");
+        fs::write(&model_path, b"not-a-real-model").expect("write model");
 
-fn parse_chat_format(val: Option<&str>) -> Option<ChatFormat> {
-    match val.map(|s| s.to_lowercase()).as_deref() {
-        Some("llama2") => Some(ChatFormat::Llama2),
-        Some("chatml") => Some(ChatFormat::Chatml),
-        Some("gemma") => Some(ChatFormat::Gemma),
-        Some("vicuna") => Some(ChatFormat::Vicuna),
-        Some("zephyr") => Some(ChatFormat::Zepyhr),
-        Some("openchat") => Some(ChatFormat::Openchat),
-        Some("deepseek") => Some(ChatFormat::Deepseek),
-        Some("qwen3") => Some(ChatFormat::Qwen3),
-        _ => None,
+        let template = include_str!("../../resources/config.yml");
+        let yaml = template
+            .replace("@PLACEHOLDER", &model_path.to_string_lossy())
+            .replace("mmproj_path: \"\"", "mmproj_path: \"proj.gguf\"");
+
+        let config_path = dir.path().join("config.yml");
+        fs::write(&config_path, yaml).expect("write yaml");
+
+        let config = ConfigLoader::load_server_config(&config_path).expect("load config");
+        assert_eq!(config.model_params.n_gpu_layers, 99);
+        assert_eq!(config.context_params.n_ctx, 4096);
+        assert_eq!(config.context_params.n_seq_max, 4);
+        assert_eq!(config.sampler_params.top_k, 40);
+        assert_eq!(config.multimodal_params.image_max_tokens, 0);
+        assert!(!config.chat_params.enable_thinking_default);
+        assert!(config.advanced_params.warmup);
     }
 }

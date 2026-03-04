@@ -7,7 +7,10 @@ pub fn parse_memory_string(mem: &str) -> Option<usize> {
         return stripped.parse::<usize>().ok().map(|v| v * 1024 * 1024);
     }
     if let Some(stripped) = mem.strip_suffix("GB") {
-        return stripped.parse::<usize>().ok().map(|v| v * 1024 * 1024 * 1024);
+        return stripped
+            .parse::<usize>()
+            .ok()
+            .map(|v| v * 1024 * 1024 * 1024);
     }
     mem.parse::<usize>().ok()
 }
@@ -21,7 +24,10 @@ pub fn parse_duration_string(s: &str) -> Option<Duration> {
         return sec.parse::<u64>().ok().map(Duration::from_secs);
     }
     if let Some(min) = s.strip_suffix("m") {
-        return min.parse::<u64>().ok().map(|min| Duration::from_secs(min * 60));
+        return min
+            .parse::<u64>()
+            .ok()
+            .map(|min| Duration::from_secs(min * 60));
     }
     s.parse::<u64>().ok().map(Duration::from_secs)
 }

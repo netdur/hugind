@@ -1,42 +1,145 @@
-server:
-  host: "0.0.0.0"
-  port: 8080
-  api_key: ""
-  embeddings: false
-  concurrency: 1
-  max_slots: 4
-  timeout_seconds: 600
-  system_prompt_file: "prompts/coding_assistant.txt"
-  library_path: ""
-  unified_memory_mode: false
-
 model:
   path: "@PLACEHOLDER"
   mmproj_path: ""
-  gpu_layers: 99
-  split_mode: layer
+
+  # llama_model_params
+  devices: []                    # empty = auto/all devices
+  tensor_buft_overrides: []      # e.g. ["blk.0.ffn*=CPU"]
+  kv_overrides: []               # e.g. ["tokenizer.ggml.add_bos_token=bool:false"]
+
+  gpu_layers: 99                 # -1=auto, -2=all
+  split_mode: layer              # none|layer|row
   main_gpu: 0
-  use_mmap: true
-  use_mlock: false
+  tensor_split: []               # e.g. [3,1]
+
   vocab_only: false
+  use_mmap: true
+  use_direct_io: false
+  use_mlock: false
+  check_tensors: false
+  use_extra_bufts: true
+  no_host: false
+  no_alloc: false
 
 context:
-  size: 4096
-  batch_size: 2048
-  ubatch_size: 512
-  threads: 8
-  threads_batch: 8
-  flash_attention: false
-  cache_type_k: f16
+  # Core
+  size: 4096                     # n_ctx
+  batch_size: 2048               # n_batch
+  ubatch_size: 512               # n_ubatch
+  seq_max: 4                     # n_seq_max
+  threads: 8                     # n_threads
+  threads_batch: 8               # n_threads_batch
+
+  # Attention / rope / pooling
+  rope_scaling_type: unspecified # unspecified|none|linear|yarn|longrope
+  pooling_type: unspecified      # unspecified|none|mean|cls|last|rank
+  attention_type: unspecified    # unspecified|causal|non_causal
+  flash_attention: false         # bool alias mapped to flash_attn_type
+  flash_attn_type: auto          # auto|on|off (explicit enum path)
+
+  rope_freq_base: 0.0
+  rope_freq_scale: 0.0
+  yarn_ext_factor: -1.0
+  yarn_attn_factor: 1.0
+  yarn_beta_fast: 32.0
+  yarn_beta_slow: 1.0
+  yarn_orig_ctx: 0
+
+  # KV cache
+  cache_type_k: f16              # f32|f16|q4_0|q4_1|q5_0|q5_1|q8_0
   cache_type_v: f16
   offload_kqv: true
+  kv_unified: true
+  swa_full: true
 
-chat:
-  format: auto
+  # Execution / perf
+  op_offload: true
+  embeddings: false
+  no_perf: false
+  defrag_thold: -1.0             # deprecated in llama.cpp
+
+multimodal:
+  mmproj_offload: true           # mapped to mtmd_context_params.use_gpu
+  image_min_tokens: 0            # 0 = model default
+  image_max_tokens: 0            # 0 = model default
 
 sampling:
+  # Chain / seed
+  no_perf: false
+  seed: 4294967295               # LLAMA_DEFAULT_SEED (random seed)
+
+  # Core samplers
   temp: 0.7
   top_k: 40
   top_p: 0.95
   min_p: 0.05
+  typical_p: 1.0
+  top_n_sigma: -1.0
+
+  # Dynamic temperature
+  dynatemp_range: 0.0
+  dynatemp_exp: 1.0
+
+  # Penalties
+  repeat_last_n: 64
+  repeat_penalty: 1.1
+  frequency_penalty: 0.0
+  presence_penalty: 0.0
+
+  # DRY sampling
   dry_multiplier: 0.0
+  dry_base: 1.75
+  dry_allowed_length: 2
+  dry_penalty_last_n: -1
+  dry_sequence_breakers:
+    - "\n"
+    - ":"
+    - "\""
+    - "*"
+
+  # XTC
+  xtc_probability: 0.0
+  xtc_threshold: 0.1
+
+  # Adaptive-P
+  adaptive_target: -1.0          # <0 disables
+  adaptive_decay: 0.0
+
+  # Mirostat
+  mirostat: 0                    # 0=off, 1=mirostat1, 2=mirostat2
+  mirostat_lr: 0.1               # eta
+  mirostat_ent: 5.0              # tau
+
+  # Constraints
+  logit_bias: []                 # e.g. [{ token: 2, bias: -100.0 }]
+  grammar: ""
+
+chat:
+  enable_thinking_default: false
+
+lora:
+  adapters: []                   # e.g. ["/path/a.safetensors"]
+  scaled_adapters: []            # e.g. [{ path: "/path/a.safetensors", scale: 0.8 }]
+  control_vectors: []            # e.g. [{ path: "/path/cv.bin", scale: 1.0 }]
+
+fit:
+  enabled: false
+  target_mib: []                 # per-device margins in MiB
+  min_ctx: 0                     # minimum n_ctx when fitting
+
+quantize:
+  # llama_model_quantize_params (offline quantization workflows)
+  nthread: 0
+  ftype: mostly_q4_0
+  output_tensor_type: f16
+  token_embedding_type: f16
+  allow_requantize: false
+  quantize_output_tensor: true
+  only_copy: false
+  pure: false
+  keep_split: false
+  dry_run: false
+
+advanced:
+  numa: ""                       # distribute|isolate|numactl
+  warmup: true

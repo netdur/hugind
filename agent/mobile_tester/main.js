@@ -194,7 +194,12 @@ export default async function main(runInput) {
         return { success: true, stepsUsed: step + 1 };
       }
 
-      await sleep(config.STEP_DELAY * 1000);
+      // Treat STEP_DELAY as a minimum inter-step cadence, not an always-additive delay.
+      const stepDelayMs = Math.max(0, Number(config.STEP_DELAY || 0) * 1000);
+      const remainingDelayMs = stepDelayMs - actionLatency;
+      if (remainingDelayMs > 0) {
+        await sleep(remainingDelayMs);
+      }
     }
 
     logger.finalize(false);

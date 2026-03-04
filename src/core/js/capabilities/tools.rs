@@ -1,5 +1,5 @@
 use anyhow::Result as AnyhowResult;
-use rquickjs::{function::Async, AsyncContext, Function, Object, Result, Value};
+use rquickjs::{AsyncContext, Function, Object, Result, Value, function::Async};
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
 
@@ -7,73 +7,96 @@ use crate::core::config::agent::AgentConfig;
 use crate::core::mcp::McpManager;
 use crate::shared::logging::RunLogger;
 
-pub async fn install(ctx: &AsyncContext, config: &AgentConfig, logger: Option<RunLogger>) -> Result<()> {
+pub async fn install(
+    ctx: &AsyncContext,
+    config: &AgentConfig,
+    logger: Option<RunLogger>,
+) -> Result<()> {
     let manager = match McpManager::new(config).await {
         Ok(m) => m.map(Arc::new),
         Err(e) => {
             return Err(rquickjs::Error::new_loading_message(
                 "MCP Error",
                 e.to_string(),
-            ))
+            ));
         }
     };
 
-    ctx.async_with(|ctx| Box::pin(async move {
-        let tools_obj = Object::new(ctx.clone())?;
+    ctx.async_with(|ctx| {
+        Box::pin(async move {
+            let tools_obj = Object::new(ctx.clone())?;
 
-        let list_manager = manager.clone();
-        let list_logger = logger.clone();
-        let list_fn = Function::new(ctx.clone(), Async(move || {
-            let list_manager = list_manager.clone();
-            let list_logger = list_logger.clone();
-            async move {
-                if let Some(l) = &list_logger {
-                    l.log_line("host.tools.list");
-                }
-                let tools = match &list_manager {
-                    Some(m) => m.list_tools().await.map_err(map_mcp_err)?,
-                    None => Vec::new(),
-                };
-                let json = serde_json::to_string(&tools).map_err(map_mcp_err)?;
-                Ok::<String, rquickjs::Error>(json)
-            }
-        }))?;
-        tools_obj.set("list", list_fn)?;
+            let list_manager = manager.clone();
+            let list_logger = logger.clone();
+            let list_fn = Function::new(
+                ctx.clone(),
+                Async(move || {
+                    let list_manager = list_manager.clone();
+                    let list_logger = list_logger.clone();
+                    async move {
+                        if let Some(l) = &list_logger {
+                            l.log_line("host.tools.list");
+                        }
+                        let tools = match &list_manager {
+                            Some(m) => m.list_tools().await.map_err(map_mcp_err)?,
+                            None => Vec::new(),
+                        };
+                        let json = serde_json::to_string(&tools).map_err(map_mcp_err)?;
+                        Ok::<String, rquickjs::Error>(json)
+                    }
+                }),
+            )?;
+            tools_obj.set("list", list_fn)?;
 
-        let call_manager = manager.clone();
-        let call_logger = logger.clone();
-        let call_fn = Function::new(ctx.clone(), Async(move |name: String, args: Value| {
-            let call_manager = call_manager.clone();
-            let call_logger = call_logger.clone();
-            let args_json = js_value_to_json(args)
-                .map_err(|e| rquickjs::Error::new_loading_message("MCP Error", e.to_string()));
-            async move {
-                if let Some(l) = &call_logger {
-                    let args_len = args_json
-                        .as_ref()
-                        .ok()
-                        .and_then(|v| serde_json::to_string(v).ok())
-                        .map(|s| s.len())
-                        .unwrap_or(0);
-                    l.log_line(format!("host.tools.call name={} args_len={}", name, args_len));
-                }
-                let manager = call_manager.as_ref().ok_or_else(|| {
-                    rquickjs::Error::new_loading_message("MCP Error", "No MCP tools configured")
-                })?;
-                let mut args_json = args_json?;
-                if args_json.is_null() {
-                    args_json = JsonValue::Object(serde_json::Map::new());
-                }
-                let result = manager.call_tool(&name, args_json).await.map_err(map_mcp_err)?;
-                let json = serde_json::to_string(&result).map_err(map_mcp_err)?;
-                Ok::<String, rquickjs::Error>(json)
-            }
-        }))?;
-        tools_obj.set("call", call_fn)?;
+            let call_manager = manager.clone();
+            let call_logger = logger.clone();
+            let call_fn = Function::new(
+                ctx.clone(),
+                Async(move |name: String, args: Value| {
+                    let call_manager = call_manager.clone();
+                    let call_logger = call_logger.clone();
+                    let args_json = js_value_to_json(args).map_err(|e| {
+                        rquickjs::Error::new_loading_message("MCP Error", e.to_string())
+                    });
+                    async move {
+                        if let Some(l) = &call_logger {
+                            let args_len = args_json
+                                .as_ref()
+                                .ok()
+                                .and_then(|v| serde_json::to_string(v).ok())
+                                .map(|s| s.len())
+                                .unwrap_or(0);
+                            l.log_line(format!(
+                                "host.tools.call name={} args_len={}",
+                                name, args_len
+                            ));
+                        }
+                        let manager = call_manager.as_ref().ok_or_else(|| {
+                            rquickjs::Error::new_loading_message(
+                                "MCP Error",
+                                "No MCP tools configured",
+                            )
+                        })?;
+                        let mut args_json = args_json?;
+                        if args_json.is_null() {
+                            args_json = JsonValue::Object(serde_json::Map::new());
+                        }
+                        let result = manager
+                            .call_tool(&name, args_json)
+                            .await
+                            .map_err(map_mcp_err)?;
+                        let json = serde_json::to_string(&result).map_err(map_mcp_err)?;
+                        Ok::<String, rquickjs::Error>(json)
+                    }
+                }),
+            )?;
+            tools_obj.set("call", call_fn)?;
 
-        ctx.globals().set("tools", tools_obj)?;
-        Ok(())
-    })).await
+            ctx.globals().set("tools", tools_obj)?;
+            Ok(())
+        })
+    })
+    .await
 }
 
 fn map_mcp_err<E: std::fmt::Display>(err: E) -> rquickjs::Error {

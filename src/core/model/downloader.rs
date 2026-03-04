@@ -1,12 +1,12 @@
-use anyhow::{Result, anyhow, Context};
-use std::path::PathBuf;
-use std::fs::{self, File};
-use std::io::Write;
-use reqwest::header::AUTHORIZATION;
-use futures_util::StreamExt;
-use indicatif::{ProgressBar, ProgressStyle};
 use crate::core::config::settings::GlobalSettings;
 use crate::core::model::registry::RepoManager;
+use anyhow::{Context, Result, anyhow};
+use futures_util::StreamExt;
+use indicatif::{ProgressBar, ProgressStyle};
+use reqwest::header::AUTHORIZATION;
+use std::fs::{self, File};
+use std::io::Write;
+use std::path::PathBuf;
 
 pub struct Downloader;
 
@@ -28,7 +28,7 @@ impl Downloader {
     ) -> Result<PathBuf> {
         let url = format!("https://huggingface.co/{}/resolve/main/{}", repo, filename);
         let repo_dir = RepoManager::get_repo_dir(repo);
-        
+
         if !repo_dir.exists() {
             fs::create_dir_all(&repo_dir)?;
         }
@@ -36,7 +36,6 @@ impl Downloader {
         let final_path = repo_dir.join(filename);
         let part_path = repo_dir.join(format!("{}.part", filename));
 
-        
         if part_path.exists() {
             fs::remove_file(&part_path)?;
         }
@@ -54,7 +53,10 @@ impl Downloader {
 
         let response = request.send().await?;
         if !response.status().is_success() {
-             return Err(anyhow!("Failed to download file: Status {}", response.status()));
+            return Err(anyhow!(
+                "Failed to download file: Status {}",
+                response.status()
+            ));
         }
 
         let total_size = response.content_length();
@@ -94,8 +96,7 @@ impl Downloader {
         } else if let Some(pb) = pb.take() {
             pb.finish_with_message(format!("Downloaded {}", filename));
         }
-        
-        
+
         if final_path.exists() {
             fs::remove_file(&final_path)?;
         }

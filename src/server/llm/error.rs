@@ -23,7 +23,7 @@ pub enum Error {
 
     #[error("UTF-8 error: {0}")]
     Utf8Error(#[from] Utf8Error),
-    
+
     #[error("Backend error: {0}")]
     BackendError(String),
 

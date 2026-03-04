@@ -1,6 +1,6 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value as JsonValue};
+use serde_json::{Value as JsonValue, json};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use tokio::io::{self, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader, BufWriter};
@@ -166,7 +166,15 @@ pub async fn run() -> Result<()> {
 }
 
 async fn handle_request(req: Request, outbox: Outbox) -> Result<()> {
-    let result = dispatch_method(&req.method, req.params, EventMode::Stdio { id: req.id.clone(), outbox: outbox.clone() }).await;
+    let result = dispatch_method(
+        &req.method,
+        req.params,
+        EventMode::Stdio {
+            id: req.id.clone(),
+            outbox: outbox.clone(),
+        },
+    )
+    .await;
     match result {
         Ok(value) => {
             outbox.send(Response {
@@ -193,7 +201,11 @@ async fn handle_request(req: Request, outbox: Outbox) -> Result<()> {
     Ok(())
 }
 
-async fn dispatch_method(method: &str, params: Option<JsonValue>, mode: EventMode) -> Result<JsonValue> {
+async fn dispatch_method(
+    method: &str,
+    params: Option<JsonValue>,
+    mode: EventMode,
+) -> Result<JsonValue> {
     match method {
         "agent.list" => {
             let agents = list_agents()?;
@@ -348,18 +360,37 @@ async fn handle_mcp_message(value: JsonValue, outbox: Outbox) -> Result<()> {
             let id = req.id.unwrap_or(JsonValue::Null);
             let params = req.params.unwrap_or(JsonValue::Null);
             let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
-            let args = params.get("arguments").cloned().unwrap_or(JsonValue::Object(Default::default()));
+            let args = params
+                .get("arguments")
+                .cloned()
+                .unwrap_or(JsonValue::Object(Default::default()));
             if name.is_empty() {
-                outbox.send(mcp_error_response(id, -32602, "Missing tool name".to_string()));
+                outbox.send(mcp_error_response(
+                    id,
+                    -32602,
+                    "Missing tool name".to_string(),
+                ));
                 return Ok(());
             }
-            match dispatch_method(name, Some(args), EventMode::Mcp { id: id.clone(), outbox: outbox.clone() }).await {
+            match dispatch_method(
+                name,
+                Some(args),
+                EventMode::Mcp {
+                    id: id.clone(),
+                    outbox: outbox.clone(),
+                },
+            )
+            .await
+            {
                 Ok(result) => {
                     let content = json!([{
                         "type": "text",
                         "text": serde_json::to_string(&result).unwrap_or_else(|_| "null".to_string())
                     }]);
-                    outbox.send(mcp_response(id, json!({ "content": content, "isError": false })));
+                    outbox.send(mcp_response(
+                        id,
+                        json!({ "content": content, "isError": false }),
+                    ));
                 }
                 Err(e) => {
                     outbox.send(mcp_error_response(id, -32603, e.to_string()));
@@ -368,7 +399,11 @@ async fn handle_mcp_message(value: JsonValue, outbox: Outbox) -> Result<()> {
         }
         _ => {
             if let Some(id) = req.id {
-                outbox.send(mcp_error_response(id, -32601, format!("Unknown method {}", method)));
+                outbox.send(mcp_error_response(
+                    id,
+                    -32601,
+                    format!("Unknown method {}", method),
+                ));
             }
         }
     }
@@ -486,7 +521,9 @@ impl StdioEmitter {
         let event = Event {
             event: "log".to_string(),
             id: self.id.clone(),
-            data: LogEvent { message: message.into() },
+            data: LogEvent {
+                message: message.into(),
+            },
             schema_version: SCHEMA_VERSION,
         };
         self.outbox.send(event);
@@ -536,7 +573,9 @@ impl StatusEmitter for StdioEmitter {
         let event = Event {
             event: "status".to_string(),
             id: self.id.clone(),
-            data: StatusEvent { message: message.to_string() },
+            data: StatusEvent {
+                message: message.to_string(),
+            },
             schema_version: SCHEMA_VERSION,
         };
         self.outbox.send(event);
@@ -724,7 +763,10 @@ fn remove_agent(name: &str) -> Result<AgentRemoveResult> {
     })
 }
 
-async fn run_agent_with_emitter<E>(params: AgentRunParams, emitter: std::sync::Arc<E>) -> Result<AgentRunResult>
+async fn run_agent_with_emitter<E>(
+    params: AgentRunParams,
+    emitter: std::sync::Arc<E>,
+) -> Result<AgentRunResult>
 where
     E: PrintSink + StatusEmitter + Send + Sync + 'static,
 {
@@ -733,13 +775,9 @@ where
     let _sink_guard = PrintSinkGuard::new(sink);
 
     emitter.status("agent.run.start");
-    let result = crate::core::orchestrator::execute_with_result(
-        params.path,
-        params.args,
-        None,
-        None,
-    )
-    .await?;
+    let result =
+        crate::core::orchestrator::execute_with_result(params.path, params.args, None, None)
+            .await?;
     emitter.status("agent.run.finish");
     Ok(AgentRunResult {
         status: "ok".to_string(),
@@ -807,19 +845,34 @@ fn install_agent(params: &AgentInstallParams) -> Result<AgentInstallResult> {
     })
 }
 
-fn summarize_permissions(perms: &Option<crate::core::config::agent::Permissions>) -> PermissionsSummary {
-    let mut network = PermissionSummary { allow: false, details: Vec::new() };
-    let mut filesystem = PermissionSummary { allow: false, details: Vec::new() };
-    let mut shell = PermissionSummary { allow: false, details: Vec::new() };
+fn summarize_permissions(
+    perms: &Option<crate::core::config::agent::Permissions>,
+) -> PermissionsSummary {
+    let mut network = PermissionSummary {
+        allow: false,
+        details: Vec::new(),
+    };
+    let mut filesystem = PermissionSummary {
+        allow: false,
+        details: Vec::new(),
+    };
+    let mut shell = PermissionSummary {
+        allow: false,
+        details: Vec::new(),
+    };
 
     if let Some(perms) = perms {
         if let Some(net) = &perms.network {
             network.allow = net.allow;
             if !net.allowed_domains.is_empty() {
-                network.details.push(format!("domains: {}", net.allowed_domains.join(", ")));
+                network
+                    .details
+                    .push(format!("domains: {}", net.allowed_domains.join(", ")));
             }
             if !net.allowed_ips.is_empty() {
-                network.details.push(format!("ips: {}", net.allowed_ips.join(", ")));
+                network
+                    .details
+                    .push(format!("ips: {}", net.allowed_ips.join(", ")));
             }
             if net.block_private_networks {
                 network.details.push("blocks private networks".to_string());
@@ -835,21 +888,37 @@ fn summarize_permissions(perms: &Option<crate::core::config::agent::Permissions>
         if let Some(fs_perm) = &perms.filesystem {
             filesystem.allow = fs_perm.allow;
             let mut actions = Vec::new();
-            if fs_perm.read { actions.push("read"); }
-            if fs_perm.write { actions.push("write"); }
-            if fs_perm.create { actions.push("create"); }
-            if fs_perm.delete { actions.push("delete"); }
+            if fs_perm.read {
+                actions.push("read");
+            }
+            if fs_perm.write {
+                actions.push("write");
+            }
+            if fs_perm.create {
+                actions.push("create");
+            }
+            if fs_perm.delete {
+                actions.push("delete");
+            }
             if !actions.is_empty() {
-                filesystem.details.push(format!("actions: {}", actions.join(", ")));
+                filesystem
+                    .details
+                    .push(format!("actions: {}", actions.join(", ")));
             }
             if !fs_perm.allowed_paths.is_empty() {
-                filesystem.details.push(format!("paths: {}", fs_perm.allowed_paths.join(", ")));
+                filesystem
+                    .details
+                    .push(format!("paths: {}", fs_perm.allowed_paths.join(", ")));
             }
             if !fs_perm.denied_paths.is_empty() {
-                filesystem.details.push(format!("blocked: {}", fs_perm.denied_paths.join(", ")));
+                filesystem
+                    .details
+                    .push(format!("blocked: {}", fs_perm.denied_paths.join(", ")));
             }
             if fs_perm.allow_outside_agent_root {
-                filesystem.details.push("can access outside agent folder".to_string());
+                filesystem
+                    .details
+                    .push("can access outside agent folder".to_string());
             }
             if fs_perm.follow_symlinks {
                 filesystem.details.push("follows symlinks".to_string());
@@ -883,7 +952,11 @@ fn summarize_permissions(perms: &Option<crate::core::config::agent::Permissions>
         }
     }
 
-    PermissionsSummary { network, filesystem, shell }
+    PermissionsSummary {
+        network,
+        filesystem,
+        shell,
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -988,8 +1061,6 @@ fn remove_config(params: &ConfigRemoveParams) -> Result<ConfigRemoveResult> {
 #[derive(Debug, Deserialize)]
 struct ConfigDefaultsParams {
     #[serde(default)]
-    lib: Option<String>,
-    #[serde(default)]
     hf_token: Option<String>,
 }
 
@@ -1007,9 +1078,6 @@ struct ConfigSettingItem {
 fn config_defaults(params: ConfigDefaultsParams) -> Result<ConfigDefaultsResult> {
     ensure_settings_file()?;
     let mut settings = GlobalSettings::load()?;
-    if let Some(l) = params.lib {
-        settings.set("library_path", &l);
-    }
     if let Some(t) = params.hf_token {
         settings.set("hf_token", &t);
     }
@@ -1089,10 +1157,14 @@ fn config_init(params: ConfigInitParams) -> Result<ConfigInitResult> {
         0.0
     };
 
-    let mmproj_path = params.mmproj_path.or_else(|| detect_sibling(&model_path, &["mmproj", "projector", "vision"]));
+    let mmproj_path = params
+        .mmproj_path
+        .or_else(|| detect_sibling(&model_path, &["mmproj", "projector", "vision"]));
     let chosen_format = params.format.unwrap_or_else(|| "auto".to_string());
 
-    let final_ctx = params.ctx.unwrap_or_else(|| recommend_ctx(&info, model_size_gb));
+    let final_ctx = params
+        .ctx
+        .unwrap_or_else(|| recommend_ctx(&info, model_size_gb));
 
     let mut final_content = base_content.to_string();
     for line in preset_content.lines() {
@@ -1101,13 +1173,25 @@ fn config_init(params: ConfigInitParams) -> Result<ConfigInitResult> {
         }
     }
 
-    final_content = replace_value(&final_content, "path", &format!("\"{}\"", shorten_path(&model_path)));
+    final_content = replace_value(
+        &final_content,
+        "path",
+        &format!("\"{}\"", shorten_path(&model_path)),
+    );
     if let Some(mm) = &mmproj_path {
-        final_content = replace_value(&final_content, "mmproj_path", &format!("\"{}\"", shorten_path(mm)));
+        final_content = replace_value(
+            &final_content,
+            "mmproj_path",
+            &format!("\"{}\"", shorten_path(mm)),
+        );
         final_content = replace_value(&final_content, "batch_size", "8192");
     }
     let unified_memory_mode = chosen_preset == "metal_unified";
-    final_content = replace_value(&final_content, "unified_memory_mode", if unified_memory_mode { "true" } else { "false" });
+    final_content = replace_value(
+        &final_content,
+        "unified_memory_mode",
+        if unified_memory_mode { "true" } else { "false" },
+    );
     final_content = replace_value(&final_content, "format", &chosen_format);
     final_content = replace_value(&final_content, "size", &final_ctx.to_string());
 
@@ -1134,8 +1218,14 @@ fn ensure_default_configs() -> Result<()> {
     let defaults = [
         ("config.yml", include_str!("../resources/config.yml")),
         ("cpu_only.yml", include_str!("../resources/cpu_only.yml")),
-        ("cuda_dedicated.yml", include_str!("../resources/cuda_dedicated.yml")),
-        ("metal_unified.yml", include_str!("../resources/metal_unified.yml")),
+        (
+            "cuda_dedicated.yml",
+            include_str!("../resources/cuda_dedicated.yml"),
+        ),
+        (
+            "metal_unified.yml",
+            include_str!("../resources/metal_unified.yml"),
+        ),
     ];
     for (name, content) in defaults {
         let path = dest_dir.join(name);
@@ -1214,14 +1304,19 @@ fn show_model(repo: String) -> Result<ModelShowResult> {
         return Err(anyhow!("Repository '{}' not found", repo));
     }
     let repos = RepoManager::list_repos()?;
-    let repo_obj = repos.iter().find(|r| r.full_name() == repo)
+    let repo_obj = repos
+        .iter()
+        .find(|r| r.full_name() == repo)
         .ok_or_else(|| anyhow!("Repository metadata not found"))?;
     let files = RepoManager::list_repo_files(repo_obj)?;
-    let items = files.into_iter().map(|f| ModelFileItem {
-        name: f.name,
-        path: f.path.to_string_lossy().to_string(),
-        size_bytes: f.size_bytes,
-    }).collect();
+    let items = files
+        .into_iter()
+        .map(|f| ModelFileItem {
+            name: f.name,
+            path: f.path.to_string_lossy().to_string(),
+            size_bytes: f.size_bytes,
+        })
+        .collect();
     Ok(ModelShowResult { repo, files: items })
 }
 
@@ -1245,7 +1340,8 @@ where
         return Err(anyhow!("No files specified"));
     }
 
-    let available = RemoteClient::fetch_repo_files(&params.repo).await
+    let available = RemoteClient::fetch_repo_files(&params.repo)
+        .await
         .context("Failed to fetch remote files")?;
     let available_set: std::collections::HashSet<String> = available.into_iter().collect();
 
@@ -1259,7 +1355,10 @@ where
         Downloader::download_file_with_sink(&params.repo, filename, Some(emitter)).await?;
     }
 
-    Ok(ModelAddResult { repo: params.repo, files: params.files })
+    Ok(ModelAddResult {
+        repo: params.repo,
+        files: params.files,
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -1282,7 +1381,10 @@ struct ModelRemoveResult {
 
 fn remove_model(params: ModelRemoveParams) -> Result<ModelRemoveResult> {
     if !RepoManager::repo_exists(&params.repo) {
-        return Err(anyhow!("Repository '{}' does not exist locally", params.repo));
+        return Err(anyhow!(
+            "Repository '{}' does not exist locally",
+            params.repo
+        ));
     }
 
     let mut deleted_files = Vec::new();
@@ -1362,7 +1464,8 @@ struct ServerStartResult {
 }
 
 fn start_server(params: ServerStartParams) -> Result<ServerStartResult> {
-    let exe = std::env::current_exe().with_context(|| "Failed to resolve current executable path")?;
+    let exe =
+        std::env::current_exe().with_context(|| "Failed to resolve current executable path")?;
     let mut cmd = Command::new(exe);
     cmd.arg("server").arg("start").arg(params.config);
     if let Some(port) = params.port {
@@ -1371,7 +1474,8 @@ fn start_server(params: ServerStartParams) -> Result<ServerStartResult> {
     cmd.stdin(Stdio::null());
     cmd.stdout(Stdio::null());
     cmd.stderr(Stdio::null());
-    cmd.spawn().with_context(|| "Failed to spawn detached server process")?;
+    cmd.spawn()
+        .with_context(|| "Failed to spawn detached server process")?;
     Ok(ServerStartResult {
         status: "starting".to_string(),
     })
@@ -1386,7 +1490,10 @@ async fn list_servers() -> Result<Vec<ServerItem>> {
     let configs = list_config_files(&config_dir)?;
     let mut servers = Vec::new();
     for path in configs {
-        let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown");
+        let name = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown");
         let (host, port) = read_host_port(&path).unwrap_or(("127.0.0.1".to_string(), 8080));
         let monitor_url = format!("http://{}:{}/v1/monitor", normalize_host(&host), port);
         let info = fetch_monitor_info(&monitor_url).await;
@@ -1458,26 +1565,20 @@ fn find_config_path(config: &str) -> Option<PathBuf> {
 fn read_host_port(path: &Path) -> Result<(String, u16)> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read config file: {:?}", path))?;
-    let yaml: serde_yaml::Value = serde_yaml::from_str(&content).with_context(|| "Failed to parse YAML")?;
+    let yaml: serde_yaml::Value =
+        serde_yaml::from_str(&content).with_context(|| "Failed to parse YAML")?;
     let server = yaml.get("server").unwrap_or(&serde_yaml::Value::Null);
     let host = server
         .get("host")
         .and_then(|h| h.as_str())
         .unwrap_or("127.0.0.1")
         .to_string();
-    let port = server
-        .get("port")
-        .and_then(|p| p.as_u64())
-        .unwrap_or(8080) as u16;
+    let port = server.get("port").and_then(|p| p.as_u64()).unwrap_or(8080) as u16;
     Ok((host, port))
 }
 
 fn normalize_host(host: &str) -> &str {
-    if host == "0.0.0.0" {
-        "127.0.0.1"
-    } else {
-        host
-    }
+    if host == "0.0.0.0" { "127.0.0.1" } else { host }
 }
 
 fn kill_by_port(port: u16) -> Result<Vec<i32>> {
@@ -1501,10 +1602,7 @@ fn kill_by_port(port: u16) -> Result<Vec<i32>> {
         return Ok(Vec::new());
     }
     for pid in &pids {
-        let _ = Command::new("kill")
-            .arg("-9")
-            .arg(pid.to_string())
-            .status();
+        let _ = Command::new("kill").arg("-9").arg(pid.to_string()).status();
     }
     Ok(pids)
 }
@@ -1518,7 +1616,10 @@ async fn fetch_monitor_info(url: &str) -> Option<MonitorInfo> {
     let resp = resp.error_for_status().ok()?;
     let body = resp.text().await.ok()?;
     let json = serde_json::from_str::<JsonValue>(&body).ok()?;
-    let config_name = json.get("config_name").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let config_name = json
+        .get("config_name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     Some(MonitorInfo { config_name })
 }
 
@@ -1558,7 +1659,9 @@ fn resolve_local_agent_root(path: &str) -> Result<PathBuf> {
                 .ok_or_else(|| anyhow!("Invalid agent.yaml path"))?
                 .to_path_buf());
         }
-        return Err(anyhow!("Expected a folder containing agent.yaml or a direct agent.yaml path"));
+        return Err(anyhow!(
+            "Expected a folder containing agent.yaml or a direct agent.yaml path"
+        ));
     }
     Ok(target)
 }
@@ -1578,12 +1681,20 @@ fn extract_local_zip_agent(path: &str) -> Result<PathBuf> {
     Ok(agent_root)
 }
 
-fn download_agent(path: &str) -> Result<(PathBuf, crate::core::config::agent::AgentConfig, Option<tempfile::TempDir>)> {
+fn download_agent(
+    path: &str,
+) -> Result<(
+    PathBuf,
+    crate::core::config::agent::AgentConfig,
+    Option<tempfile::TempDir>,
+)> {
     let base_url = resolve_agent_base_url(path)?;
     let agent_url = base_url.join("agent.yaml")?;
     let temp = tempfile::tempdir()?;
     let root = temp.path().to_path_buf();
-    let agent_yaml = reqwest::blocking::get(agent_url.clone())?.error_for_status()?.text()?;
+    let agent_yaml = reqwest::blocking::get(agent_url.clone())?
+        .error_for_status()?
+        .text()?;
     std::fs::write(root.join("agent.yaml"), agent_yaml)?;
     let config = crate::core::config::agent::AgentConfig::load_from_dir(&root)?;
     let entry_url = base_url.join(&config.entry_point)?;
@@ -1591,17 +1702,27 @@ fn download_agent(path: &str) -> Result<(PathBuf, crate::core::config::agent::Ag
     if let Some(parent) = entry_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let entry_bytes = reqwest::blocking::get(entry_url.clone())?.error_for_status()?.bytes()?;
+    let entry_bytes = reqwest::blocking::get(entry_url.clone())?
+        .error_for_status()?
+        .bytes()?;
     std::fs::write(&entry_path, &entry_bytes)?;
     Ok((root, config, Some(temp)))
 }
 
-fn download_zip_agent(path: &str) -> Result<(PathBuf, crate::core::config::agent::AgentConfig, Option<tempfile::TempDir>)> {
+fn download_zip_agent(
+    path: &str,
+) -> Result<(
+    PathBuf,
+    crate::core::config::agent::AgentConfig,
+    Option<tempfile::TempDir>,
+)> {
     let url = reqwest::Url::parse(path)?;
     let temp = tempfile::tempdir()?;
     let root = temp.path().to_path_buf();
     let zip_path = root.join("agent.zip");
-    let bytes = reqwest::blocking::get(url.clone())?.error_for_status()?.bytes()?;
+    let bytes = reqwest::blocking::get(url.clone())?
+        .error_for_status()?
+        .bytes()?;
     std::fs::write(&zip_path, &bytes)?;
     extract_zip(&zip_path, &root)?;
     let agent_root = find_agent_root(&root)?;
@@ -1639,7 +1760,10 @@ fn github_raw_base(url: &reqwest::Url) -> Option<reqwest::Url> {
     }
     let branch = segments[3];
     let path_parts = &segments[4..];
-    let mut base = format!("https://raw.githubusercontent.com/{}/{}/{}/", owner, repo, branch);
+    let mut base = format!(
+        "https://raw.githubusercontent.com/{}/{}/{}/",
+        owner, repo, branch
+    );
     if !path_parts.is_empty() {
         let mut dir_parts = path_parts.to_vec();
         if kind == "blob" && !dir_parts.is_empty() {
@@ -1660,7 +1784,13 @@ fn sanitize_agent_name(name: &str) -> String {
     }
     trimmed
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -1720,10 +1850,10 @@ fn find_agent_root(root: &Path) -> Result<PathBuf> {
 }
 
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
-    std::fs::create_dir_all(dst)
-        .with_context(|| format!("Failed to create {}", dst.display()))?;
-    for entry in std::fs::read_dir(src)
-        .with_context(|| format!("Failed to read {}", src.display()))? {
+    std::fs::create_dir_all(dst).with_context(|| format!("Failed to create {}", dst.display()))?;
+    for entry in
+        std::fs::read_dir(src).with_context(|| format!("Failed to read {}", src.display()))?
+    {
         let entry = entry?;
         let ty = entry.file_type()?;
         let src_path = entry.path();
@@ -1731,8 +1861,13 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
         if ty.is_dir() {
             copy_dir_recursive(&src_path, &dst_path)?;
         } else if ty.is_file() {
-            std::fs::copy(&src_path, &dst_path)
-                .with_context(|| format!("Failed to copy {} to {}", src_path.display(), dst_path.display()))?;
+            std::fs::copy(&src_path, &dst_path).with_context(|| {
+                format!(
+                    "Failed to copy {} to {}",
+                    src_path.display(),
+                    dst_path.display()
+                )
+            })?;
         }
     }
     Ok(())
@@ -1789,7 +1924,17 @@ fn replace_value(content: &str, key: &str, new_value: &str) -> String {
                 } else {
                     ""
                 };
-                output.push_str(&format!("{}{}: {}{}\n", indent, key, new_value, if comment.is_empty() { String::new() } else { format!("  {}", comment) }));
+                output.push_str(&format!(
+                    "{}{}: {}{}\n",
+                    indent,
+                    key,
+                    new_value,
+                    if comment.is_empty() {
+                        String::new()
+                    } else {
+                        format!("  {}", comment)
+                    }
+                ));
                 continue;
             }
         }
@@ -1824,7 +1969,10 @@ mod tests {
     fn parse_yaml_line_parses_key_value() {
         let line = "path: \"model.gguf\"  # comment";
         let parsed = parse_yaml_line(line);
-        assert_eq!(parsed, Some(("path".to_string(), "\"model.gguf\"".to_string())));
+        assert_eq!(
+            parsed,
+            Some(("path".to_string(), "\"model.gguf\"".to_string()))
+        );
     }
 
     #[test]

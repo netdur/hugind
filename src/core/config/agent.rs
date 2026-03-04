@@ -1,6 +1,6 @@
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use anyhow::{Context, Result};
 
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
 pub struct NetPermissions {
@@ -129,7 +129,7 @@ pub struct AgentConfig {
     pub entry_point: String,
     #[serde(default)]
     pub wasm: Option<WasmConfig>,
-    
+
     pub backend: Option<serde_yaml::Value>,
     #[serde(default)]
     pub permissions: Option<Permissions>,
@@ -144,10 +144,10 @@ impl AgentConfig {
         let config_path = path.join("agent.yaml");
         let content = std::fs::read_to_string(&config_path)
             .with_context(|| format!("Failed to read agent.yaml at {:?}", config_path))?;
-        
-        let config: AgentConfig = serde_yaml::from_str(&content)
-            .with_context(|| "Failed to parse agent.yaml")?;
-            
+
+        let config: AgentConfig =
+            serde_yaml::from_str(&content).with_context(|| "Failed to parse agent.yaml")?;
+
         Ok(config)
     }
 }

@@ -1,9 +1,9 @@
-use anyhow::{Result, Context};
-use inquire::{Select, MultiSelect, Confirm, Text};
+use anyhow::{Context, Result};
+use inquire::{Confirm, MultiSelect, Select, Text};
 
+use crate::core::model::downloader::Downloader;
 use crate::core::model::registry::RepoManager;
 use crate::core::model::remote::RemoteClient;
-use crate::core::model::downloader::Downloader;
 
 pub fn list() -> Result<()> {
     let repos = RepoManager::list_repos()?;
@@ -26,17 +26,10 @@ pub fn show(repo: String) -> Result<()> {
         println!("Repository \"{}\" not found locally.", repo);
         return Ok(());
     }
-    
-    
-    
-    
-    
-    
-    
-    
+
     let repos = RepoManager::list_repos()?;
     let repo_obj = repos.iter().find(|r| r.full_name() == repo);
-    
+
     if let Some(r) = repo_obj {
         let files = RepoManager::list_repo_files(r)?;
         if files.is_empty() {
@@ -50,8 +43,6 @@ pub fn show(repo: String) -> Result<()> {
             println!();
         }
     } else {
-        
-        
         println!("Error locating repository metadata.");
     }
     Ok(())
@@ -80,8 +71,7 @@ pub async fn add(repo_arg: Option<String>) -> Result<()> {
         return Ok(());
     }
 
-    let selection = MultiSelect::new("Select files to download:", files)
-        .prompt()?;
+    let selection = MultiSelect::new("Select files to download:", files).prompt()?;
 
     if selection.is_empty() {
         println!("No files selected.");
@@ -89,10 +79,10 @@ pub async fn add(repo_arg: Option<String>) -> Result<()> {
     }
 
     println!("\nStarting download for {} file(s)...", selection.len());
-    
+
     for filename in selection {
         if let Err(e) = Downloader::download_file(&repo, &filename).await {
-             println!("❌ Error downloading {}: {}", filename, e);
+            println!("❌ Error downloading {}: {}", filename, e);
         }
     }
     println!("\nDone.");
@@ -104,13 +94,13 @@ pub fn remove(repo_arg: Option<String>) -> Result<()> {
     let repo = if let Some(r) = repo_arg {
         r
     } else {
-         let repos = RepoManager::list_repos()?;
-         if repos.is_empty() {
-             println!("No repositories to remove.");
-             return Ok(());
-         }
-         let options: Vec<String> = repos.iter().map(|r| r.full_name()).collect();
-         Select::new("Select repository to remove/clean:", options).prompt()?
+        let repos = RepoManager::list_repos()?;
+        if repos.is_empty() {
+            println!("No repositories to remove.");
+            return Ok(());
+        }
+        let options: Vec<String> = repos.iter().map(|r| r.full_name()).collect();
+        Select::new("Select repository to remove/clean:", options).prompt()?
     };
 
     if !RepoManager::repo_exists(&repo) {
@@ -118,52 +108,55 @@ pub fn remove(repo_arg: Option<String>) -> Result<()> {
         return Ok(());
     }
 
-    
-    
     let repos = RepoManager::list_repos()?;
-    let repo_obj = repos.iter().find(|r| r.full_name() == repo)
+    let repo_obj = repos
+        .iter()
+        .find(|r| r.full_name() == repo)
         .context("Could not find repo object")?;
-    
+
     let files = RepoManager::list_repo_files(repo_obj)?;
 
     if files.is_empty() {
-         if Confirm::new("Repository is empty. Delete folder?")
+        if Confirm::new("Repository is empty. Delete folder?")
             .with_default(true)
-            .prompt()? {
-                RepoManager::delete_repo(&repo)?;
-                println!("🗑️  Deleted {}", repo);
-            }
-         return Ok(());
+            .prompt()?
+        {
+            RepoManager::delete_repo(&repo)?;
+            println!("🗑️  Deleted {}", repo);
+        }
+        return Ok(());
     }
 
-    if Confirm::new(&format!("Delete entire repository \"{}\" ({} files)?", repo, files.len()))
-        .with_default(true)
-        .prompt()? 
+    if Confirm::new(&format!(
+        "Delete entire repository \"{}\" ({} files)?",
+        repo,
+        files.len()
+    ))
+    .with_default(true)
+    .prompt()?
     {
         RepoManager::delete_repo(&repo)?;
         println!("🗑️  Deleted repository {}", repo);
         return Ok(());
     }
 
-    
     let file_names: Vec<String> = files.iter().map(|f| f.name.clone()).collect();
-    let selection = MultiSelect::new("Select specific files to delete:", file_names)
-        .prompt()?;
+    let selection = MultiSelect::new("Select specific files to delete:", file_names).prompt()?;
 
-    if selection.is_empty() { return Ok(()); }
+    if selection.is_empty() {
+        return Ok(());
+    }
 
     for filename in selection {
         RepoManager::delete_file(&repo, &filename)?;
         println!("🗑️  Deleted {}", filename);
     }
 
-    
-    
     if let Ok(remaining) = RepoManager::list_repo_files(repo_obj) {
         if remaining.is_empty() {
             if Confirm::new("Repository is now empty. Delete folder?")
                 .with_default(true)
-                .prompt()? 
+                .prompt()?
             {
                 RepoManager::delete_repo(&repo)?;
                 println!("🗑️  Cleaned up empty folder.");

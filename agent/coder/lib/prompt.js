@@ -8,7 +8,34 @@ export function buildPrompt(params) {
   const projectTreeProfile = params.projectTreeProfile || "";
   const iteration = params.iteration || 1;
   const maxTurns = params.maxTurns || iteration;
+  const contextGuidance = params.contextGuidance || null;
   const limits = params.limits;
+
+  const contextGuideLines = [];
+  if (contextGuidance) {
+    if (contextGuidance.confidence) {
+      contextGuideLines.push(`- context_confidence: ${contextGuidance.confidence}`);
+    }
+    if (contextGuidance.objective) {
+      contextGuideLines.push(`- context_objective: ${contextGuidance.objective}`);
+    }
+    if (Array.isArray(contextGuidance.explicitTargets) && contextGuidance.explicitTargets.length > 0) {
+      contextGuideLines.push(`- explicit_targets: ${contextGuidance.explicitTargets.join(", ")}`);
+    }
+    if (Array.isArray(contextGuidance.pathHints) && contextGuidance.pathHints.length > 0) {
+      contextGuideLines.push(`- path_hints: ${contextGuidance.pathHints.join(", ")}`);
+    }
+    if (contextGuidance.likelyRequiresNewFiles) {
+      contextGuideLines.push("- likely_requires_new_files: true");
+      if (Array.isArray(contextGuidance.suggestedNewFileRoots) && contextGuidance.suggestedNewFileRoots.length > 0) {
+        contextGuideLines.push(`- suggested_new_file_roots: ${contextGuidance.suggestedNewFileRoots.join(", ")}`);
+      }
+      contextGuideLines.push("- You may propose creating new files under suggested roots when needed.");
+    }
+    if (contextGuidance.llmReason) {
+      contextGuideLines.push(`- context_reason: ${contextGuidance.llmReason}`);
+    }
+  }
 
   const fileBlocks = knownFiles.map((f) => {
     return [
@@ -72,6 +99,9 @@ export function buildPrompt(params) {
     projectTreeProfile || "",
     projectTreeProfile ? "```" : "",
     projectTreeProfile ? "" : "",
+    contextGuideLines.length > 0 ? "Context guidance:" : "",
+    contextGuideLines.length > 0 ? contextGuideLines.join("\n") : "",
+    contextGuideLines.length > 0 ? "" : "",
     "Known project files:",
     fileBlocks || "(none loaded yet)",
     "",

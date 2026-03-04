@@ -12,6 +12,8 @@ pub struct ChatCompletionRequest {
     pub presence_penalty: Option<f32>,
     pub stop: Option<Stop>,
     pub response_format: Option<ResponseFormat>,
+    #[serde(alias = "thinking")]
+    pub enable_thinking: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -75,7 +77,7 @@ pub struct ChatCompletionChoice {
 #[derive(Debug, Serialize)]
 pub struct ChatCompletionChoiceMessage {
     pub role: String,
-    pub content: String, 
+    pub content: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -84,7 +86,6 @@ pub struct Usage {
     pub completion_tokens: u32,
     pub total_tokens: u32,
 }
-
 
 #[derive(Debug, Serialize)]
 pub struct ChatCompletionChunk {
@@ -108,7 +109,6 @@ pub struct ChatCompletionChunkDelta {
     pub content: Option<String>,
 }
 
-
 #[derive(Debug, Serialize)]
 pub struct ModelList {
     pub object: String,
@@ -122,7 +122,6 @@ pub struct ModelInfo {
     pub created: u64,
     pub owned_by: String,
 }
-
 
 #[derive(Debug, Serialize)]
 pub struct MonitorStats {
@@ -155,11 +154,10 @@ pub struct CacheStats {
     pub ram_sessions: usize,
 }
 
-
 #[derive(Debug, Deserialize)]
 pub struct StateSaveRequest {
     pub session_id: String,
-    pub template_id: String, 
+    pub template_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -172,7 +170,6 @@ pub struct StateStatusResponse {
     pub session_id: String,
     pub exists: bool,
 }
-
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct EmbeddingRequest {

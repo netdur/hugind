@@ -1,7 +1,7 @@
-use std::path::PathBuf;
-use std::fs;
-use anyhow::Result;
 use crate::shared::paths;
+use anyhow::Result;
+use std::fs;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct Repo {
@@ -27,7 +27,7 @@ impl ModelFile {
     pub fn size_mb(&self) -> f64 {
         self.size_bytes as f64 / 1_048_576.0
     }
-    
+
     pub fn size_gb(&self) -> f64 {
         self.size_bytes as f64 / 1_073_741_824.0
     }
@@ -37,7 +37,13 @@ pub struct RepoManager;
 
 impl RepoManager {
     const RESERVED_DIRS: &'static [&'static str] = &[
-        "configs", "cache", "temp", "sessions", "agents", "settings", ".DS_Store"
+        "configs",
+        "cache",
+        "temp",
+        "sessions",
+        "agents",
+        "settings",
+        ".DS_Store",
     ];
 
     pub fn list_repos() -> Result<Vec<Repo>> {
@@ -49,8 +55,10 @@ impl RepoManager {
         let mut repos = Vec::new();
         for user_entry in fs::read_dir(&root)? {
             let user_entry = user_entry?;
-            if !user_entry.path().is_dir() { continue; }
-            
+            if !user_entry.path().is_dir() {
+                continue;
+            }
+
             let user_name = user_entry.file_name().to_string_lossy().to_string();
             if user_name.starts_with('.') || Self::RESERVED_DIRS.contains(&user_name.as_str()) {
                 continue;
@@ -58,8 +66,10 @@ impl RepoManager {
 
             for repo_entry in fs::read_dir(user_entry.path())? {
                 let repo_entry = repo_entry?;
-                if !repo_entry.path().is_dir() { continue; }
-                
+                if !repo_entry.path().is_dir() {
+                    continue;
+                }
+
                 let repo_name = repo_entry.file_name().to_string_lossy().to_string();
                 repos.push(Repo {
                     user: user_name.clone(),
@@ -93,7 +103,7 @@ impl RepoManager {
                 }
             }
         }
-        
+
         files.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(files)
     }
@@ -102,7 +112,7 @@ impl RepoManager {
         if parts.len() == 2 {
             paths::data_home().join(parts[0]).join(parts[1])
         } else {
-             paths::data_home().join(repo)
+            paths::data_home().join(repo)
         }
     }
 
@@ -115,7 +125,7 @@ impl RepoManager {
         if dir.exists() {
             fs::remove_dir_all(&dir)?;
         }
-        
+
         if let Some(parent) = dir.parent() {
             if let Ok(entries) = fs::read_dir(parent) {
                 if entries.count() == 0 {

@@ -1,15 +1,15 @@
+use crate::shared::paths;
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use uuid::Uuid;
-use crate::shared::paths;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Message {
     pub role: String,
-    pub content: serde_json::Value, 
+    pub content: serde_json::Value,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -52,7 +52,11 @@ impl SessionRepo {
             fs::create_dir_all(&dir)?;
         }
 
-        let id = format!("session-{}-{}", Utc::now().timestamp_millis(), Uuid::new_v4().as_u128() % 1000);
+        let id = format!(
+            "session-{}-{}",
+            Utc::now().timestamp_millis(),
+            Uuid::new_v4().as_u128() % 1000
+        );
         let session = Session {
             id: id.clone(),
             model: model.to_string(),
@@ -101,25 +105,27 @@ impl SessionRepo {
                 if let Ok(content) = fs::read_to_string(&path) {
                     match serde_json::from_str::<Session>(&content) {
                         Ok(session) => {
-                            
                             let title = session.title.clone().unwrap_or_else(|| {
-                                
-                                session.messages.iter()
+                                session
+                                    .messages
+                                    .iter()
                                     .find(|m| m.role == "user")
-                                    .map(|m| {
-                                        match &m.content {
-                                            serde_json::Value::String(s) => {
-                                                let t = s.trim().replace('\n', " ");
-                                                if t.len() > 30 { format!("{}...", &t[0..30]) } else { t }
-                                            },
-                                            _ => "Image/Multimodal".to_string()
+                                    .map(|m| match &m.content {
+                                        serde_json::Value::String(s) => {
+                                            let t = s.trim().replace('\n', " ");
+                                            if t.len() > 30 {
+                                                format!("{}...", &t[0..30])
+                                            } else {
+                                                t
+                                            }
                                         }
+                                        _ => "Image/Multimodal".to_string(),
                                     })
                                     .unwrap_or_else(|| "New Chat".to_string())
                             });
 
-                             
-                             let last_active = Self::parse_date(&session.last_active).unwrap_or_else(|_| Utc::now());
+                            let last_active = Self::parse_date(&session.last_active)
+                                .unwrap_or_else(|_| Utc::now());
 
                             sessions.push(SessionInfo {
                                 id: session.id,
@@ -127,27 +133,24 @@ impl SessionRepo {
                                 title,
                                 last_active,
                             });
-                        },
+                        }
                         Err(_) => {}
                     }
                 }
             }
         }
-        
+
         sessions.sort_by(|a, b| b.last_active.cmp(&a.last_active));
         Ok(sessions)
     }
 
     fn parse_date(s: &str) -> Result<DateTime<Utc>> {
-        
         if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
             return Ok(dt.with_timezone(&Utc));
         }
-        
-        
-        
+
         if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f") {
-             return Ok(DateTime::from_naive_utc_and_offset(dt, Utc));
+            return Ok(DateTime::from_naive_utc_and_offset(dt, Utc));
         }
         Err(anyhow!("Invalid date format"))
     }

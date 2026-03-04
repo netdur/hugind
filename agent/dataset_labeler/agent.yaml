@@ -1,0 +1,29 @@
+name: "dataset_labeler"
+version: "0.1.0"
+description: "Boilerplate agent for generating training annotations from datasets using LLM/VLM."
+author: "hugind"
+license: "MIT"
+hugind_version: ">=0.6.0"
+entry_point: "main.js"
+backend:
+  url: "http://127.0.0.1:8080/v1"
+  config: "qwen3vl-8b"
+permissions:
+  network:
+    allow: false
+    allowed_domains: []
+  filesystem:
+    allow: true
+    read: true
+    write: true
+    create: true
+    delete: false
+    allow_outside_agent_root: true
+    allowed_paths: []
+  shell:
+    allow: false
+    whitelist: []
+dependencies:
+  mcp: []
+env: []
+

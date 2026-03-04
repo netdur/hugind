@@ -46,10 +46,7 @@ fn create_logger_at_path(path: PathBuf) -> Result<RunLogger> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)?;
+    let file = OpenOptions::new().create(true).append(true).open(&path)?;
 
     Ok(RunLogger {
         path,

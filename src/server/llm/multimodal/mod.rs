@@ -15,36 +15,32 @@ unsafe impl Sync for MultimodalContext {}
 impl MultimodalContext {
     pub fn from_file(path: &str, model: &Model) -> Result<Self> {
         let c_path = CString::new(path)?;
-        
+
         let ptr = unsafe {
             let params = llama_cpp::mtmd_context_params_default();
             llama_cpp::mtmd_init_from_file(c_path.as_ptr(), model.as_ptr(), params)
         };
 
-        let non_null = ffi_guard::ensure_non_null(ptr, &format!("Failed to load mmproj from {}", path))?;
+        let non_null =
+            ffi_guard::ensure_non_null(ptr, &format!("Failed to load mmproj from {}", path))?;
 
         Ok(Self { ptr: non_null })
     }
-    
+
     pub fn as_ptr(&self) -> *mut llama_cpp::mtmd_context {
         self.ptr.as_ptr()
     }
 
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    pub fn tokenize(&self, text: &str, images: &[Image]) -> Result<(Vec<i32>, std::collections::HashMap<usize, Chunk>)> {
+    pub fn tokenize(
+        &self,
+        text: &str,
+        images: &[Image],
+    ) -> Result<(Vec<i32>, std::collections::HashMap<usize, Chunk>)> {
         let c_text = CString::new(text)?;
-        
-        
-        let mut bitmap_ptrs: Vec<*const llama_cpp::mtmd_bitmap> = images.iter().map(|img| img.as_ptr() as *const _).collect();
-        
+
+        let mut bitmap_ptrs: Vec<*const llama_cpp::mtmd_bitmap> =
+            images.iter().map(|img| img.as_ptr() as *const _).collect();
+
         unsafe {
             let input_text = llama_cpp::mtmd_input_text {
                 text: c_text.as_ptr(),
@@ -56,7 +52,7 @@ impl MultimodalContext {
             if chunks_ptr.is_null() {
                 return Err(Error::BackendError("Failed to init input chunks".into()));
             }
-            
+
             let _chunks_guard = InputChunksGuard(chunks_ptr);
 
             let ret = llama_cpp::mtmd_tokenize(
@@ -68,9 +64,12 @@ impl MultimodalContext {
             );
 
             if ret != 0 {
-                return Err(Error::BackendError(format!("mtmd_tokenize failed with code {}", ret)));
+                return Err(Error::BackendError(format!(
+                    "mtmd_tokenize failed with code {}",
+                    ret
+                )));
             }
-            
+
             let n_chunks = llama_cpp::mtmd_input_chunks_size(chunks_ptr);
             let mut result_tokens = Vec::new();
             let mut result_images = std::collections::HashMap::new();
@@ -78,34 +77,32 @@ impl MultimodalContext {
             for i in 0..n_chunks {
                 let chunk_ptr = llama_cpp::mtmd_input_chunks_get(chunks_ptr, i);
                 if chunk_ptr.is_null() {
-                     continue;
+                    continue;
                 }
-                
-                
+
                 let copied_chunk_ptr = llama_cpp::mtmd_input_chunk_copy(chunk_ptr);
-                let chunk = Chunk { ptr: NonNull::new(copied_chunk_ptr).unwrap() };
-                
-                
+                let chunk = Chunk {
+                    ptr: NonNull::new(copied_chunk_ptr).unwrap(),
+                };
+
                 let chunk_type = llama_cpp::mtmd_input_chunk_get_type(chunk.as_ptr());
-                
+
                 if chunk_type == llama_cpp::mtmd_input_chunk_type_MTMD_INPUT_CHUNK_TYPE_TEXT {
                     let mut n_tokens = 0;
-                    let tokens_ptr = llama_cpp::mtmd_input_chunk_get_tokens_text(chunk.as_ptr(), &mut n_tokens);
+                    let tokens_ptr =
+                        llama_cpp::mtmd_input_chunk_get_tokens_text(chunk.as_ptr(), &mut n_tokens);
                     let tokens_slice = slice::from_raw_parts(tokens_ptr, n_tokens as usize);
                     result_tokens.extend_from_slice(tokens_slice);
                 } else {
-                    
                     let start_idx = result_tokens.len();
-                    
+
                     let n_tokens = llama_cpp::mtmd_input_chunk_get_n_tokens(chunk.as_ptr());
-                    
-                    
-                    
-                    let null_token = -1; 
+
+                    let null_token = -1;
                     for _ in 0..n_tokens {
                         result_tokens.push(null_token);
                     }
-                    
+
                     result_images.insert(start_idx, chunk);
                 }
             }
@@ -113,16 +110,16 @@ impl MultimodalContext {
             Ok((result_tokens, result_images))
         }
     }
-    
+
     pub fn eval_chunk(
-        &self, 
+        &self,
         chunk: &Chunk,
         ctx: &crate::llm::context::Context,
         n_past: i32,
         seq_id: i32,
         n_batch: i32,
         logits_last: bool,
-    ) -> Result<(i32, i32)> { 
+    ) -> Result<(i32, i32)> {
         let mut new_n_past_c = 0;
         let ret = unsafe {
             llama_cpp::mtmd_helper_eval_chunk_single(
@@ -133,7 +130,7 @@ impl MultimodalContext {
                 seq_id,
                 n_batch,
                 logits_last,
-                &mut new_n_past_c
+                &mut new_n_past_c,
             )
         };
         Ok((ret, new_n_past_c))
@@ -150,10 +147,9 @@ impl MultimodalContext {
         _n_batch: i32,
         _logits_last: bool,
     ) -> Result<(i32, i32)> {
-        
-        
-        
-        Err(Error::BackendError("partial mm eval not supported".to_string()))
+        Err(Error::BackendError(
+            "partial mm eval not supported".to_string(),
+        ))
     }
 }
 
@@ -172,16 +168,12 @@ pub struct Image {
 impl Image {
     pub fn from_bytes(ctx: &MultimodalContext, bytes: &[u8]) -> Result<Self> {
         let ptr = unsafe {
-            llama_cpp::mtmd_helper_bitmap_init_from_buf(
-                ctx.as_ptr(),
-                bytes.as_ptr(),
-                bytes.len()
-            )
+            llama_cpp::mtmd_helper_bitmap_init_from_buf(ctx.as_ptr(), bytes.as_ptr(), bytes.len())
         };
         let non_null = ffi_guard::ensure_non_null(ptr, "Failed to load image from bytes")?;
         Ok(Self { ptr: non_null })
     }
-    
+
     pub fn as_ptr(&self) -> *mut llama_cpp::mtmd_bitmap {
         self.ptr.as_ptr()
     }
@@ -206,23 +198,20 @@ impl Chunk {
     pub fn as_ptr(&self) -> *const llama_cpp::mtmd_input_chunk {
         self.ptr.as_ptr()
     }
-    
+
     pub fn is_text(&self) -> bool {
         unsafe {
-            llama_cpp::mtmd_input_chunk_get_type(self.ptr.as_ptr()) == llama_cpp::mtmd_input_chunk_type_MTMD_INPUT_CHUNK_TYPE_TEXT
+            llama_cpp::mtmd_input_chunk_get_type(self.ptr.as_ptr())
+                == llama_cpp::mtmd_input_chunk_type_MTMD_INPUT_CHUNK_TYPE_TEXT
         }
     }
 
     pub fn n_tokens(&self) -> usize {
-        unsafe {
-            llama_cpp::mtmd_input_chunk_get_n_tokens(self.ptr.as_ptr()) as usize
-        }
+        unsafe { llama_cpp::mtmd_input_chunk_get_n_tokens(self.ptr.as_ptr()) as usize }
     }
 
     pub fn n_pos(&self) -> usize {
-        unsafe {
-            llama_cpp::mtmd_input_chunk_get_n_pos(self.ptr.as_ptr()) as usize
-        }
+        unsafe { llama_cpp::mtmd_input_chunk_get_n_pos(self.ptr.as_ptr()) as usize }
     }
 }
 
@@ -234,15 +223,14 @@ impl Drop for Chunk {
     }
 }
 
-
 struct InputChunksGuard(*mut llama_cpp::mtmd_input_chunks);
 
 impl Drop for InputChunksGuard {
     fn drop(&mut self) {
         unsafe {
-             if !self.0.is_null() {
-                 llama_cpp::mtmd_input_chunks_free(self.0);
-             }
+            if !self.0.is_null() {
+                llama_cpp::mtmd_input_chunks_free(self.0);
+            }
         }
     }
 }

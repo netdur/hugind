@@ -32,6 +32,11 @@ Request body fields currently handled:
 - `top_p` (f32, optional): defaults to `0.9`.
 - `frequency_penalty` (f32, optional): mapped to repeat penalty as `1.0 + max(0, frequency_penalty)`.
 - `response_format` (optional): `{ "type": "json_object" }` enables JSON grammar-constrained decoding.
+- `enable_thinking` (bool, optional): defaults to `false`; enables model thinking/chat-template reasoning tags when `true`.
+
+Also accepted as an alias:
+
+- `thinking` (bool, optional): same behavior as `enable_thinking`.
 
 Accepted but currently ignored:
 

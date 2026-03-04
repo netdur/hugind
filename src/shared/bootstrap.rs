@@ -23,8 +23,7 @@ pub fn ensure_user_home() -> Result<()> {
 }
 
 fn ensure_dir(path: PathBuf) -> Result<()> {
-    fs::create_dir_all(&path)
-        .with_context(|| format!("Failed to create {}", path.display()))?;
+    fs::create_dir_all(&path).with_context(|| format!("Failed to create {}", path.display()))?;
     Ok(())
 }
 

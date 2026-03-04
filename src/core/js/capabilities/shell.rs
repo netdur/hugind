@@ -1,4 +1,4 @@
-use rquickjs::{function::Async, AsyncContext, Function, Result};
+use rquickjs::{AsyncContext, Function, Result, function::Async};
 use tokio::process::Command;
 
 use crate::core::config::agent::{AgentConfig, ShellPermission};
@@ -12,7 +12,10 @@ async fn run_process(
     logger: Option<RunLogger>,
 ) -> Result<String> {
     if let Some(l) = &logger {
-        l.log_line(format!("host.shell.spawn program={} args={:?}", program, args));
+        l.log_line(format!(
+            "host.shell.spawn program={} args={:?}",
+            program, args
+        ));
     }
     if !perm.allow {
         return Err(rquickjs::Error::new_loading_message(
@@ -69,7 +72,7 @@ async fn run_process(
                 return Err(rquickjs::Error::new_loading_message(
                     "Shell Error",
                     "Shell command timed out",
-                ))
+                ));
             }
         }
     } else {
@@ -77,7 +80,10 @@ async fn run_process(
     };
 
     let output = output_res.map_err(|e| {
-        rquickjs::Error::new_loading_message("Shell Error", format!("Failed to execute command: {}", e))
+        rquickjs::Error::new_loading_message(
+            "Shell Error",
+            format!("Failed to execute command: {}", e),
+        )
     })?;
 
     let max_len = perm
@@ -124,7 +130,7 @@ async fn run_command_inner(
     }
     let program = parts[0].to_string();
     let args = parts[1..].iter().map(|s| s.to_string()).collect();
-    
+
     run_process(program, args, perm, logger).await
 }
 
@@ -137,7 +143,11 @@ async fn spawn_inner(
     run_process(program, args, perm, logger).await
 }
 
-pub async fn install(ctx: &AsyncContext, config: &AgentConfig, logger: Option<RunLogger>) -> Result<()> {
+pub async fn install(
+    ctx: &AsyncContext,
+    config: &AgentConfig,
+    logger: Option<RunLogger>,
+) -> Result<()> {
     let perm = if let Some(p) = &config.permissions {
         p.shell.clone().unwrap_or_default()
     } else {
@@ -150,23 +160,32 @@ pub async fn install(ctx: &AsyncContext, config: &AgentConfig, logger: Option<Ru
         let logger_snake = logger.clone();
         let logger_camel = logger.clone();
         Box::pin(async move {
-            let run_command_fn = Function::new(ctx.clone(), Async(move |cmd: String| {
-                let perm = perm_for_snake.clone();
-                let logger = logger_snake.clone();
-                async move { run_command_inner(cmd, perm, logger).await }
-            }))?;
+            let run_command_fn = Function::new(
+                ctx.clone(),
+                Async(move |cmd: String| {
+                    let perm = perm_for_snake.clone();
+                    let logger = logger_snake.clone();
+                    async move { run_command_inner(cmd, perm, logger).await }
+                }),
+            )?;
 
-            let run_command_fn_camel = Function::new(ctx.clone(), Async(move |cmd: String| {
-                let perm = perm_for_camel.clone();
-                let logger = logger_camel.clone();
-                async move { run_command_inner(cmd, perm, logger).await }
-            }))?;
+            let run_command_fn_camel = Function::new(
+                ctx.clone(),
+                Async(move |cmd: String| {
+                    let perm = perm_for_camel.clone();
+                    let logger = logger_camel.clone();
+                    async move { run_command_inner(cmd, perm, logger).await }
+                }),
+            )?;
 
-            let spawn_fn = Function::new(ctx.clone(), Async(move |program: String, args: Vec<String>| {
-                let perm = perm.clone();
-                let logger = logger.clone();
-                async move { spawn_inner(program, args, perm, logger).await }
-            }))?;
+            let spawn_fn = Function::new(
+                ctx.clone(),
+                Async(move |program: String, args: Vec<String>| {
+                    let perm = perm.clone();
+                    let logger = logger.clone();
+                    async move { spawn_inner(program, args, perm, logger).await }
+                }),
+            )?;
 
             ctx.globals().set("run_command", run_command_fn)?;
             ctx.globals().set("runCommand", run_command_fn_camel)?;

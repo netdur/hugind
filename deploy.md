@@ -1,67 +1,72 @@
-# Hugind Release Workflow
+# Hugind Release Workflow (Rust)
 
-
-This guide covers how to build, tag, and publish a new version of Hugind for macOS (Homebrew).
+This guide covers how to build, tag, and publish a new Hugind release for macOS (Homebrew).
 
 ## Prerequisites
 - You are on the `main` branch.
 - Your working directory is clean.
-- You have the `homebrew-hugind` repo cloned nearby (e.g., `../homebrew-hugind`).
+- Rust toolchain is installed (`cargo --version`).
+- You have the `homebrew-hugind` tap repo cloned locally (for example `~/Workspace/homebrew-hugind`).
 
 ---
 
 ## Step 1: Bump Version
-Update the version number in `pubspec.yaml`.
+Update the crate version in `Cargo.toml`:
 
-```yaml
-version: 0.3.1  # <--- Change this
+```toml
+[package]
+version = "0.11.1" # <--- Change this
 ```
 
 Commit the change:
+
 ```bash
-git add pubspec.yaml
-git commit -m "Bump version to 0.3.1"
+git add Cargo.toml
+git commit -m "Bump version to 0.11.1"
 ```
 
 ---
 
-## Step 2: Build the Artifact
-Run the release script. This compiles the Dart binary and bundles it with the required `.dylib` files and config templates.
+## Step 2: Build the Release Artifact
+Run the release script:
 
 ```bash
 bash build_release.sh
 ```
 
-**⚠️ IMPORTANT:**
-At the end of the script, copy the **SHA256 Checksum**. You will need this for Homebrew.
-> Example output: `SHA256: c661bf85...`
+What it does:
+- Builds the Rust binary with `cargo build --release`.
+- Copies `assets/config` into `dist/config`.
+- Creates `hugind-macos-arm64.tar.gz` in the repository root.
+- Prints the archive SHA256.
+
+Important: copy the SHA256 printed by the script. You will use it in the Homebrew formula.
 
 ---
 
 ## Step 3: Push Tag to GitHub
-Create a git tag matching the version and push it.
+Create and push a tag that matches the version:
 
 ```bash
-git tag v0.3.1
-git push origin v0.3.1
+git tag v0.11.1
+git push origin v0.11.1
 ```
 
 ---
 
 ## Step 4: Create GitHub Release
-1. Go to: [https://github.com/netdur/hugind/releases/new](https://github.com/netdur/hugind/releases/new)
-2. **Choose Tag:** Select `v0.3.1`.
-3. **Title:** `v0.3.1`.
-4. **Attach Binaries (CRITICAL):**
-   - Click "Upload assets".
-   - Select the file: `dist/hugind-macos-arm64.tar.gz`.
-   - *Note: If you don't do this, Homebrew will get a 404 error.*
-5. Click **Publish Release**.
+1. Open: [https://github.com/netdur/hugind/releases/new](https://github.com/netdur/hugind/releases/new)
+2. Choose tag: `v0.11.1`
+3. Release title: `v0.11.1`
+4. Upload release asset: `hugind-macos-arm64.tar.gz`
+5. Publish release
+
+If the asset is not uploaded, Homebrew install/upgrade will fail with `404`.
 
 ---
 
 ## Step 5: Update Homebrew Formula
-Navigate to your local Homebrew Tap repository.
+Go to your tap repository:
 
 ```bash
 cd ~/Workspace/homebrew-hugind
@@ -72,51 +77,42 @@ Edit `hugind.rb`:
 ```ruby
 class Hugind < Formula
   # ...
-  
-  # 1. Update the URL Version
-  url "https://github.com/netdur/hugind/releases/download/v0.3.1/hugind-macos-arm64.tar.gz"
-  
-  # 2. Paste the SHA256 from Step 2
+  url "https://github.com/netdur/hugind/releases/download/v0.11.1/hugind-macos-arm64.tar.gz"
   sha256 "PASTE_THE_NEW_HASH_HERE"
-  
-  # 3. Update the Version string
-  version "0.3.1"
-
+  version "0.11.1"
   # ...
 end
 ```
 
-Commit and push the formula:
+Commit and push:
 
 ```bash
 git add hugind.rb
-git commit -m "Update hugind to v0.3.1"
+git commit -m "Update hugind to v0.11.1"
 git push origin main
 ```
 
 ---
 
-## Step 6: Verify
-Wait about 60 seconds for GitHub to propagate, then test the upgrade locally:
+## Step 6: Verify Installation
+Wait about 60 seconds for GitHub release propagation, then verify locally:
 
 ```bash
-# Update your local tap
 brew update
-or
+# or, if needed:
 brew tap netdur/hugind
 
-# Upgrade the package
 brew upgrade hugind
-
-# Verification
-hugind --version   # (If you implemented a version flag)
-which hugind       # Should be /opt/homebrew/bin/hugind
+hugind --version
+which hugind
 ```
 
+Expected binary path on Apple Silicon: `/opt/homebrew/bin/hugind`.
+
 ## Checklist Summary
-- [ ] `pubspec.yaml` updated?
-- [ ] `./build_release.sh` run?
-- [ ] SHA256 copied?
+- [ ] `Cargo.toml` version updated?
+- [ ] `bash build_release.sh` run successfully?
+- [ ] SHA256 copied from script output?
 - [ ] Tag pushed (`git push origin v...`)?
-- [ ] **.tar.gz uploaded to GitHub Release?**
+- [ ] `hugind-macos-arm64.tar.gz` uploaded to GitHub Release?
 - [ ] `hugind.rb` updated and pushed?

@@ -1,4 +1,4 @@
-use rquickjs::{class::Trace, AsyncContext, Class, Ctx, Result, Value};
+use rquickjs::{AsyncContext, Class, Ctx, Result, Value, class::Trace};
 
 use crate::core::config::agent::{AgentConfig, RuntimeFsMode};
 use crate::core::fs::FsAccess;
@@ -110,9 +110,8 @@ impl Fs {
         let msg = format!("host.fs.list_dir path={}", path);
         self.log(&msg);
         let entries = self.access.list_dir(&path).map_err(fs_err)?;
-        let json = serde_json::to_string(&entries).map_err(|e| {
-            rquickjs::Error::new_loading_message("Filesystem Error", e.to_string())
-        })?;
+        let json = serde_json::to_string(&entries)
+            .map_err(|e| rquickjs::Error::new_loading_message("Filesystem Error", e.to_string()))?;
         Ok(json)
     }
 
@@ -153,9 +152,8 @@ impl Fs {
         let msg = format!("host.fs.stat path={}", path);
         self.log(&msg);
         let stat = self.access.stat(&path).map_err(fs_err)?;
-        let json = serde_json::to_string(&stat).map_err(|e| {
-            rquickjs::Error::new_loading_message("Filesystem Error", e.to_string())
-        })?;
+        let json = serde_json::to_string(&stat)
+            .map_err(|e| rquickjs::Error::new_loading_message("Filesystem Error", e.to_string()))?;
         Ok(json)
     }
 
@@ -168,7 +166,6 @@ impl Fs {
             RuntimeFsMode::HostFilesystem | RuntimeFsMode::Both => Ok(()),
         }
     }
-
 }
 
 impl Fs {
@@ -239,10 +236,12 @@ pub async fn install(
         logger,
     };
 
-    ctx.async_with(|ctx| Box::pin(async move {
-        let cls = Class::instance(ctx.clone(), fs)?;
-        ctx.globals().set("fs", cls)?;
-        Ok(())
-    }))
+    ctx.async_with(|ctx| {
+        Box::pin(async move {
+            let cls = Class::instance(ctx.clone(), fs)?;
+            ctx.globals().set("fs", cls)?;
+            Ok(())
+        })
+    })
     .await
 }

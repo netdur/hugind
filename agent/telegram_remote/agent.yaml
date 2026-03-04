@@ -1,0 +1,31 @@
+name: "telegram_remote"
+version: "0.1.0"
+description: "Minimal Telegram bot: reads latest message and replies with reversed text."
+entry_point: "main.js"
+backend:
+  url: "http://127.0.0.1:8080/v1"
+  config: "qwen3vl-8b"
+permissions:
+  network:
+    allow: true
+    allowed_domains:
+      - "api.telegram.org"
+  filesystem:
+    allow: true
+    read: true
+    write: true
+    create: true
+    allowed_paths:
+      - "./telegram_offset.txt"
+  shell:
+    allow: false
+    whitelist: []
+dependencies:
+  mcp: []
+env:
+  - name: "TELEGRAM_BOT_TOKEN"
+    description: "Telegram bot token"
+    required: true
+  - name: "ADMIN_USER_ID"
+    description: "Only process messages from this Telegram user id"
+    required: false

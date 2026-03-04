@@ -1,19 +1,19 @@
+use crate::engine::request::Request;
 use axum::{
-    routing::{get, post},
     Router,
     response::IntoResponse,
+    routing::{get, post},
 };
-use tower_http::trace::TraceLayer;
-use tower_http::cors::CorsLayer;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use crate::engine::request::Request;
+use tower_http::cors::CorsLayer;
+use tower_http::trace::TraceLayer;
 
-pub mod state;
-pub mod types;
-pub mod routes;
 pub mod engine;
 pub mod llm;
+pub mod routes;
+pub mod state;
+pub mod types;
 
 pub async fn run_server(
     engine_tx: mpsc::Sender<Request>,
@@ -22,12 +22,13 @@ pub async fn run_server(
     model: Arc<crate::llm::model::Model>,
     model_name: Option<String>,
     config_name: Option<String>,
+    enable_thinking_default: bool,
+    sampling_defaults: crate::llm::sampling::SamplingConfig,
+    system_prompt: Option<String>,
     host: String,
     port: u16,
     api_key: Option<String>,
 ) {
-    
-
     let state = Arc::new(state::AppState {
         engine_tx,
         kv_manager,
@@ -36,21 +37,26 @@ pub async fn run_server(
         model_name,
         config_name,
         api_key,
+        enable_thinking_default,
+        sampling_defaults,
+        system_prompt,
     });
 
     let app = Router::new()
-        
         .route("/v1/chat/completions", post(routes::chat_completions))
         .route("/v1/models", get(routes::list_models))
-        
         .route("/v1/monitor", get(routes::monitor))
         .route("/v1/state/save", post(routes::save_state))
         .route("/v1/state/idle", post(routes::idle_state))
-        .route("/v1/state/:id", get(routes::get_state).delete(routes::delete_state))
+        .route(
+            "/v1/state/:id",
+            get(routes::get_state).delete(routes::delete_state),
+        )
         .route("/v1/embeddings", post(routes::embeddings))
-        
-        
-        .layer(axum::middleware::from_fn_with_state(state.clone(), auth_middleware))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(state);
@@ -88,17 +94,30 @@ async fn auth_middleware(
                     if header_str.starts_with("Bearer ") {
                         let token = &header_str[7..];
                         if token != key {
-                             return (axum::http::StatusCode::UNAUTHORIZED, "Invalid API Key").into_response();
+                            return (axum::http::StatusCode::UNAUTHORIZED, "Invalid API Key")
+                                .into_response();
                         }
                     } else {
-                         return (axum::http::StatusCode::UNAUTHORIZED, "Invalid Authorization Header Format. Expected 'Bearer <key>'").into_response();
+                        return (
+                            axum::http::StatusCode::UNAUTHORIZED,
+                            "Invalid Authorization Header Format. Expected 'Bearer <key>'",
+                        )
+                            .into_response();
                     }
                 } else {
-                     return (axum::http::StatusCode::UNAUTHORIZED, "Invalid Authorization Header Encoding").into_response();
+                    return (
+                        axum::http::StatusCode::UNAUTHORIZED,
+                        "Invalid Authorization Header Encoding",
+                    )
+                        .into_response();
                 }
             }
             None => {
-                 return (axum::http::StatusCode::UNAUTHORIZED, "Missing Authorization Header").into_response();
+                return (
+                    axum::http::StatusCode::UNAUTHORIZED,
+                    "Missing Authorization Header",
+                )
+                    .into_response();
             }
         }
     }

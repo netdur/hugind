@@ -1,4 +1,3 @@
-
 #[derive(Debug, Clone)]
 pub struct ContextParams {
     pub n_ctx: u32,
@@ -9,6 +8,8 @@ pub struct ContextParams {
     pub n_threads_batch: i32,
     pub rope_scaling_type: llama_cpp::llama_rope_scaling_type,
     pub pooling_type: llama_cpp::llama_pooling_type,
+    pub attention_type: llama_cpp::llama_attention_type,
+    pub flash_attn_type: llama_cpp::llama_flash_attn_type,
     pub rope_freq_base: f32,
     pub rope_freq_scale: f32,
     pub yarn_ext_factor: f32,
@@ -21,10 +22,13 @@ pub struct ContextParams {
     pub cb_eval_user_data: *mut std::ffi::c_void,
     pub type_k: llama_cpp::ggml_type,
     pub type_v: llama_cpp::ggml_type,
-    
+
     pub embeddings: bool,
     pub offload_kqv: bool,
-    
+    pub op_offload: bool,
+    pub swa_full: bool,
+    pub kv_unified: bool,
+
     pub no_perf: bool,
 }
 
@@ -41,6 +45,8 @@ impl Default for ContextParams {
                 n_threads_batch: defaults.n_threads_batch,
                 rope_scaling_type: defaults.rope_scaling_type,
                 pooling_type: defaults.pooling_type,
+                attention_type: defaults.attention_type,
+                flash_attn_type: defaults.flash_attn_type,
                 rope_freq_base: defaults.rope_freq_base,
                 rope_freq_scale: defaults.rope_freq_scale,
                 yarn_ext_factor: defaults.yarn_ext_factor,
@@ -53,10 +59,13 @@ impl Default for ContextParams {
                 cb_eval_user_data: defaults.cb_eval_user_data,
                 type_k: defaults.type_k,
                 type_v: defaults.type_v,
-                
+
                 embeddings: defaults.embeddings,
                 offload_kqv: defaults.offload_kqv,
-                
+                op_offload: defaults.op_offload,
+                swa_full: defaults.swa_full,
+                kv_unified: defaults.kv_unified,
+
                 no_perf: defaults.no_perf,
             }
         }
@@ -75,6 +84,8 @@ impl ContextParams {
             params.n_threads_batch = self.n_threads_batch;
             params.rope_scaling_type = self.rope_scaling_type;
             params.pooling_type = self.pooling_type;
+            params.attention_type = self.attention_type;
+            params.flash_attn_type = self.flash_attn_type;
             params.rope_freq_base = self.rope_freq_base;
             params.rope_freq_scale = self.rope_freq_scale;
             params.yarn_ext_factor = self.yarn_ext_factor;
@@ -87,10 +98,13 @@ impl ContextParams {
             params.cb_eval_user_data = self.cb_eval_user_data;
             params.type_k = self.type_k;
             params.type_v = self.type_v;
-            
+
             params.embeddings = self.embeddings;
             params.offload_kqv = self.offload_kqv;
-            
+            params.op_offload = self.op_offload;
+            params.swa_full = self.swa_full;
+            params.kv_unified = self.kv_unified;
+
             params.no_perf = self.no_perf;
             params
         }

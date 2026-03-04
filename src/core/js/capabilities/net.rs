@@ -43,14 +43,16 @@ impl Net {
                     return Err(rquickjs::Error::new_loading_message(
                         "Network Error",
                         format!("URL scheme '{}' is not allowed.", current.scheme()),
-                    ))
+                    ));
                 }
             }
 
             let host = current.host_str().unwrap_or("");
             let port = current.port_or_known_default().unwrap_or(80);
 
-            if !self.permission.allowed_domains.is_empty() || !self.permission.allowed_ips.is_empty() {
+            if !self.permission.allowed_domains.is_empty()
+                || !self.permission.allowed_ips.is_empty()
+            {
                 let allowed = self
                     .permission
                     .allowed_domains
@@ -58,7 +60,10 @@ impl Net {
                     .any(|d| host == d || host.ends_with(&format!(".{}", d)));
                 if !allowed {
                     let is_ip_allowed = if let Ok(_ip) = host.parse::<std::net::IpAddr>() {
-                        self.permission.allowed_ips.iter().any(|allowed_ip| allowed_ip == host)
+                        self.permission
+                            .allowed_ips
+                            .iter()
+                            .any(|allowed_ip| allowed_ip == host)
                     } else {
                         false
                     };
@@ -133,10 +138,12 @@ impl Net {
                         )
                     })?
                     .to_str()
-                    .map_err(|e| rquickjs::Error::new_loading_message("Network Error", e.to_string()))?;
-                current = current
-                    .join(location)
-                    .map_err(|e| rquickjs::Error::new_loading_message("Network Error", e.to_string()))?;
+                    .map_err(|e| {
+                        rquickjs::Error::new_loading_message("Network Error", e.to_string())
+                    })?;
+                current = current.join(location).map_err(|e| {
+                    rquickjs::Error::new_loading_message("Network Error", e.to_string())
+                })?;
                 continue;
             }
 
@@ -151,8 +158,9 @@ impl Net {
             let mut stream = res.bytes_stream();
 
             while let Some(item) = stream.next().await {
-                let chunk = item
-                    .map_err(|e| rquickjs::Error::new_loading_message("Network Error", e.to_string()))?;
+                let chunk = item.map_err(|e| {
+                    rquickjs::Error::new_loading_message("Network Error", e.to_string())
+                })?;
                 if content.len() + chunk.len() > max_bytes {
                     let remaining = max_bytes - content.len();
                     content.extend_from_slice(&chunk[..remaining]);
@@ -172,7 +180,11 @@ impl Net {
     }
 }
 
-pub async fn install(ctx: &AsyncContext, config: &AgentConfig, logger: Option<RunLogger>) -> Result<()> {
+pub async fn install(
+    ctx: &AsyncContext,
+    config: &AgentConfig,
+    logger: Option<RunLogger>,
+) -> Result<()> {
     let perm = if let Some(p) = &config.permissions {
         p.network.clone().unwrap_or_default()
     } else {
@@ -191,10 +203,12 @@ pub async fn install(ctx: &AsyncContext, config: &AgentConfig, logger: Option<Ru
         logger,
     };
 
-    ctx.async_with(|ctx| Box::pin(async move {
-        let cls = Class::instance(ctx.clone(), net)?;
-        ctx.globals().set("net", cls)?;
-        Ok(())
-    }))
+    ctx.async_with(|ctx| {
+        Box::pin(async move {
+            let cls = Class::instance(ctx.clone(), net)?;
+            ctx.globals().set("net", cls)?;
+            Ok(())
+        })
+    })
     .await
 }

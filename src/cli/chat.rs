@@ -1,17 +1,17 @@
-use anyhow::{Result};
-use inquire::{Select, Text, Confirm};
-use std::io::{self, Write};
-use std::fs;
-use std::time::Duration;
-use futures_util::StreamExt;
+use anyhow::Result;
 use base64::{Engine as _, engine::general_purpose};
-use serde_json::{json, Value};
+use futures_util::StreamExt;
+use inquire::{Confirm, Select, Text};
+use serde_json::{Value, json};
+use std::fs;
+use std::io::{self, Write};
+use std::time::Duration;
 
 use indicatif::{ProgressBar, ProgressStyle};
 
-use crate::core::chat::session::{SessionRepo, Message};
 use crate::core::chat::service::ChatService;
-use crate::shared::{paths, configs};
+use crate::core::chat::session::{Message, SessionRepo};
+use crate::shared::{configs, paths};
 
 pub async fn run_interactive_wizard() -> Result<()> {
     let options = vec![
@@ -35,19 +35,22 @@ pub async fn run_interactive_wizard() -> Result<()> {
 pub async fn run_start(config: String) -> Result<()> {
     let mut config_name = config;
     if config_name.is_empty() {
-        
         let configs = list_configs();
         if configs.is_empty() {
-             config_name = Text::new("Enter Config Name manually:").with_default("my-assistant").prompt()?;
+            config_name = Text::new("Enter Config Name manually:")
+                .with_default("my-assistant")
+                .prompt()?;
         } else {
-             let mut options = configs;
-             options.push("Custom...".to_string());
-             let selection = Select::new("Select Configuration:", options).prompt()?;
-             if selection == "Custom..." {
-                 config_name = Text::new("Enter Config Name:").with_default("my-assistant").prompt()?;
-             } else {
-                 config_name = selection;
-             }
+            let mut options = configs;
+            options.push("Custom...".to_string());
+            let selection = Select::new("Select Configuration:", options).prompt()?;
+            if selection == "Custom..." {
+                config_name = Text::new("Enter Config Name:")
+                    .with_default("my-assistant")
+                    .prompt()?;
+            } else {
+                config_name = selection;
+            }
         }
     }
 
@@ -61,19 +64,28 @@ pub async fn run_resume(id: String) -> Result<()> {
         let sessions = SessionRepo::list()?;
         if sessions.is_empty() {
             println!("No active sessions found.");
-            if Confirm::new("Start a new chat instead?").with_default(true).prompt()? {
+            if Confirm::new("Start a new chat instead?")
+                .with_default(true)
+                .prompt()?
+            {
                 return run_start(String::new()).await;
             }
             return Ok(());
         }
-        
-        let options: Vec<String> = sessions.iter().map(|s| {
-             format!("{} ({}) - {}", s.title, s.model, format_time(s.last_active))
-        }).collect();
+
+        let options: Vec<String> = sessions
+            .iter()
+            .map(|s| format!("{} ({}) - {}", s.title, s.model, format_time(s.last_active)))
+            .collect();
 
         let selection = Select::new("Select a session to resume:", options).prompt()?;
-        
-        let idx = sessions.iter().position(|s| format!("{} ({}) - {}", s.title, s.model, format_time(s.last_active)) == selection).unwrap();
+
+        let idx = sessions
+            .iter()
+            .position(|s| {
+                format!("{} ({}) - {}", s.title, s.model, format_time(s.last_active)) == selection
+            })
+            .unwrap();
         session_id = sessions[idx].id.clone();
     }
     start_chat_loop(session_id).await
@@ -83,7 +95,12 @@ pub fn run_list() -> Result<()> {
     let sessions = SessionRepo::list()?;
     println!("{:<20} {:<15} {}", "ID", "LAST ACTIVE", "TITLE");
     for s in sessions {
-         println!("{:<20} {:<15} {}", s.id, format_time(s.last_active), s.title);
+        println!(
+            "{:<20} {:<15} {}",
+            s.id,
+            format_time(s.last_active),
+            s.title
+        );
     }
     Ok(())
 }
@@ -92,19 +109,31 @@ pub async fn run_delete(id: Option<String>) -> Result<()> {
     let mut session_id = id;
     if session_id.is_none() {
         let sessions = SessionRepo::list()?;
-        if sessions.is_empty() { println!("No sessions."); return Ok(()); }
-        
-        let options: Vec<String> = sessions.iter().map(|s| {
-             format!("{} ({}) - {}", s.title, s.model, format_time(s.last_active))
-        }).collect();
-        
+        if sessions.is_empty() {
+            println!("No sessions.");
+            return Ok(());
+        }
+
+        let options: Vec<String> = sessions
+            .iter()
+            .map(|s| format!("{} ({}) - {}", s.title, s.model, format_time(s.last_active)))
+            .collect();
+
         let selection = Select::new("Select session to DELETE:", options).prompt()?;
-        let idx = sessions.iter().position(|s| format!("{} ({}) - {}", s.title, s.model, format_time(s.last_active)) == selection).unwrap();
+        let idx = sessions
+            .iter()
+            .position(|s| {
+                format!("{} ({}) - {}", s.title, s.model, format_time(s.last_active)) == selection
+            })
+            .unwrap();
         session_id = Some(sessions[idx].id.clone());
     }
-    
+
     if let Some(sid) = session_id {
-        if Confirm::new(&format!("Are you sure you want to delete {}?", sid)).with_default(false).prompt()? {
+        if Confirm::new(&format!("Are you sure you want to delete {}?", sid))
+            .with_default(false)
+            .prompt()?
+        {
             SessionRepo::delete(&sid)?;
             println!("✅ Session deleted.");
         }
@@ -144,7 +173,81 @@ fn format_time(dt: chrono::DateTime<chrono::Utc>) -> String {
     }
 }
 
+fn load_thinking_default(config_name: &str) -> bool {
+    if config_name.is_empty() {
+        return false;
+    }
 
+    let config_dir = paths::configs_dir();
+    let yml_path = config_dir.join(format!("{}.yml", config_name));
+    let yaml_path = config_dir.join(format!("{}.yaml", config_name));
+    let path = if yml_path.exists() {
+        yml_path
+    } else if yaml_path.exists() {
+        yaml_path
+    } else {
+        return false;
+    };
+
+    let Ok(content) = fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(&content) else {
+        return false;
+    };
+
+    yaml.get("chat")
+        .and_then(|chat| chat.get("enable_thinking_default"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
+
+struct ThinkingGate {
+    enabled: bool,
+    waiting_for_close: bool,
+    hidden_buffer: String,
+}
+
+impl ThinkingGate {
+    fn new(enabled: bool) -> Self {
+        Self {
+            enabled,
+            waiting_for_close: enabled,
+            hidden_buffer: String::new(),
+        }
+    }
+
+    fn process(&mut self, delta: &str) -> String {
+        if !self.enabled {
+            return delta.to_string();
+        }
+
+        if !self.waiting_for_close {
+            return delta.to_string();
+        }
+
+        self.hidden_buffer.push_str(delta);
+        if let Some(pos) = self.hidden_buffer.find("</think>") {
+            let after = pos + "</think>".len();
+            let visible = self.hidden_buffer[after..].to_string();
+            self.hidden_buffer.clear();
+            self.waiting_for_close = false;
+            return visible;
+        }
+
+        String::new()
+    }
+
+    fn finish(&mut self) -> Option<String> {
+        if self.enabled && self.waiting_for_close && !self.hidden_buffer.is_empty() {
+            self.waiting_for_close = false;
+            let out = self.hidden_buffer.clone();
+            self.hidden_buffer.clear();
+            return Some(out);
+        }
+        None
+    }
+}
 
 pub async fn start_chat_loop(session_id: String) -> Result<()> {
     let mut session = SessionRepo::load(&session_id)?;
@@ -156,22 +259,26 @@ pub async fn start_chat_loop(session_id: String) -> Result<()> {
     println!("   Model:   {}", session.model);
     println!("   Type /help for commands.\n");
 
-    
     if !session.messages.is_empty() {
         println!("\x1B[90m--- Recent Context ---\x1B[0m");
         for msg in session.messages.iter().rev().take(6).rev() {
-             let role_color = if msg.role == "user" { "\x1B[32m" } else { "\x1B[36m" };
-             let preview = match &msg.content {
-                 Value::String(s) => s.lines().next().unwrap_or(""),
-                 _ => "(multimodal)"
-             };
-             println!("{}{}: \x1B[0m{}...", role_color, msg.role, preview);
+            let role_color = if msg.role == "user" {
+                "\x1B[32m"
+            } else {
+                "\x1B[36m"
+            };
+            let preview = match &msg.content {
+                Value::String(s) => s.lines().next().unwrap_or(""),
+                _ => "(multimodal)",
+            };
+            println!("{}{}: \x1B[0m{}...", role_color, msg.role, preview);
         }
         println!("\x1B[90m----------------------\x1B[0m");
     }
 
     let mut pending_image: Option<String> = None;
     let mut pending_text: Option<String> = None;
+    let mut enable_thinking = load_thinking_default(&session.model);
 
     loop {
         let prompt = if pending_image.is_some() {
@@ -181,15 +288,19 @@ pub async fn start_chat_loop(session_id: String) -> Result<()> {
         } else {
             "\n\x1B[32m>>> \x1B[0m"
         };
-        
+
         print!("{}", prompt);
         io::stdout().flush()?;
 
         let mut input = String::new();
-        if io::stdin().read_line(&mut input).is_err() { break; } 
+        if io::stdin().read_line(&mut input).is_err() {
+            break;
+        }
         let input = input.trim();
 
-        if input.is_empty() && pending_image.is_none() { continue; }
+        if input.is_empty() && pending_image.is_none() {
+            continue;
+        }
 
         if input.starts_with('/') {
             let parts: Vec<&str> = input.splitn(2, ' ').collect();
@@ -202,79 +313,129 @@ pub async fn start_chat_loop(session_id: String) -> Result<()> {
                     println!("\x1B[1mAvailable Commands:\x1B[0m");
                     println!("  /image <path>   Attach an image");
                     println!("  /text <path>    Attach a text file");
+                    println!("  /think on|off   Toggle model thinking mode");
                     println!("  /fork <name>    Save session fork");
                     println!("  /clear          Clear screen");
                     println!("  /exit, /quit    Exit");
                     continue;
-                },
+                }
                 "/clear" => {
-                     print!("\x1B[2J\x1B[0;0H");
-                     println!("\x1B[1;34m\n🦅  HUGIND WORKSPACE\x1B[0m");
-                     continue;
-                },
+                    print!("\x1B[2J\x1B[0;0H");
+                    println!("\x1B[1;34m\n🦅  HUGIND WORKSPACE\x1B[0m");
+                    continue;
+                }
                 "/image" => {
-                    if arg.is_empty() { println!("Usage: /image <path>"); continue; }
+                    if arg.is_empty() {
+                        println!("Usage: /image <path>");
+                        continue;
+                    }
                     match fs::read(arg) {
                         Ok(bytes) => {
-                             let b64 = general_purpose::STANDARD.encode(&bytes);
-                             
-                             let mime = if arg.to_lowercase().ends_with(".png") { "image/png" } else { "image/jpeg" };
-                             pending_image = Some(format!("data:{};base64,{}", mime, b64));
-                             println!("✅ Image attached!");
+                            let b64 = general_purpose::STANDARD.encode(&bytes);
+
+                            let mime = if arg.to_lowercase().ends_with(".png") {
+                                "image/png"
+                            } else {
+                                "image/jpeg"
+                            };
+                            pending_image = Some(format!("data:{};base64,{}", mime, b64));
+                            println!("✅ Image attached!");
                         }
                         Err(e) => println!("❌ Error reading file: {}", e),
                     }
                     continue;
-                },
-                 "/text" => {
-                    if arg.is_empty() { println!("Usage: /text <path>"); continue; }
+                }
+                "/text" => {
+                    if arg.is_empty() {
+                        println!("Usage: /text <path>");
+                        continue;
+                    }
                     match fs::read_to_string(arg) {
                         Ok(content) => {
-                             pending_text = Some(content);
-                             println!("✅ Text attached!");
+                            pending_text = Some(content);
+                            println!("✅ Text attached!");
                         }
                         Err(e) => println!("❌ Error reading file: {}", e),
                     }
                     continue;
-                },
-                "/fork" => {
-                     println!("(Fork not implemented in this demo yet)"); 
-                     continue;
                 }
-                _ => { println!("Unknown command."); continue; }
+                "/fork" => {
+                    println!("(Fork not implemented in this demo yet)");
+                    continue;
+                }
+                "/think" => {
+                    match arg.trim().to_lowercase().as_str() {
+                        "on" | "true" | "1" => {
+                            enable_thinking = true;
+                            println!(
+                                "✅ Thinking mode enabled (client hides reasoning until </think>)."
+                            );
+                        }
+                        "off" | "false" | "0" => {
+                            enable_thinking = false;
+                            println!("✅ Thinking mode disabled.");
+                        }
+                        "" => {
+                            println!(
+                                "Thinking mode: {}",
+                                if enable_thinking { "ON" } else { "OFF" }
+                            );
+                            println!("Usage: /think on|off");
+                        }
+                        _ => {
+                            println!("Usage: /think on|off");
+                        }
+                    }
+                    continue;
+                }
+                _ => {
+                    println!("Unknown command.");
+                    continue;
+                }
             }
         }
 
-        
         let new_msg = if let Some(img_data) = pending_image.take() {
             Message {
                 role: "user".to_string(),
                 content: json!([
                     { "type": "text", "text": if input.is_empty() { "Describe this image" } else { input } },
                     { "type": "image_url", "image_url": { "url": img_data } }
-                ])
+                ]),
             }
         } else if let Some(txt_data) = pending_text.take() {
-             let merged = if input.is_empty() { txt_data } else { format!("{}\n\n{}", input, txt_data) };
-             Message { role: "user".to_string(), content: Value::String(merged) }
+            let merged = if input.is_empty() {
+                txt_data
+            } else {
+                format!("{}\n\n{}", input, txt_data)
+            };
+            Message {
+                role: "user".to_string(),
+                content: Value::String(merged),
+            }
         } else {
-             Message { role: "user".to_string(), content: Value::String(input.to_string()) }
+            Message {
+                role: "user".to_string(),
+                content: Value::String(input.to_string()),
+            }
         };
 
-        
         let pb = ProgressBar::new_spinner();
         pb.set_style(ProgressStyle::default_spinner().template("{spinner:.cyan} Thinking...")?);
         pb.enable_steady_tick(Duration::from_millis(80));
 
         let is_new = session.messages.is_empty();
-        let response_result: Result<reqwest::Response> = service.send_message(
-            &session_id, 
-            &session.model, 
-            &session.messages, 
-            &new_msg, 
-            is_new, 
-            &base_url
-        ).await;
+        let response_result: Result<reqwest::Response> = service
+            .send_message(
+                &session_id,
+                &session.model,
+                &session.messages,
+                &new_msg,
+                is_new,
+                &base_url,
+                enable_thinking,
+            )
+            .await;
 
         pb.finish_and_clear();
 
@@ -285,49 +446,89 @@ pub async fn start_chat_loop(session_id: String) -> Result<()> {
                     continue;
                 }
 
-                print!("\x1B[36m"); 
+                print!("\x1B[36m");
                 let mut buffer = String::new();
                 let mut stream = resp.bytes_stream();
-                
+                let mut gate = ThinkingGate::new(enable_thinking);
+                let mut shown_thinking_hint = false;
+
                 while let Some(item) = stream.next().await {
                     let item: Result<bytes::Bytes, reqwest::Error> = item;
                     match item {
                         Ok(chunk) => {
-                             let s = String::from_utf8_lossy(&chunk);
-                             for line in s.lines() {
-                                 if line.starts_with("data: ") {
-                                     let data = &line[6..];
-                                     if data == "[DONE]" { break; }
-                                     if let Ok(json) = serde_json::from_str::<Value>(data) {
-                                         if let Some(delta) = json.get("choices").and_then(|c| c.get(0)).and_then(|c| c.get("delta")).and_then(|d| d.get("content")).and_then(|c| c.as_str()) {
-                                             print!("{}", delta);
-                                             io::stdout().flush()?;
-                                             buffer.push_str(delta);
-                                         }
-                                     }
-                                 }
-                             }
+                            let s = String::from_utf8_lossy(&chunk);
+                            for line in s.lines() {
+                                if line.starts_with("data: ") {
+                                    let data = &line[6..];
+                                    if data == "[DONE]" {
+                                        break;
+                                    }
+                                    if let Ok(json) = serde_json::from_str::<Value>(data) {
+                                        if let Some(delta) = json
+                                            .get("choices")
+                                            .and_then(|c| c.get(0))
+                                            .and_then(|c| c.get("delta"))
+                                            .and_then(|d| d.get("content"))
+                                            .and_then(|c| c.as_str())
+                                        {
+                                            if enable_thinking
+                                                && gate.waiting_for_close
+                                                && !shown_thinking_hint
+                                            {
+                                                print!("\x1B[90m💭 thinking...\x1B[0m");
+                                                io::stdout().flush()?;
+                                                shown_thinking_hint = true;
+                                            }
+
+                                            let visible = gate.process(delta);
+                                            if shown_thinking_hint && !gate.waiting_for_close {
+                                                print!("\r                    \r");
+                                                io::stdout().flush()?;
+                                                shown_thinking_hint = false;
+                                            }
+                                            if !visible.is_empty() {
+                                                print!("{}", visible);
+                                                io::stdout().flush()?;
+                                                buffer.push_str(&visible);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                         Err(e) => {
-                             println!("\nStream Error: {}", e);
-                             break;
+                            println!("\nStream Error: {}", e);
+                            break;
                         }
+                    }
+                }
+                if let Some(fallback) = gate.finish() {
+                    if shown_thinking_hint {
+                        print!("\r                    \r");
+                    }
+                    if !fallback.is_empty() {
+                        print!("{}", fallback);
+                        io::stdout().flush()?;
+                        buffer.push_str(&fallback);
                     }
                 }
                 println!("\x1B[0m\n");
 
-                
                 session.messages.push(new_msg);
-                session.messages.push(Message { role: "assistant".to_string(), content: Value::String(buffer) });
+                session.messages.push(Message {
+                    role: "assistant".to_string(),
+                    content: Value::String(buffer),
+                });
 
-                
                 if session.messages.len() == 2 {
                     print!("\x1B[90mGenerating title...\x1B[0m");
                     io::stdout().flush()?;
-                    let title: String = service.generate_title(&session.model, &session.messages, &base_url).await;
+                    let title: String = service
+                        .generate_title(&session.model, &session.messages, &base_url)
+                        .await;
                     if !title.is_empty() {
-                         session.title = Some(title.clone());
-                         print!("\r\x1B[90mTitle updated: {}\x1B[0m\n", title);
+                        session.title = Some(title.clone());
+                        print!("\r\x1B[90mTitle updated: {}\x1B[0m\n", title);
                     } else {
                         print!("\r                        \r");
                     }
@@ -343,6 +544,6 @@ pub async fn start_chat_loop(session_id: String) -> Result<()> {
     println!("\n❄️  Hibernating...");
     service.hibernate(&session_id, &base_url).await;
     println!("👋 Exiting...");
-    
+
     Ok(())
 }

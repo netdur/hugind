@@ -122,7 +122,7 @@ export default async function main(input) {
     };
   }
 
-  function parseContextPaths(rawText) {
+  function parseContextDoc(rawText) {
     let doc;
     try {
       doc = JSON.parse(String(rawText || ""));
@@ -152,7 +152,29 @@ export default async function main(input) {
       pushPath(item.path);
     }
 
-    return ordered;
+    const rec = (doc && doc.recommendations && typeof doc.recommendations === "object") ? doc.recommendations : {};
+    const task = (doc && doc.task && typeof doc.task === "object") ? doc.task : {};
+    const llmHints = (task && task.llm_hints && typeof task.llm_hints === "object") ? task.llm_hints : {};
+
+    return {
+      paths: ordered,
+      guidance: {
+        confidence: String(doc && doc.confidence ? doc.confidence : ""),
+        likelyRequiresNewFiles: !!rec.likely_requires_new_files,
+        requireManualTargetWhenLowConfidence: !!rec.require_manual_target_when_low_confidence,
+        suggestedNewFileRoots: Array.isArray(rec.suggested_new_file_roots)
+          ? rec.suggested_new_file_roots.map((v) => String(v || "").trim()).filter(Boolean).slice(0, 8)
+          : [],
+        explicitTargets: Array.isArray(task.explicit_targets)
+          ? task.explicit_targets.map((v) => String(v || "").trim()).filter(Boolean).slice(0, 8)
+          : [],
+        pathHints: Array.isArray(task.path_hints)
+          ? task.path_hints.map((v) => String(v || "").trim()).filter(Boolean).slice(0, 8)
+          : [],
+        objective: String(task.objective || "").trim(),
+        llmReason: String(llmHints.reason || "").trim()
+      }
+    };
   }
 
   try {
@@ -271,13 +293,14 @@ export default async function main(input) {
 
     const priorErrors = [];
     const history = [];
+    let contextGuidance = null;
     let edits = null;
 
     if (contextPath) {
       noteRead(contextPath);
-      let contextPaths;
+      let contextDoc;
       try {
-        contextPaths = parseContextPaths(safeReadText(contextPath));
+        contextDoc = parseContextDoc(safeReadText(contextPath));
       } catch (e) {
         result.status = "failed";
         result.summary = "Invalid context file";
@@ -285,8 +308,10 @@ export default async function main(input) {
         result.audit = audit;
         return finish(result);
       }
+      contextGuidance = contextDoc.guidance;
 
       let seeded = 0;
+      const contextPaths = contextDoc.paths;
       for (let i = 0; i < contextPaths.length; i += 1) {
         if (knownFiles.length >= opts.maxFiles) break;
         const rawPath = contextPaths[i];
@@ -310,6 +335,10 @@ export default async function main(input) {
         seeded += 1;
       }
       history.push(`seed_context_loaded=${seeded}`);
+      if (contextGuidance && contextGuidance.likelyRequiresNewFiles) {
+        const roots = contextGuidance.suggestedNewFileRoots.join(", ") || "(none)";
+        history.push(`context_hint_new_files=true suggested_roots=${roots}`);
+      }
       if (opts.debugLlm) print(`[coder] seeded context files=${seeded}`);
     }
 
@@ -332,6 +361,7 @@ export default async function main(input) {
         history: history.slice(-20),
         iteration: turn,
         maxTurns,
+        contextGuidance,
         limits: {
           maxFiles: opts.maxFiles,
           maxPatchChars: opts.maxPatchChars

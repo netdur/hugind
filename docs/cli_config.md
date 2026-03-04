@@ -52,12 +52,11 @@ If a config already exists, it prompts before overwriting.
 
 Deletes a config file from the configs directory after confirmation.
 
-### `hugind config defaults [--lib <path>] [--hf-token <token>]`
+### `hugind config defaults [--hf-token <token>]`
 
 Shows or updates global defaults. With no arguments, it prints the current
 defaults and usage help. With arguments, it updates:
 
-- `--lib` sets the shared library path (stored as `library_path`).
 - `--hf-token` sets the Hugging Face token (stored as `hf_token`).
 
 ## HELP

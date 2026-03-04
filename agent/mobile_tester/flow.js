@@ -120,11 +120,18 @@ export async function runFlow(path, config, actions) {
   const name = parsed.frontmatter.name || path.split("/").pop() || "flow";
 
   for (let i = 0; i < parsed.steps.length; i++) {
+    const stepStart = Date.now();
     const r = await executeFlowStep(parsed.steps[i], parsed.frontmatter, config, actions);
     if (!r.success) {
       return { name, success: false, stepsCompleted: i, totalSteps: parsed.steps.length, error: r.message };
     }
-    if (i < parsed.steps.length - 1) await sleep(config.STEP_DELAY * 1000);
+    if (i < parsed.steps.length - 1) {
+      // Keep a minimum cadence between flow steps without stacking waits.
+      const stepDelayMs = Math.max(0, Number(config.STEP_DELAY || 0) * 1000);
+      const elapsedMs = Date.now() - stepStart;
+      const remainingDelayMs = stepDelayMs - elapsedMs;
+      if (remainingDelayMs > 0) await sleep(remainingDelayMs);
+    }
   }
 
   return { name, success: true, stepsCompleted: parsed.steps.length, totalSteps: parsed.steps.length };

@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use serde::Deserialize;
 use std::fs;
 
@@ -101,7 +101,11 @@ fn resolve_session(session: Option<AgentBackendSession>) -> Result<Option<Runtim
         SessionMode::Resume => {
             let id = session.id.and_then(|s| {
                 let trimmed = s.trim().to_string();
-                if trimmed.is_empty() { None } else { Some(trimmed) }
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed)
+                }
             });
             if id.is_none() {
                 bail!("backend.session.id is required for resume");
@@ -136,10 +140,7 @@ fn resolve_base_url_from_config(config_name: &str) -> Option<String> {
         .get("host")
         .and_then(|h| h.as_str())
         .unwrap_or("127.0.0.1");
-    let port = server
-        .get("port")
-        .and_then(|p| p.as_u64())
-        .unwrap_or(8080);
+    let port = server.get("port").and_then(|p| p.as_u64()).unwrap_or(8080);
 
     Some(format!("http://{}:{}/v1", host, port))
 }

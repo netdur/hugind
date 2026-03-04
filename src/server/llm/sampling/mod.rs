@@ -3,8 +3,8 @@ pub mod config;
 use crate::llm::context::Context;
 use crate::llm::error::{Error, Result};
 use crate::llm::tokenizer::Token;
-pub use config::SamplingConfig;
 pub use config::GrammarParams;
+pub use config::SamplingConfig;
 use std::ffi::CString;
 
 pub struct Sampler {
@@ -16,7 +16,10 @@ pub struct Sampler {
 unsafe impl Send for Sampler {}
 
 impl Sampler {
-    pub fn new(config: &SamplingConfig, vocab: Option<*const llama_cpp::llama_vocab>) -> Result<Self> {
+    pub fn new(
+        config: &SamplingConfig,
+        vocab: Option<*const llama_cpp::llama_vocab>,
+    ) -> Result<Self> {
         unsafe {
             let chain_params = llama_cpp::llama_sampler_chain_default_params();
             let chain = llama_cpp::llama_sampler_chain_init(chain_params);
@@ -27,21 +30,9 @@ impl Sampler {
                 let greedy = llama_cpp::llama_sampler_init_greedy();
                 llama_cpp::llama_sampler_chain_add(chain, greedy);
             } else {
-                
-                
-                
-                
-                
-                
-                
-                
-                
-                
-                
-                 
                 if config.temp <= 0.0 {
-                     let greedy = llama_cpp::llama_sampler_init_greedy();
-                     llama_cpp::llama_sampler_chain_add(chain, greedy);
+                    let greedy = llama_cpp::llama_sampler_init_greedy();
+                    llama_cpp::llama_sampler_chain_add(chain, greedy);
                 } else {
                     let top_k = llama_cpp::llama_sampler_init_top_k(config.top_k);
                     llama_cpp::llama_sampler_chain_add(chain, top_k);
@@ -52,7 +43,7 @@ impl Sampler {
                     let temp = llama_cpp::llama_sampler_init_temp(config.temp);
                     llama_cpp::llama_sampler_chain_add(chain, temp);
 
-                    let dist = llama_cpp::llama_sampler_init_dist(1234); 
+                    let dist = llama_cpp::llama_sampler_init_dist(1234);
                     llama_cpp::llama_sampler_chain_add(chain, dist);
                 }
             }
@@ -78,7 +69,7 @@ impl Sampler {
             } else {
                 0
             };
-            
+
             Ok(Self {
                 chain,
                 grammar: grammar_sampler,
@@ -86,7 +77,7 @@ impl Sampler {
             })
         }
     }
-    
+
     pub fn sample(&mut self, ctx: &Context, idx: i32) -> Token {
         unsafe {
             if self.grammar.is_null() || self.n_vocab <= 0 {
@@ -118,7 +109,6 @@ impl Sampler {
             llama_cpp::llama_sampler_apply(self.chain, &mut arr);
 
             if arr.selected < 0 {
-                
                 let id = llama_cpp::llama_sampler_sample(self.chain, ctx.as_ptr(), idx);
                 return Token(id);
             }
@@ -127,14 +117,14 @@ impl Sampler {
             Token(id)
         }
     }
-    
+
     pub fn accept(&mut self, token: Token) {
-         unsafe {
-             if !self.grammar.is_null() {
-                 llama_cpp::llama_sampler_accept(self.grammar, token.0);
-             }
-             llama_cpp::llama_sampler_accept(self.chain, token.0);
-         }
+        unsafe {
+            if !self.grammar.is_null() {
+                llama_cpp::llama_sampler_accept(self.grammar, token.0);
+            }
+            llama_cpp::llama_sampler_accept(self.chain, token.0);
+        }
     }
 }
 

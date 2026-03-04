@@ -9,7 +9,6 @@ pub struct Batch {
 }
 
 impl Batch {
-    
     pub fn new(capacity: i32, embd: i32, n_seq_max: i32) -> Self {
         unsafe {
             let handle = llama_cpp::llama_batch_init(capacity, embd, n_seq_max);
@@ -21,19 +20,30 @@ impl Batch {
         }
     }
 
-    
     pub fn clear(&mut self) {
         self.handle.n_tokens = 0;
     }
 
-    
-    pub fn add(&mut self, token: llama_cpp::llama_token, pos: llama_cpp::llama_pos, seq_ids: &[llama_cpp::llama_seq_id], logits: bool) -> Result<()> {
+    pub fn add(
+        &mut self,
+        token: llama_cpp::llama_token,
+        pos: llama_cpp::llama_pos,
+        seq_ids: &[llama_cpp::llama_seq_id],
+        logits: bool,
+    ) -> Result<()> {
         let i = self.handle.n_tokens as usize;
         if i >= self.capacity as usize {
-            return Err(Error::BackendError(format!("Batch definition full: capacity {}", self.capacity)));
+            return Err(Error::BackendError(format!(
+                "Batch definition full: capacity {}",
+                self.capacity
+            )));
         }
         if seq_ids.len() > self.n_seq_max as usize {
-            return Err(Error::BackendError(format!("Too many seq_ids: {} > {}", seq_ids.len(), self.n_seq_max)));
+            return Err(Error::BackendError(format!(
+                "Too many seq_ids: {} > {}",
+                seq_ids.len(),
+                self.n_seq_max
+            )));
         }
 
         unsafe {
@@ -44,8 +54,13 @@ impl Batch {
         Ok(())
     }
 
-    
-    pub fn add_seq(&mut self, token: llama_cpp::llama_token, pos: llama_cpp::llama_pos, seq_id: llama_cpp::llama_seq_id, logits: bool) -> Result<()> {
+    pub fn add_seq(
+        &mut self,
+        token: llama_cpp::llama_token,
+        pos: llama_cpp::llama_pos,
+        seq_id: llama_cpp::llama_seq_id,
+        logits: bool,
+    ) -> Result<()> {
         self.add(token, pos, &[seq_id], logits)
     }
 }

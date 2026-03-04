@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 use zip::read::ZipArchive;
 
-use crate::core::config::agent::{AgentConfig, FileSystemPermission, NetPermissions, Permissions, ShellPermission};
+use crate::core::config::agent::{
+    AgentConfig, FileSystemPermission, NetPermissions, Permissions, ShellPermission,
+};
 use crate::shared::paths;
 
 pub async fn run(
@@ -71,7 +73,11 @@ pub async fn install(path: String) -> Result<()> {
         .with_context(|| format!("Failed to create {}", dest_dir.display()))?;
     copy_dir_recursive(&source_root, &dest_dir)?;
 
-    println!("✅ Installed agent '{}' to {}", config.name, dest_dir.display());
+    println!(
+        "✅ Installed agent '{}' to {}",
+        config.name,
+        dest_dir.display()
+    );
     Ok(())
 }
 
@@ -102,8 +108,7 @@ pub fn list() -> Result<()> {
     }
 
     let mut names = Vec::new();
-    for entry in fs::read_dir(&dir)
-        .with_context(|| format!("Failed to read {}", dir.display()))? {
+    for entry in fs::read_dir(&dir).with_context(|| format!("Failed to read {}", dir.display()))? {
         let entry = entry?;
         let ty = entry.file_type()?;
         if ty.is_dir() {
@@ -145,7 +150,9 @@ fn resolve_local_agent_root(path: &str) -> Result<PathBuf> {
                 .ok_or_else(|| anyhow::anyhow!("Invalid agent.yaml path"))?
                 .to_path_buf());
         }
-        return Err(anyhow::anyhow!("Expected a folder containing agent.yaml or a direct agent.yaml path"));
+        return Err(anyhow::anyhow!(
+            "Expected a folder containing agent.yaml or a direct agent.yaml path"
+        ));
     }
     Ok(target)
 }
@@ -172,7 +179,8 @@ async fn download_agent(path: &str) -> Result<(PathBuf, AgentConfig, Option<Temp
     let temp = tempfile::tempdir()?;
     let root = temp.path().to_path_buf();
 
-    let agent_yaml = fetch_text(&agent_url).await
+    let agent_yaml = fetch_text(&agent_url)
+        .await
         .with_context(|| format!("Failed to download {}", agent_url))?;
     fs::write(root.join("agent.yaml"), agent_yaml)?;
 
@@ -182,7 +190,8 @@ async fn download_agent(path: &str) -> Result<(PathBuf, AgentConfig, Option<Temp
     if let Some(parent) = entry_path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let entry_bytes = fetch_bytes(&entry_url).await
+    let entry_bytes = fetch_bytes(&entry_url)
+        .await
         .with_context(|| format!("Failed to download {}", entry_url))?;
     fs::write(&entry_path, &entry_bytes)?;
 
@@ -195,7 +204,8 @@ async fn download_zip_agent(path: &str) -> Result<(PathBuf, AgentConfig, Option<
     let root = temp.path().to_path_buf();
     let zip_path = root.join("agent.zip");
 
-    let bytes = fetch_bytes(&url).await
+    let bytes = fetch_bytes(&url)
+        .await
         .with_context(|| format!("Failed to download {}", url))?;
     fs::write(&zip_path, &bytes)?;
 
@@ -243,7 +253,10 @@ fn github_raw_base(url: &Url) -> Option<Url> {
 
     let branch = segments[3];
     let path_parts = &segments[4..];
-    let mut base = format!("https://raw.githubusercontent.com/{}/{}/{}/", owner, repo, branch);
+    let mut base = format!(
+        "https://raw.githubusercontent.com/{}/{}/{}/",
+        owner, repo, branch
+    );
 
     if !path_parts.is_empty() {
         let mut dir_parts = path_parts.to_vec();
@@ -276,15 +289,21 @@ fn sanitize_agent_name(name: &str) -> String {
     }
     trimmed
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
 fn extract_zip(zip_path: &Path, dest: &Path) -> Result<()> {
     let file = fs::File::open(zip_path)
         .with_context(|| format!("Failed to open zip {}", zip_path.display()))?;
-    let mut archive = ZipArchive::new(file)
-        .with_context(|| format!("Invalid zip {}", zip_path.display()))?;
+    let mut archive =
+        ZipArchive::new(file).with_context(|| format!("Invalid zip {}", zip_path.display()))?;
 
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)?;
@@ -404,10 +423,18 @@ fn print_fs_permissions(fs_perm: &FileSystemPermission) {
     }
 
     let mut actions = Vec::new();
-    if fs_perm.read { actions.push("read"); }
-    if fs_perm.write { actions.push("write"); }
-    if fs_perm.create { actions.push("create"); }
-    if fs_perm.delete { actions.push("delete"); }
+    if fs_perm.read {
+        actions.push("read");
+    }
+    if fs_perm.write {
+        actions.push("write");
+    }
+    if fs_perm.create {
+        actions.push("create");
+    }
+    if fs_perm.delete {
+        actions.push("delete");
+    }
 
     let mut details = Vec::new();
     if !actions.is_empty() {
@@ -504,7 +531,8 @@ fn resolve_args_paths(args: Vec<String>) -> Result<Vec<String>> {
             continue;
         }
         if path.exists() {
-            let abs = path.canonicalize()
+            let abs = path
+                .canonicalize()
                 .with_context(|| format!("Failed to resolve path {}", arg))?;
             resolved.push(abs.to_string_lossy().to_string());
         } else {
@@ -515,10 +543,8 @@ fn resolve_args_paths(args: Vec<String>) -> Result<Vec<String>> {
 }
 
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
-    fs::create_dir_all(dst)
-        .with_context(|| format!("Failed to create {}", dst.display()))?;
-    for entry in fs::read_dir(src)
-        .with_context(|| format!("Failed to read {}", src.display()))? {
+    fs::create_dir_all(dst).with_context(|| format!("Failed to create {}", dst.display()))?;
+    for entry in fs::read_dir(src).with_context(|| format!("Failed to read {}", src.display()))? {
         let entry = entry?;
         let ty = entry.file_type()?;
         let src_path = entry.path();
@@ -526,8 +552,13 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
         if ty.is_dir() {
             copy_dir_recursive(&src_path, &dst_path)?;
         } else if ty.is_file() {
-            fs::copy(&src_path, &dst_path)
-                .with_context(|| format!("Failed to copy {} to {}", src_path.display(), dst_path.display()))?;
+            fs::copy(&src_path, &dst_path).with_context(|| {
+                format!(
+                    "Failed to copy {} to {}",
+                    src_path.display(),
+                    dst_path.display()
+                )
+            })?;
         }
     }
     Ok(())

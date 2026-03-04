@@ -1,6 +1,6 @@
 use rquickjs::{
-    loader::{Resolver, ScriptLoader},
     Context, Ctx, Error, Function, Module, Runtime,
+    loader::{Resolver, ScriptLoader},
 };
 use std::{
     fs,
@@ -13,10 +13,18 @@ struct LocalOnlyResolver {
 }
 
 impl Resolver for LocalOnlyResolver {
-    fn resolve<'js>(&mut self, _ctx: &Ctx<'js>, base: &str, name: &str) -> rquickjs::Result<String> {
-        
+    fn resolve<'js>(
+        &mut self,
+        _ctx: &Ctx<'js>,
+        base: &str,
+        name: &str,
+    ) -> rquickjs::Result<String> {
         if !(name.starts_with("./") || name.starts_with("../")) {
-            return Err(Error::new_resolving_message(base, name, "only relative imports are allowed"));
+            return Err(Error::new_resolving_message(
+                base,
+                name,
+                "only relative imports are allowed",
+            ));
         }
 
         let base_dir = Path::new(base).parent().unwrap_or(&self.root);
@@ -27,11 +35,19 @@ impl Resolver for LocalOnlyResolver {
         })?;
 
         if !resolved.starts_with(&self.root) {
-            return Err(Error::new_resolving_message(base, name, "import escapes agent root"));
+            return Err(Error::new_resolving_message(
+                base,
+                name,
+                "import escapes agent root",
+            ));
         }
 
         if resolved.extension().and_then(|s| s.to_str()) != Some("js") {
-            return Err(Error::new_resolving_message(base, name, "only .js modules are allowed"));
+            return Err(Error::new_resolving_message(
+                base,
+                name,
+                "only .js modules are allowed",
+            ));
         }
 
         Ok(resolved.to_string_lossy().to_string())
@@ -39,18 +55,24 @@ impl Resolver for LocalOnlyResolver {
 }
 
 pub fn run_script(entry_arg: String) -> rquickjs::Result<()> {
-    let entry_path = PathBuf::from(&entry_arg)
-        .canonicalize()
-        .map_err(|e| Error::new_loading_message(entry_arg.clone(), format!("entry not found: {e}")))?;
+    let entry_path = PathBuf::from(&entry_arg).canonicalize().map_err(|e| {
+        Error::new_loading_message(entry_arg.clone(), format!("entry not found: {e}"))
+    })?;
 
     let root = entry_path
         .parent()
         .unwrap_or(Path::new("."))
         .canonicalize()
-        .map_err(|e| Error::new_loading_message(entry_path.to_string_lossy(), format!("bad root: {e}")))?;
+        .map_err(|e| {
+            Error::new_loading_message(entry_path.to_string_lossy(), format!("bad root: {e}"))
+        })?;
 
-    let entry_source = fs::read_to_string(&entry_path)
-        .map_err(|e| Error::new_loading_message(entry_path.to_string_lossy(), format!("cannot read entry: {e}")))?;
+    let entry_source = fs::read_to_string(&entry_path).map_err(|e| {
+        Error::new_loading_message(
+            entry_path.to_string_lossy(),
+            format!("cannot read entry: {e}"),
+        )
+    })?;
 
     let rt = Runtime::new()?;
     rt.set_loader(LocalOnlyResolver { root }, ScriptLoader::default());

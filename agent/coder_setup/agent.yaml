@@ -23,6 +23,7 @@ permissions:
     allow: true
     whitelist:
       - "git"
+      - "rm"
 dependencies:
   mcp: []
 env: []

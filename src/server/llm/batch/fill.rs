@@ -1,4 +1,3 @@
-
 pub(super) unsafe fn batch_set(
     batch: &mut llama_cpp::llama_batch,
     i: usize,

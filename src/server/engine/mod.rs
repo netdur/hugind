@@ -1,24 +1,24 @@
-pub mod request;
-pub mod types;
 pub mod kv_cache;
 pub mod queue;
+pub mod request;
+pub mod types;
 
 use crate::llm::batch::Batch;
 use crate::llm::context::{Context, ContextParams};
-use crate::llm::error::{Result};
+use crate::llm::error::Result;
 use crate::llm::model::Model;
+use crate::llm::multimodal::{Chunk, Image, MultimodalContext};
 use crate::llm::sampling::Sampler;
-use crate::llm::tokenizer::{Tokenizer, Token};
-use crate::llm::multimodal::{MultimodalContext, Image, Chunk};
-use request::{Request, RequestState, ChunkMeta};
-use types::{Event, EventKind, StopReason, RequestHandle};
+use crate::llm::tokenizer::{Token, Tokenizer};
+use request::{ChunkMeta, Request, RequestState};
+use types::{Event, EventKind, RequestHandle, StopReason};
 
-use std::collections::{HashMap};
+use parking_lot::RwLock;
+use std::collections::HashMap;
 use std::sync::{Arc, atomic::Ordering, mpsc};
 use std::thread;
 use std::time::Instant;
 use uuid::Uuid;
-use parking_lot::RwLock;
 
 struct PrepJob {
     request_id: String,
@@ -42,6 +42,7 @@ struct Slot {
     sampler: Sampler,
     n_decoded: usize,
     n_prompt_processed: usize,
+    sample_from_cache: bool,
 }
 
 pub struct LlmEngine<'a> {
@@ -57,16 +58,19 @@ pub struct LlmEngine<'a> {
     n_ctx: usize,
     batch: Batch,
     pending_events: Vec<Event>,
-    
-    
-    pub input_rx: tokio::sync::mpsc::Receiver<Request>, 
+
+    pub input_rx: tokio::sync::mpsc::Receiver<Request>,
     pub request_queue: crate::engine::queue::RequestQueue,
     pub kv_manager: Arc<crate::engine::kv_cache::KvCacheManager>,
     pub engine_stats: Arc<RwLock<EngineStats>>,
-    
+
     prep_tx: Option<mpsc::Sender<PrepJob>>,
     prep_rx: mpsc::Receiver<PrepResult>,
     _prep_handle: Option<thread::JoinHandle<()>>,
+    trace_flow: bool,
+    last_flow_pull_start: Option<(usize, usize, usize)>,
+    last_flow_post_schedule: Option<(usize, usize, usize)>,
+    last_flow_batch_built: Option<(i32, usize)>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -82,6 +86,72 @@ pub struct EngineStats {
 }
 
 impl<'a> LlmEngine<'a> {
+    fn flow_enabled() -> bool {
+        std::env::var("HUGIND_ENGINE_TRACE")
+            .ok()
+            .map(|v| {
+                let v = v.trim().to_ascii_lowercase();
+                matches!(v.as_str(), "1" | "true" | "yes" | "on" | "debug")
+            })
+            .unwrap_or(false)
+    }
+
+    fn flow_log(&self, msg: impl AsRef<str>) {
+        if self.trace_flow {
+            eprintln!("[Flow] {}", msg.as_ref());
+        }
+    }
+
+    fn flow_log_pull_start(&mut self) {
+        if !self.trace_flow {
+            return;
+        }
+        let snapshot = (
+            self.requests.len(),
+            self.slots.len(),
+            self.request_queue.len(),
+        );
+        if self.last_flow_pull_start != Some(snapshot) {
+            eprintln!(
+                "[Flow] pull start requests={} slots={} queue={}",
+                snapshot.0, snapshot.1, snapshot.2
+            );
+            self.last_flow_pull_start = Some(snapshot);
+        }
+    }
+
+    fn flow_log_post_schedule(&mut self) {
+        if !self.trace_flow {
+            return;
+        }
+        let snapshot = (
+            self.requests.len(),
+            self.slots.len(),
+            self.request_queue.len(),
+        );
+        if self.last_flow_post_schedule != Some(snapshot) {
+            eprintln!(
+                "[Flow] post-schedule requests={} slots={} queue={}",
+                snapshot.0, snapshot.1, snapshot.2
+            );
+            self.last_flow_post_schedule = Some(snapshot);
+        }
+    }
+
+    fn flow_log_batch_built(&mut self, n_tokens: i32, tracked_logits_seqs: usize) {
+        if !self.trace_flow {
+            return;
+        }
+        let snapshot = (n_tokens, tracked_logits_seqs);
+        if self.last_flow_batch_built != Some(snapshot) {
+            eprintln!(
+                "[Flow] batch built n_tokens={} tracked_logits_seqs={}",
+                snapshot.0, snapshot.1
+            );
+            self.last_flow_batch_built = Some(snapshot);
+        }
+    }
+
     pub fn new(
         model: &'a Model,
         ctx_params: &ContextParams,
@@ -102,6 +172,7 @@ impl<'a> LlmEngine<'a> {
 
         let (prep_tx, prep_job_rx) = mpsc::channel::<PrepJob>();
         let (prep_result_tx, prep_rx) = mpsc::channel::<PrepResult>();
+        let trace_flow = Self::flow_enabled();
 
         let worker_mmproj = mmproj.clone();
         let mm_debug = std::env::var("HUGIND_LLAMA_DEBUG")
@@ -152,9 +223,11 @@ impl<'a> LlmEngine<'a> {
                                 }
                                 Err(e) => {
                                     let image_marker_count = job.prompt.matches("<image>").count();
-                                    let media_marker_count = job.prompt.matches("<__media__>").count();
+                                    let media_marker_count =
+                                        job.prompt.matches("<__media__>").count();
                                     if mm_debug {
-                                        let snippet: String = job.prompt.chars().take(300).collect();
+                                        let snippet: String =
+                                            job.prompt.chars().take(300).collect();
                                         eprintln!(
                                             "[MM DEBUG] tokenize failed: images={}, <image>={}, <__media__>={}, prompt_chars={}, prompt_prefix={:?}",
                                             images.len(),
@@ -185,7 +258,7 @@ impl<'a> LlmEngine<'a> {
                 });
             }
         }));
-        
+
         Ok(Self {
             _model: model,
             ctx,
@@ -195,7 +268,7 @@ impl<'a> LlmEngine<'a> {
             slots: HashMap::new(),
             n_seq_max: ctx_params.n_seq_max as i32,
             n_batch: ctx_params.n_batch as usize,
-            n_ubatch: ctx_params.n_batch as usize,
+            n_ubatch: ctx_params.n_ubatch as usize,
             n_ctx: ctx_params.n_ctx as usize,
             batch,
             pending_events: Vec::new(),
@@ -206,23 +279,34 @@ impl<'a> LlmEngine<'a> {
             prep_tx: Some(prep_tx),
             prep_rx,
             _prep_handle,
+            trace_flow,
+            last_flow_pull_start: None,
+            last_flow_post_schedule: None,
+            last_flow_batch_built: None,
         })
     }
-    
+
     pub fn push(&mut self, request: Request) -> String {
         let id = if request.params.id.is_empty() {
             Uuid::new_v4().to_string()
         } else {
             request.params.id.clone()
         };
-        
+
         let mut req = request;
         req.params.id = id.clone();
+        self.flow_log(format!(
+            "push request={} session_id={:?} parent_id={:?} prompt_chars={} images={}",
+            id,
+            req.params.session_id,
+            req.params.parent_id,
+            req.params.prompt.chars().count(),
+            req.params.images.len()
+        ));
         let cancel_flag = req.cancel_flag.clone();
         let response_tx = req.response_tx.clone();
         let mut submission_error = None;
 
-        
         if self.mmproj.is_some() && !req.params.images.is_empty() {
             req.state = RequestState::Preparing;
             let job = PrepJob {
@@ -236,7 +320,8 @@ impl<'a> LlmEngine<'a> {
             match &self.prep_tx {
                 Some(tx) => {
                     if tx.send(job).is_err() {
-                        submission_error = Some("Failed to enqueue multimodal preparation".to_string());
+                        submission_error =
+                            Some("Failed to enqueue multimodal preparation".to_string());
                         self.requests.remove(&id);
                     }
                 }
@@ -250,6 +335,11 @@ impl<'a> LlmEngine<'a> {
                 Ok(tokens) => {
                     req.prompt_tokens = tokens;
                     req.state = RequestState::Waiting;
+                    self.flow_log(format!(
+                        "push tokenized request={} prompt_tokens={}",
+                        id,
+                        req.prompt_tokens.len()
+                    ));
                     self.requests.insert(id.clone(), req);
                     if let Err(msg) = self.request_queue.push(id.clone()) {
                         submission_error = Some(msg);
@@ -263,6 +353,7 @@ impl<'a> LlmEngine<'a> {
         }
 
         if let Some(err_msg) = submission_error {
+            self.flow_log(format!("push error request={} message={}", id, err_msg));
             let event = Event {
                 id: Uuid::new_v4().to_string(),
                 kind: EventKind::Error {
@@ -270,7 +361,7 @@ impl<'a> LlmEngine<'a> {
                     request: RequestHandle::new(id.clone(), cancel_flag),
                 },
             };
-            
+
             if let Some(tx) = &response_tx {
                 let _ = tx.send(event.clone());
             }
@@ -278,24 +369,23 @@ impl<'a> LlmEngine<'a> {
         }
         id
     }
-    
+
     pub fn is_active(&self) -> bool {
         !self.requests.is_empty() || !self.pending_events.is_empty()
     }
 
     pub fn pull(&mut self) -> Result<Vec<Event>> {
         let mut events = Vec::new();
+        self.flow_log_pull_start();
 
-        
         while let Ok(req) = self.input_rx.try_recv() {
             self.push(req);
         }
 
         events.append(&mut self.pending_events);
-        
+
         let mut abort_seqs = Vec::new();
 
-        
         for prep in self.prep_rx.try_iter() {
             if let Some(req) = self.requests.get_mut(&prep.request_id) {
                 match prep.result {
@@ -304,202 +394,284 @@ impl<'a> LlmEngine<'a> {
                         req.multimodal_chunks = prepared.multimodal_chunks;
                         req.multimodal_meta = prepared.multimodal_meta;
                         req.state = RequestState::Waiting;
+                        if self.trace_flow {
+                            eprintln!(
+                                "[Flow] prep ready request={} prompt_tokens={} mm_chunks={}",
+                                prep.request_id,
+                                req.prompt_tokens.len(),
+                                req.multimodal_meta.len()
+                            );
+                        }
                         if let Err(msg) = self.request_queue.push(prep.request_id.clone()) {
                             req.state = RequestState::Finished;
-                            Self::emit_event(&mut events, req, EventKind::Error {
-                                message: msg,
-                                request: RequestHandle::new(prep.request_id.clone(), req.cancel_flag.clone()),
-                            });
+                            Self::emit_event(
+                                &mut events,
+                                req,
+                                EventKind::Error {
+                                    message: msg,
+                                    request: RequestHandle::new(
+                                        prep.request_id.clone(),
+                                        req.cancel_flag.clone(),
+                                    ),
+                                },
+                            );
                             self.requests.remove(&prep.request_id);
                         }
                     }
                     Err(msg) => {
+                        if self.trace_flow {
+                            eprintln!(
+                                "[Flow] prep failed request={} message={}",
+                                prep.request_id, msg
+                            );
+                        }
                         req.state = RequestState::Finished;
-                        Self::emit_event(&mut events, req, EventKind::Error {
-                            message: msg,
-                            request: RequestHandle::new(prep.request_id.clone(), req.cancel_flag.clone()),
-                        });
+                        Self::emit_event(
+                            &mut events,
+                            req,
+                            EventKind::Error {
+                                message: msg,
+                                request: RequestHandle::new(
+                                    prep.request_id.clone(),
+                                    req.cancel_flag.clone(),
+                                ),
+                            },
+                        );
                         self.requests.remove(&prep.request_id);
                     }
                 }
             }
         }
 
-        
         self.process_state_actions();
 
-        
         self.schedule_requests();
+        self.flow_log_post_schedule();
 
-        
         self.apply_context_shifts(&mut events)?;
 
-        
         self.batch.clear();
-        
-        
-        let mut slot_batch_idx = HashMap::new(); 
+
+        let mut slot_batch_idx = HashMap::new();
         let mut eval_tokens: HashMap<i32, Vec<Token>> = HashMap::new();
+        let mut prefill_progress: HashMap<i32, usize> = HashMap::new();
         {
-        let slots = &mut self.slots;
-        let requests = &mut self.requests;
-        let batch = &mut self.batch;
-        let n_batch = self.n_batch;
-        let n_ubatch = self.n_ubatch;
+            let slots = &mut self.slots;
+            let requests = &mut self.requests;
+            let batch = &mut self.batch;
+            let n_batch = self.n_batch;
+            let n_ubatch = self.n_ubatch;
 
-        
-        for (&seq_id, slot) in slots.iter_mut() {
-            let req = match requests.get_mut(&slot.request_id) {
-                Some(req) => req,
-                None => {
-                    eprintln!(
-                        "[Step] Missing request {} for slot {}, aborting seq",
-                        slot.request_id, seq_id
-                    );
+            for (&seq_id, slot) in slots.iter_mut() {
+                let req = match requests.get_mut(&slot.request_id) {
+                    Some(req) => req,
+                    None => {
+                        eprintln!(
+                            "[Step] Missing request {} for slot {}, aborting seq",
+                            slot.request_id, seq_id
+                        );
+                        abort_seqs.push(seq_id);
+                        continue;
+                    }
+                };
+
+                if req.cancel_flag.load(Ordering::Acquire) {
+                    req.state = RequestState::Finished;
                     abort_seqs.push(seq_id);
+                    Self::emit_event(
+                        &mut events,
+                        req,
+                        EventKind::Finish {
+                            request: RequestHandle::new(
+                                slot.request_id.clone(),
+                                req.cancel_flag.clone(),
+                            ),
+                            reason: StopReason::Cancelled,
+                        },
+                    );
                     continue;
                 }
-            };
-            
-            
-            if req.cancel_flag.load(Ordering::Acquire) {
-                 req.state = RequestState::Finished;
-                 abort_seqs.push(seq_id);
-                 Self::emit_event(&mut events, req, EventKind::Finish {
-                     request: RequestHandle::new(slot.request_id.clone(), req.cancel_flag.clone()),
-                     reason: StopReason::Cancelled,
-                 });
-                 continue;
-            }
 
-            if req.state != RequestState::Processing {
-                continue;
-            }
-
-            if batch.handle.n_tokens as usize >= n_batch {
-                break;
-            }
-
-            if req.generated_tokens.is_empty() && req.prompt_tokens.is_empty() {
-                Self::emit_event(&mut events, req, EventKind::Error {
-                    message: "Processing request has no prompt tokens".to_string(),
-                    request: RequestHandle::new(slot.request_id.clone(), req.cancel_flag.clone()),
-                });
-                req.state = RequestState::Finished;
-                abort_seqs.push(seq_id);
-                continue;
-            }
-
-            let last_tok = match req.generated_tokens.last() {
-                Some(tok) => {
-                    eval_tokens.entry(seq_id).or_default().push(*tok);
-                    tok
-                }
-                None => req.prompt_tokens.last().unwrap(),
-            };
-            let pos_last = Self::pos_for_last_token(req);
-            let idx = batch.handle.n_tokens;
-            batch.add_seq(last_tok.0, pos_last, seq_id, true)?;
-            slot_batch_idx.insert(seq_id, idx);
-        }
-
-        
-        
-        
-        
-        let batch_limit = n_batch.min(n_ubatch);
-        let mut prefill_budget = batch_limit.saturating_sub(batch.handle.n_tokens as usize);
-        for (&seq_id, slot) in slots.iter_mut() {
-            if prefill_budget == 0 {
-                break;
-            }
-
-            let req = match requests.get_mut(&slot.request_id) {
-                Some(req) => req,
-                None => {
-                    eprintln!(
-                        "[Step] Missing request {} for slot {}, aborting seq",
-                        slot.request_id, seq_id
-                    );
-                    abort_seqs.push(seq_id);
+                if req.state != RequestState::Processing {
                     continue;
                 }
-            };
-            
-            
-            if req.cancel_flag.load(Ordering::Acquire) {
-                 req.state = RequestState::Finished;
-                 abort_seqs.push(seq_id);
-                 Self::emit_event(&mut events, req, EventKind::Finish {
-                     request: RequestHandle::new(slot.request_id.clone(), req.cancel_flag.clone()),
-                     reason: StopReason::Cancelled,
-                 });
-                 continue;
-            }
 
-            if req.state != RequestState::Waiting {
-                continue;
-            }
+                if req.state == RequestState::Processing
+                    && slot.n_prompt_processed < req.prompt_tokens.len()
+                {
+                    if self.trace_flow {
+                        eprintln!(
+                            "[Flow] force waiting request={} seq={} processed={} prompt_len={}",
+                            slot.request_id,
+                            seq_id,
+                            slot.n_prompt_processed,
+                            req.prompt_tokens.len()
+                        );
+                    }
+                    req.state = RequestState::Waiting;
+                    continue;
+                }
 
-            if req.prompt_tokens.is_empty() {
-                Self::emit_event(&mut events, req, EventKind::Error {
-                    message: "Waiting request has empty prompt tokens".to_string(),
-                    request: RequestHandle::new(slot.request_id.clone(), req.cancel_flag.clone()),
-                });
-                req.state = RequestState::Finished;
-                abort_seqs.push(seq_id);
-                continue;
-            }
+                if slot.sample_from_cache {
+                    if self.trace_flow {
+                        eprintln!(
+                            "[Flow] sample-from-cache request={} seq={}",
+                            slot.request_id, seq_id
+                        );
+                    }
+                    slot_batch_idx.insert(seq_id, -1);
+                    slot.sample_from_cache = false;
+                    continue;
+                }
 
-            if req.pending_mm_start.is_some() {
-                continue;
-            }
-
-            let total_len = req.prompt_tokens.len();
-            let mut processed = slot.n_prompt_processed;
-            if processed >= total_len {
-                req.state = RequestState::Processing;
-                continue;
-            }
-
-            
-
-            while processed < total_len && prefill_budget > 0 {
-                let tok_idx = processed;
-
-                
-                if req.multimodal_chunks.get(&tok_idx).is_some() {
-                    req.pending_mm_start = Some(tok_idx);
+                if batch.handle.n_tokens as usize >= n_batch {
                     break;
                 }
 
-                let tok = req.prompt_tokens[tok_idx];
-                if tok.0 == -1 {
-                    processed += 1;
+                if req.generated_tokens.is_empty() && req.prompt_tokens.is_empty() {
+                    Self::emit_event(
+                        &mut events,
+                        req,
+                        EventKind::Error {
+                            message: "Processing request has no prompt tokens".to_string(),
+                            request: RequestHandle::new(
+                                slot.request_id.clone(),
+                                req.cancel_flag.clone(),
+                            ),
+                        },
+                    );
+                    req.state = RequestState::Finished;
+                    abort_seqs.push(seq_id);
                     continue;
                 }
 
-                let is_last = tok_idx == total_len - 1;
-                let logits_flag = is_last;
-                let pos = Self::pos_for_prompt_index(req, tok_idx);
+                let last_tok = match req.generated_tokens.last() {
+                    Some(tok) => {
+                        eval_tokens.entry(seq_id).or_default().push(*tok);
+                        tok
+                    }
+                    None => req.prompt_tokens.last().unwrap(),
+                };
+                let pos_last = Self::pos_for_last_token(req);
                 let idx = batch.handle.n_tokens;
-                batch.add_seq(tok.0, pos, seq_id, logits_flag)?;
-                if is_last {
-                    slot_batch_idx.insert(seq_id, idx);
+                batch.add_seq(last_tok.0, pos_last, seq_id, true)?;
+                if self.trace_flow {
+                    eprintln!(
+                        "[Flow] processing add request={} seq={} token={} pos={} idx={}",
+                        slot.request_id, seq_id, last_tok.0, pos_last, idx
+                    );
                 }
-                eval_tokens.entry(seq_id).or_default().push(tok);
-                processed += 1;
-                prefill_budget = prefill_budget.saturating_sub(1);
+                slot_batch_idx.insert(seq_id, idx);
             }
 
-            slot.n_prompt_processed = processed;
-            if slot.n_prompt_processed >= total_len {
-                req.state = RequestState::Processing;
+            let batch_limit = n_batch.min(n_ubatch);
+            let mut prefill_budget = batch_limit.saturating_sub(batch.handle.n_tokens as usize);
+            for (&seq_id, slot) in slots.iter_mut() {
+                if prefill_budget == 0 {
+                    break;
+                }
+
+                let req = match requests.get_mut(&slot.request_id) {
+                    Some(req) => req,
+                    None => {
+                        eprintln!(
+                            "[Step] Missing request {} for slot {}, aborting seq",
+                            slot.request_id, seq_id
+                        );
+                        abort_seqs.push(seq_id);
+                        continue;
+                    }
+                };
+
+                if req.cancel_flag.load(Ordering::Acquire) {
+                    req.state = RequestState::Finished;
+                    abort_seqs.push(seq_id);
+                    Self::emit_event(
+                        &mut events,
+                        req,
+                        EventKind::Finish {
+                            request: RequestHandle::new(
+                                slot.request_id.clone(),
+                                req.cancel_flag.clone(),
+                            ),
+                            reason: StopReason::Cancelled,
+                        },
+                    );
+                    continue;
+                }
+
+                if req.state != RequestState::Waiting {
+                    continue;
+                }
+
+                if req.prompt_tokens.is_empty() {
+                    Self::emit_event(
+                        &mut events,
+                        req,
+                        EventKind::Error {
+                            message: "Waiting request has empty prompt tokens".to_string(),
+                            request: RequestHandle::new(
+                                slot.request_id.clone(),
+                                req.cancel_flag.clone(),
+                            ),
+                        },
+                    );
+                    req.state = RequestState::Finished;
+                    abort_seqs.push(seq_id);
+                    continue;
+                }
+
+                if req.pending_mm_start.is_some() {
+                    continue;
+                }
+
+                let total_len = req.prompt_tokens.len();
+                let mut processed = slot.n_prompt_processed;
+                if processed >= total_len {
+                    req.state = RequestState::Processing;
+                    continue;
+                }
+
+                while processed < total_len && prefill_budget > 0 {
+                    let tok_idx = processed;
+
+                    if req.multimodal_chunks.get(&tok_idx).is_some() {
+                        req.pending_mm_start = Some(tok_idx);
+                        break;
+                    }
+
+                    let tok = req.prompt_tokens[tok_idx];
+                    if tok.0 == -1 {
+                        processed += 1;
+                        continue;
+                    }
+
+                    let is_last = tok_idx == total_len - 1;
+                    let logits_flag = is_last;
+                    let pos = Self::pos_for_prompt_index(req, tok_idx);
+                    let idx = batch.handle.n_tokens;
+                    batch.add_seq(tok.0, pos, seq_id, logits_flag)?;
+                    if self.trace_flow {
+                        eprintln!(
+                            "[Flow] prefill add request={} seq={} tok_idx={} token={} pos={} logits={}",
+                            slot.request_id, seq_id, tok_idx, tok.0, pos, logits_flag
+                        );
+                    }
+                    if is_last {
+                        slot_batch_idx.insert(seq_id, idx);
+                    }
+                    eval_tokens.entry(seq_id).or_default().push(tok);
+                    processed += 1;
+                    prefill_budget = prefill_budget.saturating_sub(1);
+                }
+
+                prefill_progress.insert(seq_id, processed);
             }
         }
-        }
 
-        if self.batch.handle.n_tokens == 0 {
+        self.flow_log_batch_built(self.batch.handle.n_tokens, slot_batch_idx.len());
+
+        if self.batch.handle.n_tokens == 0 && slot_batch_idx.is_empty() {
             self.eval_one_pending_mm(&mut events, &mut abort_seqs)?;
             for seq_id in abort_seqs.drain(..) {
                 if let Some(slot) = self.slots.remove(&seq_id) {
@@ -512,26 +684,70 @@ impl<'a> LlmEngine<'a> {
             return Ok(events);
         }
 
-        
-        if self._model.has_encoder() && !self._model.has_decoder() {
+        if self.batch.handle.n_tokens == 0 {
+        } else if self._model.has_encoder() && !self._model.has_decoder() {
             self.ctx.encode(&mut self.batch)?;
         } else {
+            self.flow_log(format!(
+                "decode start n_tokens={}",
+                self.batch.handle.n_tokens
+            ));
             if let Err(e) = self.ctx.decode(&mut self.batch) {
                 eprintln!("[Step] Decode FAILED: {}", e);
-                
+
                 unsafe {
                     eprintln!("[Step] Batch n_tokens: {}", self.batch.handle.n_tokens);
                     if self.batch.handle.n_tokens > 0 {
                         let pos = *self.batch.handle.pos.add(0);
                         let seq = *(*self.batch.handle.seq_id.add(0));
                         eprintln!("[Step] First Token: Pos={}, Seq={}", pos, seq);
+
+                        if let Some(slot) = self.slots.get(&seq) {
+                            if let Some(req) = self.requests.get(&slot.request_id) {
+                                let total_tokens = req.pos_offset
+                                    + req.prompt_tokens.len()
+                                    + req.generated_tokens.len();
+                                let n_seq = usize::try_from(self.n_seq_max)
+                                    .ok()
+                                    .filter(|v| *v > 0)
+                                    .unwrap_or(1);
+                                let seq_n_ctx = (self.n_ctx / n_seq).max(1);
+                                eprintln!(
+                                    "[Step] Seq Debug: request={} state={:?} total_tokens={} n_ctx_total={} n_ctx_seq={} pos_offset={} prompt_tokens={} generated_tokens={} n_prompt_processed={} n_decoded={} pending_mm_start={:?} mm_chunks={}",
+                                    slot.request_id,
+                                    req.state,
+                                    total_tokens,
+                                    self.n_ctx,
+                                    seq_n_ctx,
+                                    req.pos_offset,
+                                    req.prompt_tokens.len(),
+                                    req.generated_tokens.len(),
+                                    slot.n_prompt_processed,
+                                    slot.n_decoded,
+                                    req.pending_mm_start,
+                                    req.multimodal_meta.len()
+                                );
+                            }
+                        }
                     }
                 }
                 return Err(e);
             }
         }
-        
-        
+
+        if !prefill_progress.is_empty() {
+            for (seq_id, processed) in prefill_progress.drain() {
+                if let Some(slot) = self.slots.get_mut(&seq_id) {
+                    slot.n_prompt_processed = processed;
+                    if let Some(req) = self.requests.get_mut(&slot.request_id) {
+                        if slot.n_prompt_processed >= req.prompt_tokens.len() {
+                            req.state = RequestState::Processing;
+                        }
+                    }
+                }
+            }
+        }
+
         if !eval_tokens.is_empty() {
             for (seq_id, tokens) in eval_tokens.drain() {
                 if let Some(slot) = self.slots.get(&seq_id) {
@@ -550,62 +766,80 @@ impl<'a> LlmEngine<'a> {
         }
 
         let mut finished_seqs = Vec::new();
-        let mut embedding_seqs = Vec::new(); 
+        let mut embedding_seqs = Vec::new();
 
-        
         for (&seq_id, &batch_idx) in &slot_batch_idx {
-             if let Some(slot) = self.slots.get(&seq_id) {
-                 if let Some(req) = self.requests.get(&slot.request_id) {
-                     if req.params.embedding {
-                         let mut emb_ptr = self.ctx.get_embeddings_seq(seq_id);
-                         if emb_ptr.is_null() {
-                             emb_ptr = self.ctx.get_embeddings(batch_idx);
-                         }
-                         if emb_ptr.is_null() {
-                             emb_ptr = self.ctx.get_embeddings_all();
-                         }
+            if let Some(slot) = self.slots.get(&seq_id) {
+                if let Some(req) = self.requests.get(&slot.request_id) {
+                    if req.params.embedding {
+                        let mut emb_ptr = self.ctx.get_embeddings_seq(seq_id);
+                        if emb_ptr.is_null() {
+                            emb_ptr = self.ctx.get_embeddings(batch_idx);
+                        }
+                        if emb_ptr.is_null() {
+                            emb_ptr = self.ctx.get_embeddings_all();
+                        }
 
-                         if !emb_ptr.is_null() {
-                             let n_embd = self._model.n_embd() as usize;
-                             let slice = unsafe { std::slice::from_raw_parts(emb_ptr, n_embd) };
-                             let mut embedding = slice.to_vec();
+                        if !emb_ptr.is_null() {
+                            let n_embd = self._model.n_embd() as usize;
+                            let slice = unsafe { std::slice::from_raw_parts(emb_ptr, n_embd) };
+                            let mut embedding = slice.to_vec();
 
-                             
-                             let mut sum = 0.0f32;
-                             for &v in &embedding {
-                                 sum += v * v;
-                             }
-                             let norm = sum.sqrt();
-                             if norm > 0.0 {
-                                 for v in &mut embedding {
-                                     *v /= norm;
-                                 }
-                             }
+                            let mut sum = 0.0f32;
+                            for &v in &embedding {
+                                sum += v * v;
+                            }
+                            let norm = sum.sqrt();
+                            if norm > 0.0 {
+                                for v in &mut embedding {
+                                    *v /= norm;
+                                }
+                            }
 
-                             Self::emit_event(&mut events, req, EventKind::Embedding {
-                                 embedding,
-                                 request: RequestHandle::new(req.params.id.clone(), req.cancel_flag.clone()),
-                             });
-                             
-                             
-                             Self::emit_event(&mut events, req, EventKind::Finish {
-                                 request: RequestHandle::new(req.params.id.clone(), req.cancel_flag.clone()),
-                                 reason: StopReason::Eos,
-                             });
+                            Self::emit_event(
+                                &mut events,
+                                req,
+                                EventKind::Embedding {
+                                    embedding,
+                                    request: RequestHandle::new(
+                                        req.params.id.clone(),
+                                        req.cancel_flag.clone(),
+                                    ),
+                                },
+                            );
 
-                             embedding_seqs.push(seq_id);
-                         } else {
-                             Self::emit_event(&mut events, req, EventKind::Error {
-                                 message: "Failed to retrieve embeddings (null ptr)".to_string(),
-                                 request: RequestHandle::new(req.params.id.clone(), req.cancel_flag.clone()),
-                             });
-                             embedding_seqs.push(seq_id); 
-                         }
-                     }
-                 }
-             }
+                            Self::emit_event(
+                                &mut events,
+                                req,
+                                EventKind::Finish {
+                                    request: RequestHandle::new(
+                                        req.params.id.clone(),
+                                        req.cancel_flag.clone(),
+                                    ),
+                                    reason: StopReason::Eos,
+                                },
+                            );
+
+                            embedding_seqs.push(seq_id);
+                        } else {
+                            Self::emit_event(
+                                &mut events,
+                                req,
+                                EventKind::Error {
+                                    message: "Failed to retrieve embeddings (null ptr)".to_string(),
+                                    request: RequestHandle::new(
+                                        req.params.id.clone(),
+                                        req.cancel_flag.clone(),
+                                    ),
+                                },
+                            );
+                            embedding_seqs.push(seq_id);
+                        }
+                    }
+                }
+            }
         }
-        
+
         for seq_id in &embedding_seqs {
             slot_batch_idx.remove(seq_id);
             if let Some(slot) = self.slots.get(seq_id) {
@@ -615,23 +849,13 @@ impl<'a> LlmEngine<'a> {
             }
             finished_seqs.push(*seq_id);
         }
-        
-        
+
         let sampled_tokens = self.sample_batch(&slot_batch_idx, &mut events, &mut finished_seqs);
-        
-        
+
         self.eval_one_pending_mm(&mut events, &mut abort_seqs)?;
-        
-        
+
         for seq_id in finished_seqs {
             if let Some(slot) = self.slots.remove(&seq_id) {
-                
-                
-                
-                
-                
-                
-                
                 self.requests.remove(&slot.request_id);
             }
         }
@@ -643,17 +867,31 @@ impl<'a> LlmEngine<'a> {
                 self.requests.remove(&slot.request_id);
             }
         }
-        
-        
+
         self.update_stats(sampled_tokens as f64, Instant::now());
+        self.flow_log(format!(
+            "pull done events={} sampled_tokens={} requests={} slots={}",
+            events.len(),
+            sampled_tokens,
+            self.requests.len(),
+            self.slots.len()
+        ));
 
         Ok(events)
     }
 
     fn update_stats(&mut self, generated_tokens: f64, now: Instant) {
         let mut stats = self.engine_stats.write();
-        stats.requests_processing = self.requests.values().filter(|r| r.state == RequestState::Processing).count();
-        stats.requests_waiting = self.requests.values().filter(|r| matches!(r.state, RequestState::Waiting | RequestState::Preparing)).count();
+        stats.requests_processing = self
+            .requests
+            .values()
+            .filter(|r| r.state == RequestState::Processing)
+            .count();
+        stats.requests_waiting = self
+            .requests
+            .values()
+            .filter(|r| matches!(r.state, RequestState::Waiting | RequestState::Preparing))
+            .count();
         stats.slots_active = self.slots.len();
         stats.slots_total = self.n_seq_max as usize;
 
@@ -674,11 +912,12 @@ impl<'a> LlmEngine<'a> {
         };
     }
 
-    fn sample_batch(&mut self, 
-        slot_batch_idx: &HashMap<i32, i32>, 
+    fn sample_batch(
+        &mut self,
+        slot_batch_idx: &HashMap<i32, i32>,
         events: &mut Vec<Event>,
-        finished_seqs: &mut Vec<i32>) -> usize 
-    {
+        finished_seqs: &mut Vec<i32>,
+    ) -> usize {
         let mut sampled_tokens = 0usize;
         for (&seq_id, &batch_idx) in slot_batch_idx {
             let slot = match self.slots.get_mut(&seq_id) {
@@ -701,12 +940,10 @@ impl<'a> LlmEngine<'a> {
                     continue;
                 }
             };
-            
-            
+
             let next_token = slot.sampler.sample(&self.ctx, batch_idx);
             slot.sampler.accept(next_token);
-            
-            
+
             let mut stop_reason = None;
             let is_eog = self._model.is_eog_token(next_token.0);
             if is_eog {
@@ -729,34 +966,61 @@ impl<'a> LlmEngine<'a> {
                     }
                 }
 
-                
-                let piece = self.tokenizer.decode(&[next_token]).unwrap_or_default();
+                let piece = self
+                    .tokenizer
+                    .decode_incremental(&mut req.utf8_buffer, next_token)
+                    .unwrap_or_default();
 
-                Self::emit_event(events, req, EventKind::Text {
-                    text: piece,
-                    request: RequestHandle::new(req_id.clone(), req.cancel_flag.clone()),
-                });
+                if !piece.is_empty() {
+                    Self::emit_event(
+                        events,
+                        req,
+                        EventKind::Text {
+                            text: piece,
+                            request: RequestHandle::new(req_id.clone(), req.cancel_flag.clone()),
+                        },
+                    );
+                }
             }
-            
+
             if let Some(reason) = stop_reason {
+                let tail = Self::flush_utf8_buffer(req);
+                if !tail.is_empty() {
+                    Self::emit_event(
+                        events,
+                        req,
+                        EventKind::Text {
+                            text: tail,
+                            request: RequestHandle::new(req_id.clone(), req.cancel_flag.clone()),
+                        },
+                    );
+                }
+
                 req.state = RequestState::Finished;
                 finished_seqs.push(seq_id);
-                Self::emit_event(events, req, EventKind::Finish {
-                    request: RequestHandle::new(req_id, req.cancel_flag.clone()),
-                    reason,
-                });
+                Self::emit_event(
+                    events,
+                    req,
+                    EventKind::Finish {
+                        request: RequestHandle::new(req_id, req.cancel_flag.clone()),
+                        reason,
+                    },
+                );
             }
         }
         sampled_tokens
     }
 
     fn schedule_requests(&mut self) {
-        
-        
-        
-        
-        
-        if self.request_queue.is_empty() { return; }
+        if self.request_queue.is_empty() {
+            return;
+        }
+        self.flow_log(format!(
+            "schedule start queue={} slots={}/{}",
+            self.request_queue.len(),
+            self.slots.len(),
+            self.n_seq_max
+        ));
 
         loop {
             if self.slots.len() >= self.n_seq_max as usize {
@@ -771,9 +1035,13 @@ impl<'a> LlmEngine<'a> {
                 None => false,
             };
             if !should_schedule {
+                self.flow_log(format!(
+                    "schedule skip request={} reason=not-waiting-or-active",
+                    req_id
+                ));
                 continue;
             }
-            
+
             let (session_id, parent_id, mut prompt_tokens, n_keep, sampling) = {
                 let req = match self.requests.get(&req_id) {
                     Some(req) => req,
@@ -791,10 +1059,8 @@ impl<'a> LlmEngine<'a> {
                 )
             };
 
-            
             let mut target_seq_id = None;
-            
-            
+
             if let Some(sid) = &session_id {
                 let sessions = self.kv_manager.sessions.read();
                 if let Some(sess) = sessions.get(sid) {
@@ -805,28 +1071,34 @@ impl<'a> LlmEngine<'a> {
                     }
                 }
             }
-            
-            
+
             if target_seq_id.is_none() {
                 for seq_id in 0..self.n_seq_max {
                     if !self.slots.contains_key(&seq_id) {
-                         target_seq_id = Some(seq_id);
-                         break;
+                        target_seq_id = Some(seq_id);
+                        break;
                     }
                 }
             }
-            
+
             if target_seq_id.is_none() {
                 self.request_queue.push_front(req_id);
+                self.flow_log("schedule pause reason=no-free-seq");
                 break;
             }
-            
+
             let seq_id = target_seq_id.unwrap();
-            
-            
-            match self.kv_manager.evict_seq_owner(&mut self.ctx, seq_id, session_id.as_deref()) {
+            self.flow_log(format!("schedule assign request={} seq={}", req_id, seq_id));
+
+            match self
+                .kv_manager
+                .evict_seq_owner(&mut self.ctx, seq_id, session_id.as_deref())
+            {
                 Ok(Some(owner_id)) => {
-                    eprintln!("[State] Evicted session {} from seq {} to preserve state", owner_id, seq_id);
+                    eprintln!(
+                        "[State] Evicted session {} from seq {} to preserve state",
+                        owner_id, seq_id
+                    );
                 }
                 Ok(None) => {}
                 Err(e) => {
@@ -835,151 +1107,146 @@ impl<'a> LlmEngine<'a> {
                     break;
                 }
             }
-            
-            
-            
-            let mut restored = false;
-            let mut restored_token_count = 0;
-            let mut delta_mode = false;
 
-            
+            let mut restored = false;
+
             if let Some(pid) = &parent_id {
-                
-                if let Some(parent_slot) = self.slots.values().find(|s| s.request_id == *pid) {
-                     let parent_seq_id = self.slots.iter()
+                if self.slots.values().any(|s| s.request_id == *pid) {
+                    let parent_seq_id = self
+                        .slots
+                        .iter()
                         .find(|(_, s)| s.request_id == *pid)
                         .map(|(id, _)| *id);
-                        
-                     if let Some(p_seq) = parent_seq_id {
-                         self.ctx.kv_cache_seq_cp(p_seq, seq_id, -1, -1);
-                         restored = true;
-                         restored_token_count = parent_slot.n_prompt_processed + parent_slot.n_decoded;
-                         
-                         if let Some(sid) = &session_id {
-                             let _ = self.kv_manager.set_vram_seq(sid, seq_id);
-                         }
-                     }
+
+                    if let Some(p_seq) = parent_seq_id {
+                        self.ctx.kv_cache_seq_cp(p_seq, seq_id, -1, -1);
+                        restored = true;
+
+                        if let Some(sid) = &session_id {
+                            let _ = self.kv_manager.set_vram_seq(sid, seq_id);
+                        }
+                    }
                 }
             }
-            
-            
-            if !restored {
-               if let Some(sid) = &session_id {
-                   
-                    self.kv_manager.register_session(sid.clone(), prompt_tokens.clone(), n_keep);
-                   
-                   
-                   let mut reused_vram = false;
-                   {
-                       let sessions = self.kv_manager.sessions.read();
-                       if let Some(s) = sessions.get(sid) {
-                           if s.vram_seq_id == Some(seq_id) {
-                               reused_vram = true;
-                               
-                               
-                               restored_token_count = s.kv_head;
-                           }
-                       }
-                   }
 
-                   if reused_vram {
-                       restored = true;
-                       self.kv_manager.touch(sid);
-                   } else {
-                       
-                       match self.kv_manager.restore(&mut self.ctx, seq_id, sid) {
-                           Ok(n_restored) => {
-                               restored = true;
-                               restored_token_count = n_restored;
-                           },
-                           Err(_) => {
+            if !restored {
+                if let Some(sid) = &session_id {
+                    self.kv_manager
+                        .register_session(sid.clone(), prompt_tokens.clone(), n_keep);
+
+                    let mut reused_vram = false;
+                    let mut session_len = 0usize;
+                    {
+                        let sessions = self.kv_manager.sessions.read();
+                        if let Some(s) = sessions.get(sid) {
+                            session_len = s.kv_head;
+                            if s.vram_seq_id == Some(seq_id) {
+                                reused_vram = true;
+                            }
+                        }
+                    }
+
+                    if reused_vram {
+                        restored = true;
+                        self.kv_manager.touch(sid);
+                    } else {
+                        match self.kv_manager.restore(&mut self.ctx, seq_id, sid) {
+                            Ok(_) => {
+                                restored = true;
+                            }
+                            Err(_) => {
                                 let filename = format!("cache/{}.bin", sid);
-                                if std::path::Path::new(&filename).exists() {
-                                     
-                                }
-                           }
-                       }
-                   }
-                   
-                   
-                   
-                   
-                   if restored {
+                                if std::path::Path::new(&filename).exists() {}
+                            }
+                        }
+                    }
+
+                    if restored {
+                        // Stateful contract: treat incoming prompt as new input only.
+                        // Do not attempt delta/history token matching against restored KV.
                         let session_len = {
                             let sessions = self.kv_manager.sessions.read();
                             if let Some(s) = sessions.get(sid) {
                                 s.kv_head
                             } else {
-                                0
+                                session_len
                             }
                         };
-                        
-                        
-                        
-                        
-                        if !prompt_tokens.is_empty() && prompt_tokens[0].0 == self._model.token_bos() {
-                             prompt_tokens.remove(0);
+
+                        if !prompt_tokens.is_empty()
+                            && prompt_tokens[0].0 == self._model.token_bos()
+                        {
+                            prompt_tokens.remove(0);
                         }
-                        
+
                         if let Some(req_mut) = self.requests.get_mut(&req_id) {
                             req_mut.prompt_tokens = prompt_tokens.clone();
                             req_mut.pos_offset = session_len;
                         }
-                        
-                        
-                        
-                        
-                        
-                        delta_mode = true;
-                        restored_token_count = 0; 
-                   }
-               }
+                    }
+                }
             }
 
             if !restored {
-                 
-                 self.ctx.kv_cache_seq_rm(seq_id, -1, -1);
-                 restored_token_count = 0;
-                 
-                 
-                 if let Some(sid) = &session_id {
-                     let _ = self.kv_manager.set_vram_seq(sid, seq_id);
-                 }
-            }
-            
-            if let Ok(sampler) = Sampler::new(&sampling, Some(self._model.vocab())) {
-                 
-                 let req_tokens_len = prompt_tokens.len();
-                 let n_past = std::cmp::min(restored_token_count, req_tokens_len);
-                 
-                 
-                 if !delta_mode && restored_token_count > n_past {
-                     self.ctx.kv_cache_seq_rm(seq_id, n_past as i32, -1);
-                 }
+                self.ctx.kv_cache_seq_rm(seq_id, -1, -1);
 
-                 self.slots.insert(seq_id, Slot {
-                     request_id: req_id.clone(),
-                     sampler,
-                     n_decoded: 0,
-                     n_prompt_processed: n_past, 
-                 });
+                if let Some(sid) = &session_id {
+                    let _ = self.kv_manager.set_vram_seq(sid, seq_id);
+                }
+            }
+
+            if let Ok(sampler) = Sampler::new(&sampling, Some(self._model.vocab())) {
+                self.slots.insert(
+                    seq_id,
+                    Slot {
+                        request_id: req_id.clone(),
+                        sampler,
+                        n_decoded: 0,
+                        n_prompt_processed: 0,
+                        sample_from_cache: false,
+                    },
+                );
+                self.flow_log(format!(
+                    "schedule active request={} seq={} restored={} pos_offset={} prompt_tokens={}",
+                    req_id,
+                    seq_id,
+                    restored,
+                    self.requests
+                        .get(&req_id)
+                        .map(|r| r.pos_offset)
+                        .unwrap_or(0),
+                    self.requests
+                        .get(&req_id)
+                        .map(|r| r.prompt_tokens.len())
+                        .unwrap_or(0)
+                ));
             }
         }
     }
-    
+
+    fn flush_utf8_buffer(req: &mut Request) -> String {
+        if req.utf8_buffer.is_empty() {
+            return String::new();
+        }
+
+        let tail: Vec<u8> = req.utf8_buffer.drain(..).collect();
+        String::from_utf8_lossy(&tail).into_owned()
+    }
+
     fn process_state_actions(&mut self) {
         use crate::engine::kv_cache::Action;
-        
+
         let actions: Vec<(String, Action)> = {
-             let sessions = self.kv_manager.sessions.read();
-             sessions.iter()
-                 .filter_map(|(id, s)| s.pending_action.clone().map(|a| (id.clone(), a)))
-                 .collect()
+            let sessions = self.kv_manager.sessions.read();
+            sessions
+                .iter()
+                .filter_map(|(id, s)| s.pending_action.clone().map(|a| (id.clone(), a)))
+                .collect()
         };
         if actions.is_empty() {
             return;
         }
-        
+
         for (session_id, action) in actions {
             match action {
                 Action::Save { path } => {
@@ -992,11 +1259,14 @@ impl<'a> LlmEngine<'a> {
                             }
                         }
                     }
-                    
+
                     if let Some(seq_id) = found_seq {
-                         if let Err(e) = self.kv_manager.save_to_disk(&self.ctx, seq_id, &session_id, &path) {
-                             eprintln!("Failed to save session {}: {}", session_id, e);
-                         }
+                        if let Err(e) =
+                            self.kv_manager
+                                .save_to_disk(&self.ctx, seq_id, &session_id, &path)
+                        {
+                            eprintln!("Failed to save session {}: {}", session_id, e);
+                        }
                     } else {
                         let mut saved = false;
                         let vram_seq_id = {
@@ -1004,8 +1274,14 @@ impl<'a> LlmEngine<'a> {
                             sessions.get(&session_id).and_then(|s| s.vram_seq_id)
                         };
                         if let Some(seq_id) = vram_seq_id {
-                            if let Err(e) = self.kv_manager.save_to_disk(&self.ctx, seq_id, &session_id, &path) {
-                                eprintln!("Failed to save session {} from VRAM seq {}: {}", session_id, seq_id, e);
+                            if let Err(e) =
+                                self.kv_manager
+                                    .save_to_disk(&self.ctx, seq_id, &session_id, &path)
+                            {
+                                eprintln!(
+                                    "Failed to save session {} from VRAM seq {}: {}",
+                                    session_id, seq_id, e
+                                );
                             } else {
                                 saved = true;
                             }
@@ -1017,7 +1293,7 @@ impl<'a> LlmEngine<'a> {
                             }
                         }
                     }
-                },
+                }
                 Action::Idle => {
                     eprintln!("[State] Idle requested for session {}", session_id);
                     let mut found_seq = None;
@@ -1031,7 +1307,7 @@ impl<'a> LlmEngine<'a> {
                     }
                     if let Some(seq_id) = found_seq {
                         if let Err(e) = self.kv_manager.evict(&mut self.ctx, seq_id, &session_id) {
-                             eprintln!("Failed to idle session {}: {}", session_id, e);
+                            eprintln!("Failed to idle session {}: {}", session_id, e);
                         } else {
                             self.slots.remove(&seq_id);
                         }
@@ -1041,18 +1317,23 @@ impl<'a> LlmEngine<'a> {
                             sessions.get(&session_id).and_then(|s| s.vram_seq_id)
                         };
                         if let Some(seq_id) = vram_seq_id {
-                            if let Err(e) = self.kv_manager.evict(&mut self.ctx, seq_id, &session_id) {
-                                eprintln!("Failed to idle session {} from VRAM seq {}: {}", session_id, seq_id, e);
+                            if let Err(e) =
+                                self.kv_manager.evict(&mut self.ctx, seq_id, &session_id)
+                            {
+                                eprintln!(
+                                    "Failed to idle session {} from VRAM seq {}: {}",
+                                    session_id, seq_id, e
+                                );
                             }
                         }
                     }
-                },
+                }
                 Action::Delete => {
                     eprintln!("[State] Delete requested for session {}", session_id);
                     let mut found_seq = None;
                     for (seq_id, slot) in &self.slots {
                         if let Some(req) = self.requests.get(&slot.request_id) {
-                             if req.params.session_id.as_deref() == Some(&session_id) {
+                            if req.params.session_id.as_deref() == Some(&session_id) {
                                 found_seq = Some(*seq_id);
                                 break;
                             }
@@ -1075,26 +1356,25 @@ impl<'a> LlmEngine<'a> {
                     let disk_path = sessions.get(&session_id).and_then(|s| s.disk_path.clone());
                     sessions.remove(&session_id);
                     drop(sessions);
-                        if let Some(path) = disk_path {
-                            if let Err(e) = std::fs::remove_file(&path) {
-                             eprintln!("Failed to remove disk file {}: {}", path.display(), e);
-                            } else {
-                             eprintln!("Removed disk file {}", path.display());
-                            }
+                    if let Some(path) = disk_path {
+                        if let Err(e) = std::fs::remove_file(&path) {
+                            eprintln!("Failed to remove disk file {}: {}", path.display(), e);
+                        } else {
+                            eprintln!("Removed disk file {}", path.display());
                         }
+                    }
                 }
             }
-            
-            
+
             {
                 let mut sessions = self.kv_manager.sessions.write();
-                 if let Some(s) = sessions.get_mut(&session_id) {
-                     s.pending_action = None;
-                 }
+                if let Some(s) = sessions.get_mut(&session_id) {
+                    s.pending_action = None;
+                }
             }
         }
     }
-    
+
     fn is_request_active(&self, id: &str) -> bool {
         self.slots.values().any(|s| &s.request_id == id)
     }
@@ -1121,9 +1401,13 @@ impl<'a> LlmEngine<'a> {
         }
         prompt_pos_end + req.generated_tokens.len() as i32 - 1
     }
-    
+
     fn apply_context_shifts(&mut self, events: &mut Vec<Event>) -> Result<()> {
-        let n_ctx = self.n_ctx;
+        let n_seq = usize::try_from(self.n_seq_max)
+            .ok()
+            .filter(|v| *v > 0)
+            .unwrap_or(1);
+        let n_ctx = (self.n_ctx / n_seq).max(1);
         let ctx = &self.ctx;
 
         let mut finished = Vec::new();
@@ -1134,25 +1418,23 @@ impl<'a> LlmEngine<'a> {
                 None => continue,
             };
 
-            if req.state != RequestState::Processing {
+            if req.state != RequestState::Processing && req.state != RequestState::Waiting {
                 continue;
             }
 
-            let total_tokens = req.pos_offset + req.prompt_tokens.len() + req.generated_tokens.len();
+            let total_tokens =
+                req.pos_offset + req.prompt_tokens.len() + req.generated_tokens.len();
             if total_tokens + 1 < n_ctx {
                 continue;
             }
 
-            if !req.multimodal_meta.is_empty() {
-                Self::emit_event(events, req, EventKind::Error {
-                    message: "Context shift not supported for multimodal requests".to_string(),
-                    request: RequestHandle::new(slot.request_id.clone(), req.cancel_flag.clone()),
-                });
-                finished.push(seq_id);
-                continue;
-            }
-
             let mut n_keep = req.params.n_keep;
+            if !req.multimodal_meta.is_empty() {
+                // Keep restored prefix + full multimodal prompt intact.
+                // This allows shifting on multimodal requests without slicing image placeholder spans.
+                let mm_keep_floor = req.pos_offset.saturating_add(req.prompt_tokens.len());
+                n_keep = n_keep.max(mm_keep_floor);
+            }
             if n_keep > n_ctx.saturating_sub(4) {
                 n_keep = n_ctx.saturating_sub(4);
             }
@@ -1169,10 +1451,64 @@ impl<'a> LlmEngine<'a> {
             };
             n_discard = n_discard.min(n_left);
             if n_discard == 0 {
-                Self::emit_event(events, req, EventKind::Error {
-                    message: "Context full and n_discard is 0. Cannot shift.".to_string(),
-                    request: RequestHandle::new(slot.request_id.clone(), req.cancel_flag.clone()),
-                });
+                eprintln!(
+                    "[Shift] Context full but n_discard=0 request={} seq={} total_tokens={} n_ctx={} n_keep={}",
+                    slot.request_id, seq_id, total_tokens, n_ctx, n_keep
+                );
+                Self::emit_event(
+                    events,
+                    req,
+                    EventKind::Error {
+                        message: "Context full and n_discard is 0. Cannot shift.".to_string(),
+                        request: RequestHandle::new(
+                            slot.request_id.clone(),
+                            req.cancel_flag.clone(),
+                        ),
+                    },
+                );
+                finished.push(seq_id);
+                continue;
+            }
+
+            eprintln!(
+                "[Shift] Triggered request={} seq={} total_tokens={} n_ctx={} n_keep={} n_discard={} pos_offset={} prompt_tokens={} generated_tokens={}",
+                slot.request_id,
+                seq_id,
+                total_tokens,
+                n_ctx,
+                n_keep,
+                n_discard,
+                req.pos_offset,
+                req.prompt_tokens.len(),
+                req.generated_tokens.len()
+            );
+            if !req.multimodal_meta.is_empty() {
+                eprintln!(
+                    "[Shift] Multimodal mode: preserving prompt spans (mm_chunks={})",
+                    req.multimodal_meta.len()
+                );
+            }
+
+            if req.state == RequestState::Processing && req.generated_tokens.is_empty() {
+                slot.sample_from_cache = true;
+            }
+
+            if !self.ctx.kv_cache_can_shift() {
+                eprintln!(
+                    "[Shift] Unsupported by backend request={} seq={} total_tokens={} n_ctx={}",
+                    slot.request_id, seq_id, total_tokens, n_ctx
+                );
+                Self::emit_event(
+                    events,
+                    req,
+                    EventKind::Error {
+                        message: "Context shift unsupported by backend for this model".to_string(),
+                        request: RequestHandle::new(
+                            slot.request_id.clone(),
+                            req.cancel_flag.clone(),
+                        ),
+                    },
+                );
                 finished.push(seq_id);
                 continue;
             }
@@ -1180,10 +1516,17 @@ impl<'a> LlmEngine<'a> {
             unsafe {
                 let mem = llama_cpp::llama_get_memory(ctx.as_ptr());
                 if mem.is_null() {
-                    Self::emit_event(events, req, EventKind::Error {
-                        message: "Context shift failed: no memory module".to_string(),
-                        request: RequestHandle::new(slot.request_id.clone(), req.cancel_flag.clone()),
-                    });
+                    Self::emit_event(
+                        events,
+                        req,
+                        EventKind::Error {
+                            message: "Context shift failed: no memory module".to_string(),
+                            request: RequestHandle::new(
+                                slot.request_id.clone(),
+                                req.cancel_flag.clone(),
+                            ),
+                        },
+                    );
                     finished.push(seq_id);
                     continue;
                 }
@@ -1197,9 +1540,12 @@ impl<'a> LlmEngine<'a> {
                 if !ok {
                     events.push(Event {
                         id: Uuid::new_v4().to_string(),
-                         kind: EventKind::Error {
+                        kind: EventKind::Error {
                             message: "Context shift failed: seq_rm".to_string(),
-                            request: RequestHandle::new(slot.request_id.clone(), req.cancel_flag.clone()),
+                            request: RequestHandle::new(
+                                slot.request_id.clone(),
+                                req.cancel_flag.clone(),
+                            ),
                         },
                     });
                     finished.push(seq_id);
@@ -1218,7 +1564,6 @@ impl<'a> LlmEngine<'a> {
             let start = n_keep;
             let end = n_keep + n_discard;
 
-            
             if let Some(sid) = &req.params.session_id {
                 let mut sessions = self.kv_manager.sessions.write();
                 if let Some(s) = sessions.get_mut(sid) {
@@ -1239,7 +1584,6 @@ impl<'a> LlmEngine<'a> {
                 req.prompt_tokens = combined;
                 req.generated_tokens.clear();
             } else {
-                
                 let restored_len = req.pos_offset;
                 let mut remaining = n_discard;
 
@@ -1264,7 +1608,6 @@ impl<'a> LlmEngine<'a> {
                         }
                     }
                 } else {
-                    
                     let start_in_prompt = start.saturating_sub(restored_len);
                     let end_in_prompt = end.saturating_sub(restored_len);
 
@@ -1291,12 +1634,34 @@ impl<'a> LlmEngine<'a> {
                     }
                 }
 
-                
                 if let Some(sid) = &req.params.session_id {
                     let sessions = self.kv_manager.sessions.read();
                     if let Some(s) = sessions.get(sid) {
-                        let live_len = req.prompt_tokens.len() + req.generated_tokens.len();
-                        req.pos_offset = s.kv_head.saturating_sub(live_len);
+                        // Rebase prompt start to match the actual KV head after shift.
+                        // In processing mode, one generated token is typically pending decode,
+                        // so only generated_tokens.len() - 1 are already in KV.
+                        let old_pos_offset = req.pos_offset;
+                        let prompt_in_kv = slot.n_prompt_processed.min(req.prompt_tokens.len());
+                        let generated_in_kv = if req.state == RequestState::Processing {
+                            req.generated_tokens.len().saturating_sub(1)
+                        } else {
+                            0
+                        };
+                        let live_in_kv = prompt_in_kv.saturating_add(generated_in_kv);
+                        req.pos_offset = s.kv_head.saturating_sub(live_in_kv);
+                        if self.trace_flow {
+                            eprintln!(
+                                "[Shift] Rebase request={} seq={} old_pos_offset={} new_pos_offset={} kv_head={} prompt_in_kv={} generated_in_kv={} state={:?}",
+                                slot.request_id,
+                                seq_id,
+                                old_pos_offset,
+                                req.pos_offset,
+                                s.kv_head,
+                                prompt_in_kv,
+                                generated_in_kv,
+                                req.state
+                            );
+                        }
                     }
                 }
             }
@@ -1313,7 +1678,11 @@ impl<'a> LlmEngine<'a> {
         Ok(())
     }
 
-    fn eval_one_pending_mm(&mut self, events: &mut Vec<Event>, abort_seqs: &mut Vec<i32>) -> Result<()> {
+    fn eval_one_pending_mm(
+        &mut self,
+        events: &mut Vec<Event>,
+        abort_seqs: &mut Vec<i32>,
+    ) -> Result<()> {
         if self.mmproj.is_none() {
             return Ok(());
         }
@@ -1359,16 +1728,23 @@ impl<'a> LlmEngine<'a> {
                 let n_tokens = chunk.n_tokens();
                 let n_pos = chunk.n_pos();
                 let pos_next = Self::pos_for_prompt_index(req, tok_idx);
-                let (status, _) = self
-                    .mmproj
-                    .as_ref()
-                    .unwrap()
-                    .eval_chunk(chunk, &self.ctx, pos_next, seq_id, self.n_batch as i32, true)?;
+                let (status, _) = self.mmproj.as_ref().unwrap().eval_chunk(
+                    chunk,
+                    &self.ctx,
+                    pos_next,
+                    seq_id,
+                    self.n_batch as i32,
+                    true,
+                )?;
                 if status != 0 {
-                    Self::emit_event(events, req, EventKind::Error {
-                        message: format!("Multimodal chunk eval failed: {}", status),
-                        request: RequestHandle::new(req_id.clone(), req.cancel_flag.clone()),
-                    });
+                    Self::emit_event(
+                        events,
+                        req,
+                        EventKind::Error {
+                            message: format!("Multimodal chunk eval failed: {}", status),
+                            request: RequestHandle::new(req_id.clone(), req.cancel_flag.clone()),
+                        },
+                    );
                     req.state = RequestState::Finished;
                     abort_seqs.push(seq_id);
                 } else {
@@ -1407,7 +1783,6 @@ impl<'a> LlmEngine<'a> {
 
 impl<'a> Drop for LlmEngine<'a> {
     fn drop(&mut self) {
-        
         self.prep_tx.take();
 
         if let Some(handle) = self._prep_handle.take() {

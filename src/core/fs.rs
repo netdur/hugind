@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use serde::Serialize;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -167,8 +167,13 @@ impl FsAccess {
         if !dst_path.exists() && !self.perm.create {
             bail!("filesystem create permission is disabled");
         }
-        fs::rename(&src_path, &dst_path)
-            .with_context(|| format!("failed to rename {} -> {}", src_path.display(), dst_path.display()))?;
+        fs::rename(&src_path, &dst_path).with_context(|| {
+            format!(
+                "failed to rename {} -> {}",
+                src_path.display(),
+                dst_path.display()
+            )
+        })?;
         Ok(())
     }
 
@@ -182,8 +187,13 @@ impl FsAccess {
         if !dst_path.exists() && !self.perm.create {
             bail!("filesystem create permission is disabled");
         }
-        fs::copy(&src_path, &dst_path)
-            .with_context(|| format!("failed to copy {} -> {}", src_path.display(), dst_path.display()))?;
+        fs::copy(&src_path, &dst_path).with_context(|| {
+            format!(
+                "failed to copy {} -> {}",
+                src_path.display(),
+                dst_path.display()
+            )
+        })?;
         Ok(())
     }
 
@@ -368,7 +378,8 @@ impl FsAccess {
 
     fn canonicalize_soft(&self, path: &Path) -> Result<PathBuf> {
         if path.exists() {
-            return fs::canonicalize(path).with_context(|| format!("failed to canonicalize {}", path.display()));
+            return fs::canonicalize(path)
+                .with_context(|| format!("failed to canonicalize {}", path.display()));
         }
 
         let mut cursor = path;
@@ -403,8 +414,9 @@ impl FsAccess {
                 Component::Normal(c) => {
                     cur.push(c);
                     if cur.exists() {
-                        let meta = fs::symlink_metadata(&cur)
-                            .with_context(|| format!("failed to read metadata {}", cur.display()))?;
+                        let meta = fs::symlink_metadata(&cur).with_context(|| {
+                            format!("failed to read metadata {}", cur.display())
+                        })?;
                         if meta.file_type().is_symlink() {
                             bail!("symlinks are not allowed in path: {}", cur.display());
                         }

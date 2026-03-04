@@ -39,6 +39,13 @@ Hugind provides the initial arguments in two ways:
    - `get_args_json()` returns the JSON string for the initial input.
    - `get_args()` is an alias for `get_args_json()`.
 
+Input shape:
+- `input.args`: CLI args passed after `--`.
+- `input.meta.session`: resolved backend session metadata.
+- `input.meta.env`: environment values declared in `agent.yaml` `env:` section.
+  Only declared env names are passed through, and required vars fail the run
+  if missing from the host environment.
+
 ## Returning Output
 
 Agents can return output in two ways:

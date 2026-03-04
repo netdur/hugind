@@ -945,20 +945,23 @@ export default async function main(input) {
       }
 
       if (scored.length === 0) {
-        for (let i = 0; i < files.length; i += 1) {
-          const rel = toRepoRelative(projectRootNorm, files[i]);
-          const base = basename(rel).toLowerCase();
-          let fallbackScore = 0;
-          if (base === "main.py" || base === "main.ts" || base === "main.js" || base === "main.rs") fallbackScore = 34;
-          else if (base === "app.py" || base === "app.ts" || base === "app.js") fallbackScore = 31;
-          else if (base === "index.py" || base === "index.ts" || base === "index.js") fallbackScore = 28;
-          if (fallbackScore <= 0) continue;
-          scored.push({
-            path: rel,
-            score: fallbackScore,
-            reasons: ["fallback entrypoint heuristic"],
-            sampled_content: false
-          });
+        const preferNewFiles = Array.isArray(llmHints.newFileRoots) && llmHints.newFileRoots.length > 0;
+        if (!preferNewFiles) {
+          for (let i = 0; i < files.length; i += 1) {
+            const rel = toRepoRelative(projectRootNorm, files[i]);
+            const base = basename(rel).toLowerCase();
+            let fallbackScore = 0;
+            if (base === "main.py" || base === "main.ts" || base === "main.js" || base === "main.rs") fallbackScore = 34;
+            else if (base === "app.py" || base === "app.ts" || base === "app.js") fallbackScore = 31;
+            else if (base === "index.py" || base === "index.ts" || base === "index.js") fallbackScore = 28;
+            if (fallbackScore <= 0) continue;
+            scored.push({
+              path: rel,
+              score: fallbackScore,
+              reasons: ["fallback entrypoint heuristic"],
+              sampled_content: false
+            });
+          }
         }
       }
 

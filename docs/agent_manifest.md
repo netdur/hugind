@@ -196,6 +196,12 @@ Environment variables required by the agent. Each entry includes:
 - `description`
 - `required`
 
+Runtime semantics:
+- `env` declares variable names, not secret values.
+- Values are read from the host process environment at run time.
+- Declared values are injected into agent input as `input.meta.env`.
+- If an entry has `required: true` and the host variable is unset, the run fails.
+
 ## Example
 
 Refer to the reference template for a complete annotated file.
