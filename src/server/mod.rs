@@ -23,6 +23,7 @@ pub async fn run_server(
     model_name: Option<String>,
     config_name: Option<String>,
     enable_thinking_default: bool,
+    thinking_budget_tokens_default: Option<u32>,
     sampling_defaults: crate::llm::sampling::SamplingConfig,
     system_prompt: Option<String>,
     host: String,
@@ -38,6 +39,7 @@ pub async fn run_server(
         config_name,
         api_key,
         enable_thinking_default,
+        thinking_budget_tokens_default,
         sampling_defaults,
         system_prompt,
     });

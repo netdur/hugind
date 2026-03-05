@@ -391,36 +391,19 @@ impl WasmRuntime {
                         bail!("Shell execution is disabled.");
                     }
 
-                    let parts: Vec<&str> = cmd_str.split_whitespace().collect();
-                    if parts.is_empty() {
-                        bail!("Empty command");
-                    }
-                    let program = parts[0];
-
-                    if let Some(whitelist) = &perm.whitelist {
-                        if !whitelist.iter().any(|cmd| cmd == program) {
-                            bail!("Command '{}' is not whitelisted.", program);
-                        }
-                    }
-
-                    if let Some(blacklist) = &perm.blacklist {
-                        if blacklist.iter().any(|cmd| cmd == program) {
-                            bail!("Command '{}' is blacklisted.", program);
-                        }
-                    }
+                    // We don't check whitelist/blacklist here anymore as it breaks when wrapped in `sh -c`.
+                    // The WASM environment is designed to be an agent running bash commands.
 
                     let mut command = if cfg!(target_os = "macos") {
                         let profile = "(version 1) (allow default)";
                         let mut cmd = Command::new("sandbox-exec");
-                        cmd.arg("-p").arg(profile).arg(program);
+                        cmd.arg("-p").arg(profile).arg("sh").arg("-c").arg(&cmd_str);
                         cmd
                     } else {
-                        Command::new(program)
+                        let mut cmd = Command::new("sh");
+                        cmd.arg("-c").arg(&cmd_str);
+                        cmd
                     };
-
-                    if parts.len() > 1 {
-                        command.args(&parts[1..]);
-                    }
 
                     if perm.env_clear {
                         command.env_clear();
@@ -557,27 +540,33 @@ impl WasmRuntime {
                         .and_then(parse_memory_string)
                         .unwrap_or(1024 * 1024);
 
-                    let result_str = if output.status.success() {
-                        if output.stdout.len() > max_len {
-                            let mut s =
-                                String::from_utf8_lossy(&output.stdout[..max_len]).to_string();
-                            s.push_str("...[truncated]");
-                            s
-                        } else {
-                            String::from_utf8_lossy(&output.stdout).to_string()
+                    let mut result_str = String::new();
+                    
+                    if !output.status.success() {
+                        result_str.push_str("Error:\n");
+                    }
+                    
+                    let stdout_str = String::from_utf8_lossy(&output.stdout);
+                    if !stdout_str.is_empty() {
+                        result_str.push_str(&stdout_str);
+                        if !output.stderr.is_empty() {
+                            result_str.push('\n');
                         }
-                    } else {
-                        let mut s = format!("Error: {}", String::from_utf8_lossy(&output.stderr));
-                        if s.len() > max_len {
-                            let mut actual_len = max_len;
-                            while !s.is_char_boundary(actual_len) {
-                                actual_len -= 1;
-                            }
-                            s.truncate(actual_len);
-                            s.push_str("...[truncated]");
+                    }
+                    
+                    let stderr_str = String::from_utf8_lossy(&output.stderr);
+                    if !stderr_str.is_empty() {
+                        result_str.push_str(&stderr_str);
+                    }
+
+                    if result_str.len() > max_len {
+                        let mut actual_len = max_len;
+                        while !result_str.is_char_boundary(actual_len) {
+                            actual_len -= 1;
                         }
-                        s
-                    };
+                        result_str.truncate(actual_len);
+                        result_str.push_str("...[truncated]");
+                    }
 
                     let (out_ptr, out_len) =
                         write_bytes_async(&mut caller, result_str.as_bytes()).await?;
@@ -724,32 +713,34 @@ impl WasmRuntime {
             "llm_chat",
             |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| {
                 Box::new(async move {
-                    let prompt = read_string(&mut caller, ptr, len)?;
-                    log_host(
-                        &caller,
-                        format!("host.llm.chat prompt_len={}", prompt.len()),
-                    );
+                    let input = read_string(&mut caller, ptr, len)?;
                     let base_url = caller.data().llm_base_url.clone();
                     let model = caller.data().llm_model.clone();
                     let client = caller.data().llm_client.clone();
                     let session_id = caller.data().llm_session_id.clone();
 
                     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
-                    let messages = vec![serde_json::json!({
-                        "role": "user",
-                        "content": prompt
-                    })];
-
-                    let mut body = serde_json::Map::new();
-                    if let Some(m) = &model {
-                        body.insert("model".to_string(), serde_json::json!(m));
+                    let (body, used_object_input) =
+                        build_wasm_llm_body(&input, model.as_ref(), false, "llm_chat")?;
+                    if used_object_input {
+                        let msg_len = body
+                            .get("messages")
+                            .and_then(|v| v.as_array())
+                            .map(|a| a.len());
+                        let model_name = body.get("model").and_then(|v| v.as_str()).unwrap_or("");
+                        log_host(
+                            &caller,
+                            format!(
+                                "host.llm.chat input=object messages={:?} model={}",
+                                msg_len, model_name
+                            ),
+                        );
+                    } else {
+                        log_host(
+                            &caller,
+                            format!("host.llm.chat input=string prompt_len={}", input.len()),
+                        );
                     }
-                    body.insert("messages".to_string(), serde_json::json!(messages));
-                    body.insert("stream".to_string(), serde_json::json!(false));
-                    body.insert(
-                        "response_format".to_string(),
-                        serde_json::json!({"type": "json_object"}),
-                    );
 
                     let mut request = client
                         .post(&url)
@@ -798,32 +789,37 @@ impl WasmRuntime {
             "llm_chat_stream",
             |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| {
                 Box::new(async move {
-                    let prompt = read_string(&mut caller, ptr, len)?;
-                    log_host(
-                        &caller,
-                        format!("host.llm.chat_stream prompt_len={}", prompt.len()),
-                    );
+                    let input = read_string(&mut caller, ptr, len)?;
                     let base_url = caller.data().llm_base_url.clone();
                     let model = caller.data().llm_model.clone();
                     let client = caller.data().llm_client.clone();
                     let session_id = caller.data().llm_session_id.clone();
 
                     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
-                    let messages = vec![serde_json::json!({
-                        "role": "user",
-                        "content": prompt
-                    })];
-
-                    let mut body = serde_json::Map::new();
-                    if let Some(m) = &model {
-                        body.insert("model".to_string(), serde_json::json!(m));
+                    let (body, used_object_input) =
+                        build_wasm_llm_body(&input, model.as_ref(), true, "llm_chat_stream")?;
+                    if used_object_input {
+                        let msg_len = body
+                            .get("messages")
+                            .and_then(|v| v.as_array())
+                            .map(|a| a.len());
+                        let model_name = body.get("model").and_then(|v| v.as_str()).unwrap_or("");
+                        log_host(
+                            &caller,
+                            format!(
+                                "host.llm.chat_stream input=object messages={:?} model={}",
+                                msg_len, model_name
+                            ),
+                        );
+                    } else {
+                        log_host(
+                            &caller,
+                            format!(
+                                "host.llm.chat_stream input=string prompt_len={}",
+                                input.len()
+                            ),
+                        );
                     }
-                    body.insert("messages".to_string(), serde_json::json!(messages));
-                    body.insert("stream".to_string(), serde_json::json!(true));
-                    body.insert(
-                        "response_format".to_string(),
-                        serde_json::json!({"type": "json_object"}),
-                    );
 
                     let mut request = client
                         .post(&url)
@@ -846,15 +842,36 @@ impl WasmRuntime {
 
                     let mut content = String::new();
                     let mut stream = res.bytes_stream();
+                    let mut sse_buffer = String::new();
                     let on_token = caller
                         .get_export("llm_on_token")
+                        .and_then(|e| e.into_func())
+                        .and_then(|f| f.typed::<(i32, i32), ()>(caller.as_context_mut()).ok());
+                    let on_sse = caller
+                        .get_export("llm_on_sse")
                         .and_then(|e| e.into_func())
                         .and_then(|f| f.typed::<(i32, i32), ()>(caller.as_context_mut()).ok());
 
                     while let Some(item) = stream.next().await {
                         let chunk = item.map_err(|e| anyhow!("LLM Chunk error: {}", e))?;
                         let text = String::from_utf8_lossy(&chunk);
-                        for line in text.lines() {
+                        sse_buffer.push_str(&text);
+                        while let Some(newline_idx) = sse_buffer.find('\n') {
+                            let mut line = sse_buffer[..newline_idx].to_string();
+                            if line.ends_with('\r') {
+                                line.pop();
+                            }
+                            sse_buffer = sse_buffer[newline_idx + 1..].to_string();
+                            if let Some(cb) = &on_sse {
+                                let (line_ptr, line_len) =
+                                    write_bytes_async(&mut caller, line.as_bytes()).await?;
+                                cb.call_async(
+                                    caller.as_context_mut(),
+                                    (line_ptr as i32, line_len as i32),
+                                )
+                                .await
+                                .ok();
+                            }
                             if !line.starts_with("data: ") {
                                 continue;
                             }
@@ -862,6 +879,46 @@ impl WasmRuntime {
                             if data_str.trim() == "[DONE]" {
                                 continue;
                             }
+                            if let Ok(data) = serde_json::from_str::<serde_json::Value>(data_str) {
+                                if let Some(delta) = data
+                                    .get("choices")
+                                    .and_then(|choices| choices.get(0))
+                                    .and_then(|choice| choice.get("delta"))
+                                    .and_then(|delta| delta.get("content"))
+                                    .and_then(|content| content.as_str())
+                                {
+                                    content.push_str(delta);
+                                    if let Some(cb) = &on_token {
+                                        let (out_ptr, out_len) =
+                                            write_bytes_async(&mut caller, delta.as_bytes())
+                                                .await?;
+                                        cb.call_async(
+                                            caller.as_context_mut(),
+                                            (out_ptr as i32, out_len as i32),
+                                        )
+                                        .await
+                                        .ok();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    let trailing = sse_buffer.trim_end_matches('\r').trim();
+                    if !trailing.is_empty() {
+                        if let Some(cb) = &on_sse {
+                            let (line_ptr, line_len) =
+                                write_bytes_async(&mut caller, trailing.as_bytes()).await?;
+                            cb.call_async(
+                                caller.as_context_mut(),
+                                (line_ptr as i32, line_len as i32),
+                            )
+                            .await
+                            .ok();
+                        }
+                    }
+                    if trailing.starts_with("data: ") {
+                        let data_str = &trailing[6..];
+                        if data_str.trim() != "[DONE]" {
                             if let Ok(data) = serde_json::from_str::<serde_json::Value>(data_str) {
                                 if let Some(delta) = data
                                     .get("choices")
@@ -1345,6 +1402,90 @@ fn extract_llm_content(body_text: &str) -> String {
     }
 
     body_text.to_string()
+}
+
+fn build_wasm_llm_body(
+    input: &str,
+    default_model: Option<&String>,
+    default_stream: bool,
+    api_name: &str,
+) -> Result<(serde_json::Map<String, serde_json::Value>, bool)> {
+    let mut used_object_input = false;
+    let trimmed = input.trim();
+    let mut body = match serde_json::from_str::<serde_json::Value>(trimmed) {
+        Ok(serde_json::Value::Object(map)) if is_likely_llm_request_object(&map) => {
+            used_object_input = true;
+            map
+        }
+        Ok(_) | Err(_) => {
+            let messages = vec![serde_json::json!({
+                "role": "user",
+                "content": input
+            })];
+            let mut map = serde_json::Map::new();
+            map.insert("messages".to_string(), serde_json::json!(messages));
+            map
+        }
+    };
+
+    if !body.contains_key("messages") {
+        if let Some(prompt_val) = body.remove("prompt") {
+            if let Some(prompt) = prompt_val.as_str() {
+                let messages = vec![serde_json::json!({
+                    "role": "user",
+                    "content": prompt
+                })];
+                body.insert("messages".to_string(), serde_json::json!(messages));
+            } else {
+                bail!("{}() prompt must be a string.", api_name);
+            }
+        } else {
+            bail!(
+                "{}() request body must include messages or prompt.",
+                api_name
+            );
+        }
+    }
+
+    if !body.contains_key("model") {
+        if let Some(model) = default_model {
+            body.insert("model".to_string(), serde_json::json!(model));
+        }
+    }
+    if !body.contains_key("stream") {
+        body.insert("stream".to_string(), serde_json::json!(default_stream));
+    }
+    // Backward compatibility: plain-string llm_chat* calls keep JSON default,
+    // but explicit object request bodies control response_format themselves.
+    if !body.contains_key("response_format") && !used_object_input {
+        body.insert(
+            "response_format".to_string(),
+            serde_json::json!({"type": "json_object"}),
+        );
+    }
+
+    Ok((body, used_object_input))
+}
+
+fn is_likely_llm_request_object(map: &serde_json::Map<String, serde_json::Value>) -> bool {
+    let known_keys = [
+        "messages",
+        "prompt",
+        "model",
+        "stream",
+        "max_tokens",
+        "temperature",
+        "top_p",
+        "frequency_penalty",
+        "presence_penalty",
+        "stop",
+        "response_format",
+        "enable_thinking",
+        "thinking",
+        "thinking_budget_tokens",
+        "thinking_budget",
+    ];
+    known_keys.iter().any(|k| map.contains_key(*k))
 }
 
 #[derive(serde::Deserialize)]

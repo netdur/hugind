@@ -86,12 +86,16 @@ Network access is gated by the agent's `permissions.network`:
 
 Sends a chat completion request to the configured backend and returns the
 assistant response text. The backend is resolved from the agent manifest.
-`response_format` is set to `{ "type": "json_object" }`.
+For plain string prompts, `response_format` defaults to
+`{ "type": "json_object" }`. For object request bodies, no `response_format`
+is injected.
 
 ### `llm.chat_stream(prompt: string | object) -> Promise<string>`
 
 Calls the chat completion endpoint with streaming enabled and returns the
-full response text. `response_format` is set to `{ "type": "json_object" }`.
+full response text. For plain string prompts, `response_format` defaults to
+`{ "type": "json_object" }`. For object request bodies, no `response_format`
+is injected.
 
 If the input is an object, you may provide `on_token` (or `onToken`) callback
 function. It will be called for each streamed delta, letting the agent decide

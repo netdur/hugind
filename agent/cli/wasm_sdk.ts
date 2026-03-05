@@ -129,16 +129,36 @@ export function netFetch(url: string): string {
   return readStringFromHost(res);
 }
 
-export function llmChat(prompt: string): string {
-  const buf = String.UTF8.encode(prompt, false);
-  const res = host_llm_chat(changetype<i32>(buf), buf.byteLength);
+function llmHostCall(input: string, stream: bool): string {
+  const buf = String.UTF8.encode(input, false);
+  const res = stream
+    ? host_llm_chat_stream(changetype<i32>(buf), buf.byteLength)
+    : host_llm_chat(changetype<i32>(buf), buf.byteLength);
   return readStringFromHost(res);
 }
 
-export function llmChatStream(prompt: string): string {
-  const buf = String.UTF8.encode(prompt, false);
-  const res = host_llm_chat_stream(changetype<i32>(buf), buf.byteLength);
-  return readStringFromHost(res);
+// Accepts either:
+// 1) plain prompt text, or
+// 2) JSON request body for /v1/chat/completions.
+// Example JSON fields: messages, model, max_tokens, temperature, top_p,
+// enable_thinking/thinking, thinking_budget_tokens/thinking_budget.
+export function llmChat(promptOrRequestJson: string): string {
+  return llmHostCall(promptOrRequestJson, false);
+}
+
+// Explicit alias for JSON body usage.
+export function llmChatRequest(requestJson: string): string {
+  return llmHostCall(requestJson, false);
+}
+
+// Accepts either plain prompt text or a JSON request body.
+export function llmChatStream(promptOrRequestJson: string): string {
+  return llmHostCall(promptOrRequestJson, true);
+}
+
+// Explicit alias for JSON body usage.
+export function llmChatStreamRequest(requestJson: string): string {
+  return llmHostCall(requestJson, true);
 }
 
 export function runCommand(cmd: string): string {

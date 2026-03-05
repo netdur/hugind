@@ -14,6 +14,8 @@ pub struct ChatCompletionRequest {
     pub response_format: Option<ResponseFormat>,
     #[serde(alias = "thinking")]
     pub enable_thinking: Option<bool>,
+    #[serde(alias = "thinking_budget")]
+    pub thinking_budget_tokens: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

@@ -175,6 +175,7 @@ pub async fn run_start(_config: String, _port: Option<u16>) -> Result<()> {
         model_name,
         config_name,
         cfg.chat_params.enable_thinking_default,
+        cfg.chat_params.thinking_budget_tokens,
         sampling_defaults,
         system_prompt,
         cfg.host.clone(),

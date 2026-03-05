@@ -50,6 +50,7 @@ impl Llm {
         let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
 
         let mut logged = false;
+        let mut used_object_input = false;
         let mut body = match js_value_to_json(input)? {
             serde_json::Value::String(prompt) => {
                 if let Some(logger) = &self.logger {
@@ -77,7 +78,10 @@ impl Llm {
                 );
                 body
             }
-            serde_json::Value::Object(map) => map,
+            serde_json::Value::Object(map) => {
+                used_object_input = true;
+                map
+            }
             _ => {
                 return Err(rquickjs::Error::new_loading_message(
                     "LLM Error",
@@ -130,7 +134,9 @@ impl Llm {
         if !body.contains_key("stream") {
             body.insert("stream".to_string(), serde_json::json!(false));
         }
-        if !body.contains_key("response_format") {
+        // Backward compatibility: plain-string llm.chat keeps JSON default,
+        // but explicit object bodies control response_format themselves.
+        if !body.contains_key("response_format") && !used_object_input {
             body.insert(
                 "response_format".to_string(),
                 serde_json::json!({ "type": "json_object" }),
@@ -180,6 +186,7 @@ impl Llm {
         }
 
         let mut logged = false;
+        let mut used_object_input = false;
         let mut body = match js_value_to_json(input)? {
             serde_json::Value::String(prompt) => {
                 if let Some(logger) = &self.logger {
@@ -207,6 +214,7 @@ impl Llm {
                 body
             }
             serde_json::Value::Object(mut map) => {
+                used_object_input = true;
                 map.remove("on_token");
                 map.remove("onToken");
                 map
@@ -263,7 +271,9 @@ impl Llm {
         if !body.contains_key("stream") {
             body.insert("stream".to_string(), serde_json::json!(true));
         }
-        if !body.contains_key("response_format") {
+        // Backward compatibility: plain-string llm.chat_stream keeps JSON default,
+        // but explicit object bodies control response_format themselves.
+        if !body.contains_key("response_format") && !used_object_input {
             body.insert(
                 "response_format".to_string(),
                 serde_json::json!({ "type": "json_object" }),

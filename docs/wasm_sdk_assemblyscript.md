@@ -28,13 +28,16 @@ body as text.
 ### `llmChat(prompt: string): string`
 
 Calls the configured `/chat/completions` endpoint and returns the assistant
-response text. The runtime enforces `response_format: { "type": "json_object" }`.
+response text. For plain string prompts, the runtime defaults
+`response_format` to `{ "type": "json_object" }`. For object request bodies,
+it does not inject `response_format`.
 
 ### `llmChatStream(prompt: string): string`
 
 Calls the configured `/chat/completions` endpoint with streaming enabled and
-returns the full response text. The runtime enforces
-`response_format: { "type": "json_object" }`.
+returns the full response text. For plain string prompts, the runtime defaults
+`response_format` to `{ "type": "json_object" }`. For object request bodies,
+it does not inject `response_format`.
 
 If your module exports `llm_on_token(ptr: i32, len: i32)`, the runtime will
 invoke it for each streamed delta, letting the agent decide whether to print.

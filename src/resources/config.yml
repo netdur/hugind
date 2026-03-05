@@ -116,6 +116,7 @@ sampling:
 
 chat:
   enable_thinking_default: false
+  thinking_budget_tokens: null   # null = no cap; 0 = close <think> immediately
 
 lora:
   adapters: []                   # e.g. ["/path/a.safetensors"]

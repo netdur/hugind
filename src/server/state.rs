@@ -15,6 +15,7 @@ pub struct AppState {
     pub config_name: Option<String>,
     pub api_key: Option<String>,
     pub enable_thinking_default: bool,
+    pub thinking_budget_tokens_default: Option<u32>,
     pub sampling_defaults: SamplingConfig,
     pub system_prompt: Option<String>,
 }

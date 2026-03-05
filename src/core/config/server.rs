@@ -248,6 +248,7 @@ pub struct LogitBiasItem {
 #[serde(default)]
 pub struct ChatParams {
     pub enable_thinking_default: bool,
+    pub thinking_budget_tokens: Option<u32>,
     pub format: Option<ChatFormat>,
 }
 
@@ -255,6 +256,7 @@ impl Default for ChatParams {
     fn default() -> Self {
         Self {
             enable_thinking_default: false,
+            thinking_budget_tokens: None,
             format: None,
         }
     }

@@ -33,10 +33,12 @@ Request body fields currently handled:
 - `frequency_penalty` (f32, optional): mapped to repeat penalty as `1.0 + max(0, frequency_penalty)`.
 - `response_format` (optional): `{ "type": "json_object" }` enables JSON grammar-constrained decoding.
 - `enable_thinking` (bool, optional): defaults to `false`; enables model thinking/chat-template reasoning tags when `true`.
+- `thinking_budget_tokens` (u32, optional): caps the number of generated tokens while inside `<think>...</think>` blocks; when the cap is reached, the server forces a closing `</think>` sequence.
 
 Also accepted as an alias:
 
 - `thinking` (bool, optional): same behavior as `enable_thinking`.
+- `thinking_budget` (u32, optional): alias for `thinking_budget_tokens`.
 
 Accepted but currently ignored:
 

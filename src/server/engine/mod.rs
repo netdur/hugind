@@ -10,7 +10,7 @@ use crate::llm::model::Model;
 use crate::llm::multimodal::{Chunk, Image, MultimodalContext};
 use crate::llm::sampling::Sampler;
 use crate::llm::tokenizer::{Token, Tokenizer};
-use request::{ChunkMeta, Request, RequestState};
+use request::{ChunkMeta, Request, RequestState, ThinkTagMarkers};
 use types::{Event, EventKind, RequestHandle, StopReason};
 
 use parking_lot::RwLock;
@@ -71,6 +71,7 @@ pub struct LlmEngine<'a> {
     last_flow_pull_start: Option<(usize, usize, usize)>,
     last_flow_post_schedule: Option<(usize, usize, usize)>,
     last_flow_batch_built: Option<(i32, usize)>,
+    think_tag_markers: ThinkTagMarkers,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -152,6 +153,23 @@ impl<'a> LlmEngine<'a> {
         }
     }
 
+    fn tokenize_tag(tokenizer: &Tokenizer<'_>, tag: &str) -> Vec<Token> {
+        for parse_special in [true, false] {
+            if let Ok(tokens) = tokenizer.tokenize(tag, false, parse_special) {
+                if !tokens.is_empty() {
+                    return tokens;
+                }
+            }
+        }
+        Vec::new()
+    }
+
+    fn detect_think_tag_markers(tokenizer: &Tokenizer<'_>) -> ThinkTagMarkers {
+        let open = Self::tokenize_tag(tokenizer, "<think>");
+        let close = Self::tokenize_tag(tokenizer, "</think>");
+        ThinkTagMarkers { open, close }
+    }
+
     pub fn new(
         model: &'a Model,
         ctx_params: &ContextParams,
@@ -163,6 +181,7 @@ impl<'a> LlmEngine<'a> {
         let ctx = Context::new(model, ctx_params)?;
         let tokenizer = model.tokenizer();
         let batch = Batch::new(ctx_params.n_batch as i32, 0, ctx_params.n_seq_max as i32);
+        let think_tag_markers = Self::detect_think_tag_markers(&tokenizer);
 
         let mmproj = if let Some(path) = mmproj_path {
             Some(Arc::new(MultimodalContext::from_file(path, model)?))
@@ -283,6 +302,7 @@ impl<'a> LlmEngine<'a> {
             last_flow_pull_start: None,
             last_flow_post_schedule: None,
             last_flow_batch_built: None,
+            think_tag_markers,
         })
     }
 
@@ -918,6 +938,7 @@ impl<'a> LlmEngine<'a> {
         events: &mut Vec<Event>,
         finished_seqs: &mut Vec<i32>,
     ) -> usize {
+        let think_tag_markers = self.think_tag_markers.clone();
         let mut sampled_tokens = 0usize;
         for (&seq_id, &batch_idx) in slot_batch_idx {
             let slot = match self.slots.get_mut(&seq_id) {
@@ -941,8 +962,23 @@ impl<'a> LlmEngine<'a> {
                 }
             };
 
-            let next_token = slot.sampler.sample(&self.ctx, batch_idx);
+            let next_token = if let Some(forced) = req.thinking_state.pop_forced_close_token() {
+                forced
+            } else {
+                slot.sampler.sample(&self.ctx, batch_idx)
+            };
             slot.sampler.accept(next_token);
+
+            let fallback_without_open = req.params.enable_thinking
+                && req.params.thinking_budget_tokens.is_some()
+                && think_tag_markers.has_close();
+
+            let _thinking_events = req.thinking_state.observe_generated_token(
+                next_token,
+                req.params.thinking_budget_tokens,
+                &think_tag_markers,
+                fallback_without_open,
+            );
 
             let mut stop_reason = None;
             let is_eog = self._model.is_eog_token(next_token.0);

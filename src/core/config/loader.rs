@@ -287,6 +287,7 @@ mod tests {
         assert_eq!(config.sampler_params.top_k, 40);
         assert_eq!(config.multimodal_params.image_max_tokens, 0);
         assert!(!config.chat_params.enable_thinking_default);
+        assert_eq!(config.chat_params.thinking_budget_tokens, None);
         assert!(config.advanced_params.warmup);
     }
 }

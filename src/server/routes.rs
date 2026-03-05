@@ -49,6 +49,39 @@ number ::= ("-"? ([0-9] | [1-9] [0-9]{0,15})) ("." [0-9]+)? ([eE] [-+]? [0-9] [1
 # Optional space: by convention, applied in this grammar after literal chars when allowed
 ws ::= | " " | "\n" [ \t]{0,20}
 "#;
+
+const JSON_THINKING_GRAMMAR: &str = r#"
+root ::= thinking-content "</think>" ws object
+
+# Matches any characters up to </think> by just accepting wide ranges
+thinking-content ::= ( [^<] | "<" [^/] | "</" [^t] | "</t" [^h] | "</th" [^i] | "</thi" [^n] | "</thin" [^k] | "</think" [^>] )*
+
+value  ::= object | array | string | number | ("true" | "false" | "null") ws
+
+object ::=
+  "{" ws (
+            string ":" ws value
+    ("," ws string ":" ws value)*
+  )? "}" ws
+
+array  ::=
+  "[" ws (
+            value
+    ("," ws value)*
+  )? "]" ws
+
+string ::=
+  "\"" (
+    [^"\\\x7F\x00-\x1F] |
+    "\\" (["\\bfnrt] | "u" [0-9a-fA-F]{4}) # escapes
+  )* "\"" ws
+
+number ::= ("-"? ([0-9] | [1-9] [0-9]{0,15})) ("." [0-9]+)? ([eE] [-+]? [0-9] [1-9]{0,15})? ws
+
+# Optional space: by convention, applied in this grammar after literal chars when allowed
+ws ::= | " " | "\n" [ \t]{0,20}
+"#;
+
 const MTMD_MEDIA_MARKER: &str = "<__media__>";
 
 fn extract_nonempty_header(headers: &HeaderMap, name: &str) -> Option<String> {
@@ -211,6 +244,13 @@ pub async fn chat_completions(
         }
     }
 
+    let thinking_budget_tokens = payload
+        .thinking_budget_tokens
+        .or(state.thinking_budget_tokens_default);
+    let effective_enable_thinking = payload
+        .enable_thinking
+        .unwrap_or(state.enable_thinking_default);
+
     let full_prompt = match apply_template(
         &state.model,
         &messages,
@@ -229,6 +269,8 @@ pub async fn chat_completions(
 
     params.prompt = full_prompt;
     params.images = images;
+    params.thinking_budget_tokens = thinking_budget_tokens;
+    params.enable_thinking = effective_enable_thinking;
     params.max_output_tokens = payload.max_tokens.map(|n| n as i32).unwrap_or(1024);
     params.sampling.temp = payload.temperature.unwrap_or(params.sampling.temp);
     params.sampling.top_p = payload.top_p.unwrap_or(params.sampling.top_p);
@@ -239,10 +281,25 @@ pub async fn chat_completions(
 
     if let Some(fmt) = &payload.response_format {
         if fmt.format_type == "json_object" {
-            params.sampling.grammar = Some(GrammarParams {
-                grammar: JSON_GRAMMAR.to_string(),
-                root: "root".to_string(),
-            });
+            if effective_enable_thinking {
+                let mut grammar_str = JSON_THINKING_GRAMMAR.to_string();
+                if let Some(budget) = thinking_budget_tokens {
+                    // Inject the prefix into the root rule
+                    grammar_str = grammar_str.replace(
+                        "root ::= thinking-content \"</think>\" ws object",
+                        &format!("root ::= \"(max thinking budget {} tokens)\\n\" thinking-content \"</think>\" ws object", budget)
+                    );
+                }
+                params.sampling.grammar = Some(GrammarParams {
+                    grammar: grammar_str,
+                    root: "root".to_string(),
+                });
+            } else {
+                params.sampling.grammar = Some(GrammarParams {
+                    grammar: JSON_GRAMMAR.to_string(),
+                    root: "root".to_string(),
+                });
+            }
         }
     }
 
