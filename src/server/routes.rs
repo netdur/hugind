@@ -82,6 +82,19 @@ number ::= ("-"? ([0-9] | [1-9] [0-9]{0,15})) ("." [0-9]+)? ([eE] [-+]? [0-9] [1
 ws ::= | " " | "\n" [ \t]{0,20}
 "#;
 
+const PLAIN_THINKING_GRAMMAR: &str = r#"
+root ::= thinking-content "</think>" ws plain-text
+
+# Matches any characters up to </think> by just accepting wide ranges
+thinking-content ::= ( [^<] | "<" [^/] | "</" [^t] | "</t" [^h] | "</th" [^i] | "</thi" [^n] | "</thin" [^k] | "</think" [^>] )*
+
+# Allow any non-NUL bytes after </think> as plain assistant output.
+plain-text ::= [^\x00]*
+
+# Optional space
+ws ::= | " " | "\n" [ \t]{0,20}
+"#;
+
 const MTMD_MEDIA_MARKER: &str = "<__media__>";
 
 fn extract_nonempty_header(headers: &HeaderMap, name: &str) -> Option<String> {
@@ -301,6 +314,22 @@ pub async fn chat_completions(
                 });
             }
         }
+    } else if effective_enable_thinking {
+        // Plain-text mode with thinking enabled: enforce an eventual </think>.
+        let mut grammar_str = PLAIN_THINKING_GRAMMAR.to_string();
+        if let Some(budget) = thinking_budget_tokens {
+            grammar_str = grammar_str.replace(
+                "root ::= thinking-content \"</think>\" ws plain-text",
+                &format!(
+                    "root ::= \"(max thinking budget {} tokens)\\n\" thinking-content \"</think>\" ws plain-text",
+                    budget
+                ),
+            );
+        }
+        params.sampling.grammar = Some(GrammarParams {
+            grammar: grammar_str,
+            root: "root".to_string(),
+        });
     }
 
     params.session_id = session_id;

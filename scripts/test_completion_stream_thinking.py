@@ -7,11 +7,12 @@ import urllib.request
 
 # Configure everything here.
 SERVER_URL = "http://localhost:8080/v1/chat/completions"
-MODEL = "qwen3.5-9b-q4"
-PROMPT = "Write a short poem about coding."
+MODEL = "Qwen3.5-9B-GGUF"
+PROMPT = "Write a short poem about coding"
 ENABLE_THINKING = True  # True | False
 # THINKING_BUDGET = None  # None = no budget override, or set int like 512
 THINKING_BUDGET = 256
+RESPONSE_FORMAT_JSON = False  # True => {"response_format": {"type": "json_object"}}
 MAX_TOKENS = 16_000
 REQUEST_TIMEOUT_SECONDS = 60000
 
@@ -24,6 +25,8 @@ def build_payload() -> dict:
         "max_tokens": MAX_TOKENS,
         "enable_thinking": ENABLE_THINKING,
     }
+    if RESPONSE_FORMAT_JSON:
+        payload["response_format"] = {"type": "json_object"}
     if THINKING_BUDGET is not None:
         payload["thinking_budget_tokens"] = THINKING_BUDGET
     return payload
@@ -166,6 +169,10 @@ def main() -> int:
     print(f"Thinking:       {str(ENABLE_THINKING).lower()}", flush=True)
     print(
         f"Thinking budget:{THINKING_BUDGET if THINKING_BUDGET is not None else '<none>'}",
+        flush=True,
+    )
+    print(
+        f"Response format:{'json_object' if RESPONSE_FORMAT_JSON else '<none>'}",
         flush=True,
     )
     print(f"Prompt:         {PROMPT}", flush=True)

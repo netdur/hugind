@@ -962,11 +962,12 @@ impl<'a> LlmEngine<'a> {
                 }
             };
 
-            let next_token = if let Some(forced) = req.thinking_state.pop_forced_close_token() {
-                forced
-            } else {
-                slot.sampler.sample(&self.ctx, batch_idx)
-            };
+            let (next_token, forced_close_token) =
+                if let Some(forced) = req.thinking_state.pop_forced_close_token() {
+                    (forced, true)
+                } else {
+                    (slot.sampler.sample(&self.ctx, batch_idx), false)
+                };
             slot.sampler.accept(next_token);
 
             let fallback_without_open = req.params.enable_thinking
@@ -991,7 +992,9 @@ impl<'a> LlmEngine<'a> {
                 }
             }
 
-            if stop_reason.is_none() {
+            let allow_over_max_for_forced_close =
+                forced_close_token && matches!(stop_reason, Some(StopReason::MaxTokens));
+            if stop_reason.is_none() || allow_over_max_for_forced_close {
                 req.generated_tokens.push(next_token);
                 slot.n_decoded += 1;
                 sampled_tokens += 1;
