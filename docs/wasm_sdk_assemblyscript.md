@@ -25,14 +25,17 @@ Writes a prompt and reads a line from stdin.
 Performs an HTTP GET request via the WASM hostcall and returns the response
 body as text.
 
-### `llmChat(prompt: string): string`
+### `llmChat(promptOrRequestJson: string): string`
 
 Calls the configured `/chat/completions` endpoint and returns the assistant
 response text. For plain string prompts, the runtime defaults
 `response_format` to `{ "type": "json_object" }`. For object request bodies,
 it does not inject `response_format`.
 
-### `llmChatStream(prompt: string): string`
+SDK aliases:
+- `llmChatRequest(requestJson: string): string`
+
+### `llmChatStream(promptOrRequestJson: string): string`
 
 Calls the configured `/chat/completions` endpoint with streaming enabled and
 returns the full response text. For plain string prompts, the runtime defaults
@@ -42,13 +45,20 @@ it does not inject `response_format`.
 If your module exports `llm_on_token(ptr: i32, len: i32)`, the runtime will
 invoke it for each streamed delta, letting the agent decide whether to print.
 
+If your module exports `llm_on_sse(ptr: i32, len: i32)`, the runtime receives
+raw SSE lines as they are processed.
+
+SDK aliases:
+- `llmChatStreamRequest(requestJson: string): string`
+
 ### `runCommand(cmd: string): string`
 
 Executes a shell command via `hugind.run_command` and returns the output.
 
 ### `toolsList(): string`
 
-Returns a JSON string containing the MCP tools available to this agent.
+Returns a JSON string containing MCP tool descriptors
+(`name`, `description`, `input_schema`, `server`).
 
 ### `toolsCall(requestJson: string): string`
 
@@ -64,7 +74,10 @@ The return value is the tool result JSON string.
 
 ### `getArgsJson(): string`
 
-Returns the initial input JSON string (currently `{ "args": [...] }`).
+Returns the initial input JSON string. Shape includes:
+- `args`
+- `meta.session`
+- `meta.env`
 
 ### `setResultJson(json: string): void`
 

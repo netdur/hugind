@@ -1,207 +1,163 @@
 # Agent Manifest
 
-This document describes the `agent.yaml` manifest format used by Hugind. It
-explains each field, its intent, and how it is interpreted by the runtime.
-When you run `hugind agent run <agent-name>`, Hugind reads the agent's
-`agent.yaml` to determine how to execute it.
+This document describes how `agent.yaml` is interpreted by the current Hugind
+runtime.
 
 ## Top-Level Fields
 
-### `name`
+### Runtime fields (used by code)
 
-Human-readable identifier for the agent. Used as a default session id if one is
-not provided.
+- `name` (string): agent identifier. Used for install/log naming, not as a
+  session id.
+- `version` (string): agent version.
+- `hugind_version` (string, optional): semver constraint checked at runtime
+  (example: `>=0.6.0`).
+- `entry_point` (string): entry module path (`.js` or `.wasm`).
+- `wasm` (object, optional): WASM runtime config.
+- `backend` (object, optional): API base URL/model/session config.
+- `permissions` (object, optional): host capability controls.
+- `dependencies` (object, optional): MCP servers.
+- `env` (array, optional): environment variables exposed to the agent.
 
-### `version`
+### Metadata fields (accepted but currently ignored by runtime)
 
-Agent package version. Use semantic versioning.
+- `description`
+- `author`
+- `license`
 
-### `description`
-
-Short description of what the agent does.
-
-### `author`
-
-Package author or maintainer.
-
-### `license`
-
-License identifier (e.g. `MIT`).
-
-### `hugind_version`
-
-Compatibility constraint for the Hugind runtime that can execute this agent.
-Example: `>=0.6.0`.
-
-### `entry_point`
-
-Main executable artifact. Supported forms:
-
-- JavaScript file: `src/index.js`
-- WebAssembly module: `dist/agent.wasm`
+Unknown extra fields are also tolerated.
 
 ## `wasm` Section
 
-Configuration for the WebAssembly runtime. This applies when `entry_point` is a
-WASM module.
+Used when `entry_point` points to a `.wasm` module.
 
 ### `runtime_fs_mode`
 
-Defines filesystem access mode for the guest:
-
-- `wasi_mounts`: guest sees only explicit mounts.
-- `host_filesystem`: guest uses host-provided FS APIs, gated by permissions.
-- `both`: enable both (default).
-
-If both are enabled, mounts provide workspace-like access while host FS access
-remains restricted by permissions.
+- `wasi_mounts`: only WASI mounts are available; host FS APIs are disabled.
+- `host_filesystem`: only host FS APIs are available; no WASI mounts are added.
+- `both` (default): enables both.
 
 ### `mounts`
 
-Maps host paths to guest paths. Each mount grants full access inside the mapped
-directory.
+List of `{ host, guest }` mappings for WASI preopens.
 
-Example:
-
-```yaml
-mounts:
-  - host: "./data"
-    guest: "/data"
-```
-
-Implementations should canonicalize paths to prevent symlink escapes.
+- `guest` must be absolute and cannot contain `..`.
+- `host` is canonicalized.
+- If `host` is outside agent root, it is rejected unless
+  `permissions.filesystem.allow_outside_agent_root: true`.
 
 ### `resources`
 
-Resource limits for the WASM instance:
-
-- `memory`: max memory (e.g. `512MB`, `1GB`).
-- `cpu`: CPU budget (percentage or fuel units).
-- `timeout`: optional wall-clock timeout (e.g. `60s`).
-- `max_output`: optional stdout/stderr cap (e.g. `1MB`).
+- `memory`: enforced as a store memory limit when parseable (e.g. `512MB`).
+- `timeout`: enforced as overall WASM execution timeout.
+- `cpu`: currently only toggles fuel mode with a fixed fuel budget.
+- `max_output`: currently parsed in schema but not enforced globally for WASM.
 
 ## `backend` Section
 
-Defines the HTTP API connection used by the agent.
-
 ### `url`
 
-Base URL for the Hugind server API. Example: `http://127.0.0.1:8080/v1`.
+Base API URL (default: `http://127.0.0.1:8080/v1`).
 
 ### `config`
 
-Name of the server config to use by default. This should match a config in
-`~/.hugind/configs`.
+String used as default model name for LLM hostcalls when model is omitted.
+
+If `url` is not provided, Hugind also tries to resolve a config file from
+`~/.hugind/configs/<config>.yml|yaml` and builds base URL from
+`server.host`/`server.port`.
 
 ### `session`
 
-Session behavior:
+- `mode`: `stateless` | `fresh` | `resume`
+- `id`: required for `resume`; ignored for `fresh`
 
-- `mode`: `stateless` | `fresh` | `resume`.
-- `id`: optional session id. Used only for `resume`. Ignored for `fresh`.
+Semantics:
+- `stateless`: no `X-Session-ID` header.
+- `fresh`: generates UUID v4, sends it as `X-Session-ID`, then deletes
+  `/state/:id` at run end.
+- `resume`: requires non-empty `id`, sends `X-Session-ID`, no auto-delete.
 
-Runtime semantics:
-- `stateless`: no `X-Session-ID` header is sent.
-- `fresh`: runtime generates a UUID4 at the start of the run, uses it as
-  `X-Session-ID` for all requests, then calls `DELETE /v1/state/:id` after the
-  run completes.
-- `resume`: runtime requires `id` and sends it as `X-Session-ID`; no auto-delete.
+Note: if `backend` object is present, it must contain at least `url` or
+`config`.
 
 ## `permissions` Section
 
-Defines the security boundary for host-provided capabilities.
+Applies to host capabilities (`net`, host FS APIs, shell/process).
 
 ### `network`
 
-Controls host networking functions.
-
 - `allow`: master switch.
-- `allowed_domains`: list of permitted domains.
-- `allowed_ips`: optional IP ranges (prefer domains).
-- `block_private_networks`: optional block on private/loopback ranges.
+- `allowed_domains`: domain allowlist (`example.com` also matches subdomains).
+- `allowed_ips`: exact IP allowlist entries (not CIDR parsing).
+- `block_private_networks`: blocks resolved private/loopback/link-local targets.
+- `timeout`, `max_response_bytes`: apply to host network fetch calls.
 
 ### `filesystem`
 
-Controls host filesystem APIs. This does not restrict WASI mounts.
+Controls host FS APIs only (not WASI mounts).
 
-- `allow`: master switch for host FS access.
-- `read`, `write`, `create`, `delete`: fine-grained operations.
-- `allow_outside_agent_root`: allows runtime scope override outside agent root.
-- `allowed_paths`: list of allowed path prefixes.
-- `denied_paths`: optional deny list (if supported).
-- `follow_symlinks`: optional, recommended `false`.
+- `allow`: master switch.
+- `read`, `write`, `create`, `delete`: operation flags.
+- `allow_outside_agent_root`: allows scopes outside agent root.
+- `allowed_paths`, `denied_paths`: prefix-based path policy.
+- `follow_symlinks`: whether to resolve symlinks during checks.
 
-Runtime note:
-- `hugind agent run --cwd <path>` overrides runtime filesystem root for that
-  run. If `<path>` is outside the agent directory, this is only allowed when
-  `allow_outside_agent_root` is `true`.
-- `hugind agent run --log-file <path>` writes runtime audit logs for that run
-  to the specified file path (instead of the default per-agent log location).
+Behavior notes:
+- If `allowed_paths` is empty and `allow_outside_agent_root` is `false`, access
+  is scoped to runtime FS root.
+- `hugind agent run --cwd <path>` changes runtime FS root; outside-agent paths
+  require `allow_outside_agent_root: true`.
+- `hugind agent run --log-file <path>` only affects runtime log destination.
 
 ### `shell`
 
-Controls process execution.
-
 - `allow`: master switch.
-- `whitelist`: strict allow list (recommended).
-- `blacklist`: deny list (do not use with `whitelist`).
-- `timeout`, `max_output`, `env_clear`, `working_dir`: optional execution guards.
+- `whitelist`: only listed commands allowed (exact program match).
+- `blacklist`: listed commands denied.
+- `timeout`, `max_output`, `env_clear`, `working_dir`: execution guards.
+
+If both whitelist and blacklist are set, both checks apply.
 
 ## `dependencies` Section
 
-Defines external Model Context Protocol (MCP) tools required by the agent.
+MCP servers are configured under `dependencies.mcp`.
 
-Each dependency includes:
+Supported keys per server:
+- `name` (required)
+- `required` (default `false`)
+- `transport` (only `stdio` is supported)
+- `command` (required if `required: true`)
+- `args`
+- `env`
+- `cwd`
+- `version` and `description` (metadata)
 
-- `name`
-- `version`
-- `required`
-- `description`
-
-### MCP Runtime Configuration
-
-Each MCP dependency must include the command needed to launch the server.
-
-Example:
-
-```yaml
-dependencies:
-  mcp:
-    - name: "markitdown"
-      required: true
-      transport: "stdio"
-      command: "markitdown-mcp"
-      args: []
-```
-
-Tool names:
-- When multiple MCP servers are configured, tools are referenced as `server:tool`.
-- If only one MCP server is configured, `tool` is accepted without a prefix.
+Runtime behavior:
+- Missing command on `required: true` fails startup.
+- Missing command on optional entries skips that server.
+- Tool names are `server:tool`; with one server, bare `tool` is accepted.
 
 JavaScript runtime:
-- A global `tools` object is available with async `list()` and `call(name, args)`.
-- Both methods return JSON strings (use `JSON.parse(...)`).
+- Global `tools.list()` and `tools.call(name, args)` async APIs.
+- Both return JSON strings.
 
 WASM runtime:
-- Hostcalls `hugind.tools_list()` and `hugind.tools_call(request_json)` are
-  available.
-- `tools_call` expects JSON like `{"name":"server:tool","args":{...}}` and
-  returns JSON string output.
+- Host imports `hugind.tools_list` and `hugind.tools_call`.
+- `tools_call` input JSON format: `{"name":"server:tool","args":{...}}`.
 
 ## `env` Section
 
-Environment variables required by the agent. Each entry includes:
+Each item can be:
+- a string: `"VAR_NAME"` (optional variable)
+- an object: `{ name: "VAR_NAME", required: true|false, ... }`
 
-- `name`
-- `description`
-- `required`
+Runtime behavior:
+- Values are read from host environment at run time.
+- Injected under `input.meta.env`.
+- Missing required vars fail the run.
+- Extra keys (for example `description`) are accepted but not interpreted.
 
-Runtime semantics:
-- `env` declares variable names, not secret values.
-- Values are read from the host process environment at run time.
-- Declared values are injected into agent input as `input.meta.env`.
-- If an entry has `required: true` and the host variable is unset, the run fails.
+## Reference Template
 
-## Example
-
-Refer to the reference template for a complete annotated file.
+See `assets/agent.yaml` for a full annotated example.

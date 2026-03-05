@@ -1,182 +1,128 @@
 # Hugind Stdio Bridge
 
-The stdio bridge exposes Hugind CLI capabilities over newline-delimited JSON (NDJSON) on stdin/stdout. It is designed for desktop/dashboard integrations (e.g., Flutter).
-
-It also supports MCP (JSON-RPC 2.0) over stdio for tool discovery and calls.
+The stdio bridge exposes Hugind operations over newline-delimited JSON (NDJSON)
+and also supports MCP JSON-RPC 2.0.
 
 ## Launch
 
-```
+```bash
 hugind stdio
 ```
 
-All requests are JSON objects, one per line. All responses/events are also JSON objects, one per line.
+Each input line must be one JSON object. Each output line is one JSON object.
 
-## Envelope (NDJSON)
+## NDJSON Protocol
 
-Every message is one JSON object per line.
-
-### Request
+### Request envelope
 
 ```json
-{"id":"uuid","method":"model.add","params":{...}}
+{"id":"req-1","method":"model.list","params":{}}
 ```
 
-### Response
+### Success response
 
 ```json
-{"id":"uuid","ok":true,"result":{...},"schema_version":"1"}
+{"id":"req-1","ok":true,"result":{...},"schema_version":"1"}
 ```
 
-### Error
+### Error response
 
 ```json
-{"id":"uuid","ok":false,"error":{"code":"...","message":"..."},"schema_version":"1"}
+{"id":"req-1","ok":false,"error":{"code":"internal_error","message":"..."},"schema_version":"1"}
 ```
 
-### Event
+### Event envelope
 
 ```json
-{"event":"progress","id":"uuid","data":{...},"schema_version":"1"}
+{"event":"status","id":"req-1","data":{...},"schema_version":"1"}
 ```
 
-## Events
+Event types currently emitted:
 
-- `progress`: download progress for `model.add`.
-- `status`: milestone messages.
-- `log`: streamed output from `hugind.print`/`hugind.print_raw` during `agent.run`.
+1. `status`
+2. `progress`
+3. `log`
 
-## Methods
+## Supported Methods
 
-### `agent.list`
-Params: none
+### Agent
 
-### `agent.run`
-Params:
-- `path` (string)
-- `args` (array of strings, optional)
+1. `agent.list` (no params)
+2. `agent.run`
+   params: `{ "path": string, "args"?: string[] }`
+   events: `status` (`agent.run.start`/`agent.run.finish`), `log`
+3. `agent.install`
+   params: `{ "path": string, "approve_permissions": bool, "overwrite": bool }`
+4. `agent.remove`
+   params: `{ "name": string }`
 
-Events:
-- `log` (agent output)
-- `status` (start/finish)
+### Config
 
-### `agent.install`
-Params:
-- `path` (string)
-- `approve_permissions` (bool)
-- `overwrite` (bool)
+1. `config.list` (no params)
+2. `config.validate`
+   params: `{ "path": string }`
+3. `config.info` (no params)
+4. `config.remove`
+   params: `{ "name": string, "confirm": bool }`
+5. `config.defaults`
+   params: `{ "hf_token"?: string }`
+6. `config.init`
+   params:
+   `{ "name": string, "model_path": string, "preset"?: "metal_unified"|"cuda_dedicated"|"cpu_only", "ctx"?: number, "mmproj_path"?: string, "format"?: string, "overwrite"?: bool }`
 
-### `agent.remove`
-Params:
-- `name` (string)
+### Model
 
-### `config.list`
-Params: none
+1. `model.list` (no params)
+2. `model.show`
+   params: `{ "repo": string }`
+3. `model.add`
+   params: `{ "repo": string, "files": string[] }`
+   events: `status`, `progress`
+4. `model.remove`
+   params:
+   `{ "repo": string, "files"?: string[], "delete_repo"?: bool, "delete_if_empty"?: bool }`
 
-### `config.validate`
-Params:
-- `path` (string)
+### Server
 
-### `config.info`
-Params: none
+1. `server.list` (no params)
+2. `server.start`
+   params: `{ "config": string, "port"?: number }`
+3. `server.stop`
+   params: `{ "config": string }`
 
-### `config.remove`
-Params:
-- `name` (string)
-- `confirm` (bool)
+## Result Shapes (high-level)
 
-### `config.defaults`
-Params:
-- `lib` (string, optional)
-- `hf_token` (string, optional)
+1. `agent.list` -> `{ agents: [{ name, path }] }`
+2. `config.list` -> `{ configs: [{ name, path }] }`
+3. `model.list` -> `{ repos: [{ name, path }] }`
+4. `server.list` -> `{ servers: [{ name, host, port, status, config_name? }] }`
 
-### `config.init`
-Params:
-- `name` (string)
-- `model_path` (string, required)
-- `preset` (string, optional: `metal_unified`, `cuda_dedicated`, `cpu_only`)
-- `ctx` (number, optional)
-- `mmproj_path` (string, optional)
-- `format` (string, optional)
-- `overwrite` (bool, optional)
+Other methods return operation-specific objects (for example `removed`, `valid`,
+`deleted_files`, `status`).
 
-### `model.list`
-Params: none
+## MCP Compatibility
 
-### `model.show`
-Params:
-- `repo` (string)
+Messages with `"jsonrpc":"2.0"` are handled as MCP JSON-RPC.
 
-### `model.add`
-Params:
-- `repo` (string)
-- `files` (array of strings)
+### Implemented MCP methods
 
-Events:
-- `progress` (bytes downloaded)
-- `status` (start/finish per file)
+1. `initialize`
+2. `notifications/initialized`
+3. `tools/list`
+4. `tools/call`
 
-### `model.remove`
-Params:
-- `repo` (string)
-- `files` (array of strings, optional)
-- `delete_repo` (bool, optional)
-- `delete_if_empty` (bool, optional)
-
-### `server.list`
-Params: none
-
-### `server.start`
-Params:
-- `config` (string)
-- `port` (number, optional)
-
-### `server.stop`
-Params:
-- `config` (string)
-
-## Example
-
-Request:
-
-```json
-{"id":"1","method":"model.list","params":{}}
-```
-
-Response:
-
-```json
-{"id":"1","ok":true,"result":{"repos":[{"name":"google/gemma-3-4b-it-qat-q4_0-gguf","path":"/Users/..."}]},"schema_version":"1"}
-```
-
-## MCP Compatibility (JSON-RPC 2.0)
-
-The same stdio process also accepts MCP-style JSON-RPC 2.0 messages.
-
-### Initialize
-
-```json
-{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
-```
-
-### Tools List
-
-```json
-{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
-```
-
-### Tools Call
+`tools/call` expects:
 
 ```json
 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"model.list","arguments":{}}}
 ```
 
-### MCP Notifications (custom)
+The tool result is returned as MCP `content` with stringified JSON payload.
 
-During long-running operations, Hugind emits JSON-RPC notifications:
+### MCP notifications emitted by Hugind
 
-- `notifications/hugind.progress`
-- `notifications/hugind.status`
-- `notifications/hugind.log`
+1. `notifications/hugind.status`
+2. `notifications/hugind.progress`
+3. `notifications/hugind.log`
 
-Each notification includes the original request `id` in `params.id`.
+Each includes the request id in `params.id`.

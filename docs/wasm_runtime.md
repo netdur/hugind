@@ -64,7 +64,11 @@ Writes a prompt and reads a line from stdin.
 
 ### `hugind.get_args() -> string`
 
-Returns the initial input JSON string (currently `{ "args": [...] }`).
+Returns the initial input JSON string. Shape includes:
+
+- `args`
+- `meta.session`
+- `meta.env`
 
 ### `hugind.set_result(json_string)`
 
@@ -86,12 +90,12 @@ Redirects are followed up to 5 times.
 Calls the configured `/chat/completions` endpoint (non‑streaming) and returns
 the assistant content. For plain string prompts, `response_format` defaults to
 `{ "type": "json_object" }`. For object request bodies, no `response_format`
-is injected. The response is capped at 10 MB.
+is injected.
 
 ### `hugind.llm_chat_stream(prompt) -> string`
 
 Calls the configured `/chat/completions` endpoint with streaming enabled,
-returns the full content (capped at 10 MB). For plain string prompts,
+returns the full content. For plain string prompts,
 `response_format` defaults to `{ "type": "json_object" }`. For object request
 bodies, no `response_format` is injected.
 
@@ -99,16 +103,33 @@ If the guest exports `llm_on_token(ptr: i32, len: i32)`, it will be invoked
 for each streamed delta (UTF‑8 bytes). This lets the agent decide how to
 handle streaming output.
 
+If the guest exports `llm_on_sse(ptr: i32, len: i32)`, it receives raw SSE
+lines as they are processed.
+
 ### `hugind.run_command(command) -> string`
 
-Executes a shell command using `permissions.shell`:
+Executes a shell command via `sh -c` (or `sandbox-exec ... sh -c` on macOS).
+
+- `allow` must be `true`.
+- `timeout`, `max_output`, `env_clear`, and `working_dir` are applied.
+
+Current runtime note: `run_command` does **not** enforce shell
+`whitelist`/`blacklist`.
+
+### `hugind.spawn(args_json) -> string`
+
+Executes a process directly from JSON array input:
+
+```json
+["program","arg1","arg2"]
+```
+
+For `spawn`, shell permission checks include:
 
 - `allow` must be `true`.
 - `whitelist` is enforced if present.
 - `blacklist` blocks if present.
 - `timeout`, `max_output`, `env_clear`, and `working_dir` are applied.
-
-On macOS, commands are run via `sandbox-exec` with a minimal profile.
 
 ### `hugind.tools_list() -> string`
 
@@ -129,6 +150,10 @@ Calls an MCP tool and returns the MCP result as a JSON string.
 
 If only one MCP server is configured, unqualified names are accepted (same
 resolution behavior as JS runtime tools).
+
+### `hugind.version() -> string`
+
+Returns the current Hugind runtime version.
 
 ### `hugind_fs.*`
 

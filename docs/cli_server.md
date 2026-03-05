@@ -21,11 +21,19 @@ Starts a server using a named config from the configs directory. If `--port` is
 provided, it overrides the port in the config. The server loads the model from
 the config and starts the engine loop, then listens on `<host>:<port>`.
 
+`--port` also has short form `-p`.
+
 ### `hugind server list`
 
-Lists saved configs and their status. For each config, it reads `server.host`
+Lists saved (non-reserved) configs and their status. For each config, it reads `server.host`
 and `server.port` from the config (defaulting to `127.0.0.1:8080`) and checks
 `/v1/monitor` to determine if the server is up. The output is `up` or `down`.
+
+Status behavior details:
+
+1. If config host is `0.0.0.0`, health checks use `127.0.0.1`.
+2. If monitor returns a different `config_name` than expected, status is shown
+   as `down`.
 
 ### `hugind server stop <config>`
 
@@ -36,7 +44,9 @@ implemented and will print a notice.
 ## NOTES
 
 1. `server stop` uses `lsof` and `kill -9` on non-Windows systems.
-2. If the config cannot be found, the command returns an error.
+2. Stop is port-based: it may terminate non-Hugind processes listening on the
+   same port.
+3. If the config cannot be found, the command returns an error.
 
 ## HELP
 

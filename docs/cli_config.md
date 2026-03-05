@@ -10,22 +10,28 @@
 
 ## DESCRIPTION
 
-The config subcommands manage configuration files stored under the Hugind data
-directory. You can list and validate configs, inspect system hardware, set
-global defaults, and create a new config using an interactive wizard.
+The config subcommands manage configuration files and global defaults. You can
+list and validate configs, inspect system hardware, set defaults, and create a
+new config using an interactive wizard.
+
+In current runtime behavior:
+- config files are stored in `config_home()/configs`
+  (`$XDG_CONFIG_HOME/hugind/configs` or `~/.hugind/configs` on Unix-like systems)
+- global settings defaults are stored in `data_home()/settings.yml`
 
 ## SUBCOMMANDS
 
 ### `hugind config list`
 
 Lists all saved configs in the configs directory. Only `.yml` and `.yaml` files
-are shown. If none exist, it prints `No configs found.`.
+are shown (reserved built-in names are hidden). If none exist, it prints
+`No configs found.`.
 
 ### `hugind config validate [path]`
 
 Validates a config file. If `path` is omitted, it defaults to `config.yaml` in
 the current working directory. On success it prints `Configuration is valid.`
-On failure it prints the validation error and exits with an error.
+On failure it prints `Configuration Invalid: ...` and exits with an error.
 
 ### `hugind config info`
 

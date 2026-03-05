@@ -23,7 +23,7 @@ Imports that violate these rules raise a runtime error.
 The entry module is evaluated, then Hugind looks for a default export:
 
 1. If a default export function exists, it is called with a single argument
-   containing initial data (currently `{ args: [...] }`).
+   containing initial data.
 2. If the default export returns a Promise, Hugind waits for it to resolve.
 3. If no default export exists, the result is `null`.
 
@@ -66,6 +66,10 @@ Writes to stdout.
 ### `print_raw(message: string)`
 
 Writes to stdout without appending a newline.
+
+### `hugind_version() -> string`
+
+Returns the current Hugind runtime version.
 
 ### `input(prompt: string) -> Promise<string>`
 
@@ -124,7 +128,8 @@ Arguments are passed exactly as provided.
 
 ### `tools.list() -> Promise<string>`
 
-Returns a JSON string array of MCP tools available to the agent.
+Returns a JSON string for an array of tool descriptors
+(`name`, `description`, `input_schema`, `server`).
 
 ### `tools.call(name: string, args: object) -> Promise<string>`
 
@@ -152,8 +157,8 @@ Available methods:
 9. `fs.write_bytes(path: string, data: string | number[]) -> void`
 10. `fs.append_text(path: string, data: string) -> void`
 11. `fs.list_dir(path: string) -> string` (JSON array of entry names)
-12. `fs.mkdir(path: string, recursive?: bool) -> void`
-13. `fs.remove(path: string, recursive?: bool) -> void`
+12. `fs.mkdir(path: string, recursive: bool) -> void`
+13. `fs.remove(path: string, recursive: bool) -> void`
 14. `fs.rename(src: string, dst: string) -> void`
 15. `fs.copy(src: string, dst: string) -> void`
 16. `fs.stat(path: string) -> string` (JSON stat object)

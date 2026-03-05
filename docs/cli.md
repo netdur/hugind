@@ -8,6 +8,10 @@
 
 `hugind <command> [options]`
 
+Common chat shorthand:
+
+`hugind chat [start|resume|list|delete|<session-id-or-config>]`
+
 ## DESCRIPTION
 
 `hugind` provides a small set of top-level commands for managing agents,
@@ -40,6 +44,12 @@ See `docs/cli_model.md`.
 ### `hugind chat`
 
 See `docs/cli_chat.md`.
+
+Behavior note:
+
+- Running `hugind chat` with no subcommand opens the interactive chat wizard.
+- Running `hugind chat <value>` treats `<value>` as a session id if it exists;
+  otherwise it starts a new chat using `<value>` as config/model target.
 
 ### `hugind server`
 

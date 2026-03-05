@@ -1,87 +1,110 @@
-# Server Configuration (config.yml)
+# Server Configuration (`config.yml`)
 
-This document describes the server configuration format used by Hugind. It is
-based on the reference files under `assets/config/`.
+This document describes Hugind server config parsing as implemented in
+`src/core/config/loader.rs` and `src/core/config/server.rs`.
 
-## File Format
+## File Location
 
-- YAML document.
-- The config is typically created by `hugind config init` and saved as
-  `~/.hugind/configs/<name>.yml`.
+- Config files are typically written by `hugind config init` to:
+  `config_home()/configs/<name>.yml`
+- On Unix-like systems this is usually:
+  `$XDG_CONFIG_HOME/hugind/configs` or `~/.hugind/configs`
 
 ## Top-Level Sections
 
-1. `server`
+Supported sections:
+
+1. `server` (optional)
 2. `model`
 3. `context`
-4. `chat`
+4. `multimodal`
 5. `sampling`
+6. `chat`
+7. `lora`
+8. `fit`
+9. `quantize`
+10. `advanced`
 
-## `server`
+The base template in `src/resources/config.yml` includes all except `server`
+(which is optional and uses defaults when omitted).
 
-Server runtime settings.
+## `server` Section
 
-1. `host`: bind address (e.g. `0.0.0.0`).
-2. `port`: TCP port.
-3. `api_key`: optional Bearer token for API access.
-4. `embeddings`: enables embeddings endpoint support.
-6. `max_slots`: max concurrent sessions per replica.
-8. `system_prompt_file`: default system prompt file.
-9. `session_home`: directory to persist session state.
+Runtime service settings:
 
-## `model`
+1. `host` (default `0.0.0.0`)
+2. `port` (default `8080`)
+3. `api_key` (optional bearer token)
+4. `max_slots` (defaults to `context.seq_max`; applied back to context)
+5. `system_prompt` (default `"You are a helpful assistant."`)
+6. `system_prompt_file` (optional path; if readable, content overrides
+   `system_prompt`)
+7. `embeddings` (boolish; defaults to `context.embeddings`)
+8. `session_home` (optional path; defaults to `paths::sessions_dir()`)
+9. `unified_memory_mode` (boolish; default `false`)
+10. `verbose` (boolish; default `false`)
 
-Model loading options.
+## `model` Section
 
-1. `path`: path to a `.gguf` model (absolute or registry-relative).
-2. `mmproj_path`: optional vision projector path.
-3. `gpu_layers`: number of layers to offload (`-1`/`99` for all).
-4. `split_mode`: multi-GPU split mode (`none`, `layer`, `row`).
-5. `main_gpu`: primary GPU index.
-6. `use_mmap`: memory-map the model for faster loading.
-7. `use_mlock`: lock model in RAM.
-8. `vocab_only`: load vocab only (debug).
+Model identity and loading parameters:
 
-## `context`
+1. `path` (model `.gguf` path)
+2. `name` (optional public model name)
+3. `mmproj_path` (optional vision projector path)
+4. model params such as `gpu_layers`, `split_mode`, `main_gpu`, `tensor_split`,
+   `use_mmap`, `use_mlock`, etc.
 
-Context and performance options.
+Notes:
 
-1. `size`: context window (`n_ctx`), `0` = model default.
-2. `batch_size`: logical batch size.
-3. `ubatch_size`: physical batch size.
-4. `threads`: CPU threads for generation.
-5. `threads_batch`: CPU threads for prompt processing.
-6. `flash_attention`: enable flash attention if supported.
-7. `cache_type_k`: KV cache type for K (`f16`, `q8_0`, `q4_0`).
-8. `cache_type_v`: KV cache type for V (`f16`, `q8_0`, `q4_0`).
-9. `offload_kqv`: keep KV cache in VRAM.
+- `gpu_layers` also accepts alias `n_gpu_layers`.
+- Relative paths are resolved relative to the config file directory.
+- `~` in paths is expanded to home directory.
 
-## `sampling`
+## `context` Section
 
-Default sampling parameters (overridable per request).
+Context/runtime parameters:
 
-1. `temp`
-2. `top_k`
-3. `top_p`
-4. `min_p`
-5. `repeat_last_n`
-6. `repeat_penalty`
-7. `frequency_penalty`
-8. `presence_penalty`
-9. `dry_multiplier`
-10. `dry_base`
-11. `dry_allowed_length`
-12. `xtc_probability`
-13. `xtc_threshold`
+1. `size` (`n_ctx` alias)
+2. `batch_size` (`n_batch` alias)
+3. `ubatch_size` (`n_ubatch` alias)
+4. `seq_max` (`n_seq_max` alias)
+5. `threads` / `threads_batch`
+6. attention/rope/pooling options
+7. KV cache settings (`cache_type_k`, `cache_type_v`, `offload_kqv`, etc.)
+
+Notes:
+
+- `flash_attention: true` auto-sets `flash_attn_type` to `on` when currently
+  `auto`.
+- For vision models (`mmproj_path` set), very low `batch_size` is auto-raised
+  to `8192`.
+
+## `multimodal`, `sampling`, `chat`, `lora`, `fit`, `quantize`, `advanced`
+
+These sections map directly to strongly-typed structs in
+`src/core/config/server.rs`. The canonical key set is in
+`src/resources/config.yml`.
+
+Notable `chat` fields:
+
+1. `enable_thinking_default`
+2. `thinking_budget_tokens`
+3. `format` (legacy chat-format compatibility field)
+
+## Boolish Parsing
+
+For `server.embeddings`, `server.unified_memory_mode`, and `server.verbose`,
+Hugind accepts booleans and common strings:
+
+- true-ish: `true`, `on`, `yes`, `enabled`, `1`
+- false-ish: `false`, `off`, `no`, `disabled`, `0`
 
 ## Presets
 
-Preset fragments live in:
+`hugind config init` overlays preset fragments from:
 
-1. `assets/config/cpu_only.yml`
-2. `assets/config/cuda_dedicated.yml`
-3. `assets/config/metal_unified.yml`
+1. `src/resources/cpu_only.yml`
+2. `src/resources/cuda_dedicated.yml`
+3. `src/resources/metal_unified.yml`
 
-These are applied by `hugind config init` to overwrite fields in the base
-config. Some presets include template-style placeholders such as
-`{{ physical_cores - 1 }}` for thread counts.
+onto the base template `src/resources/config.yml`.

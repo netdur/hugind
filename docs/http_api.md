@@ -63,6 +63,8 @@ Optional headers for session control:
 - `x-session-id`
 - `x-request-id` (used only if `x-session-id` is absent)
 - `x-parent-id`
+- `x-fresh-session` (`true|false|1|0|yes|on`): hints the server to treat
+  this request as a fresh conversation for system-prompt application logic.
 
 Streaming behavior (`stream: true`):
 
@@ -143,6 +145,11 @@ Availability is considered `true` when at least one of these is true:
 - RAM snapshot exists for that session.
 - Disk state file exists at the session's tracked disk path.
 
+Important current behavior:
+- The server first looks up `:id` in in-memory session tracking.
+- If the session id is not currently tracked, response is `404` even if an old
+  disk file may exist.
+
 Response (`200` when present):
 
 ```json
@@ -179,4 +186,6 @@ Queues deletion for an active session id.
 3. `400 Bad Request` invalid request data (for example empty `messages`, invalid image URL/data URL, empty embedding input).
 4. `401 Unauthorized` missing/invalid bearer token when API key auth is enabled.
 5. `404 Not Found` unknown session id on state endpoints.
-6. `500 Internal Server Error` runtime/engine failures.
+6. `413 Payload Too Large` context reached when context-shift is unsupported by
+   the backend/model.
+7. `500 Internal Server Error` runtime/engine failures.

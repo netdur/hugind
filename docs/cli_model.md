@@ -14,6 +14,9 @@ The model subcommands manage local Hugging Face repositories and GGUF model
 files. You can list what is already downloaded, add models from a remote repo,
 inspect local files, and remove files or entire repositories.
 
+Local storage layout is under `data_home()` (typically `~/.hugind`) as:
+`<data_home>/<user>/<repo>/...`.
+
 ## SUBCOMMANDS
 
 ### `hugind model list`
@@ -26,10 +29,14 @@ suggesting `hugind model add`.
 Downloads GGUF files from a Hugging Face repository. If `repo` is omitted, you
 are prompted for one. You then select one or more GGUF files to download.
 
+If `hf_token` is configured via `hugind config defaults --hf-token ...`, it is
+automatically used for repo metadata requests and file downloads.
+
 ### `hugind model show <repo>`
 
-Lists files and sizes for a local repository. If the repo is not present
-locally, it reports that it cannot be found.
+Lists local repository files and sizes (non-hidden files, excluding `.part`
+temporary files). If the repo is not present locally, it reports that it cannot
+be found.
 
 ### `hugind model remove [repo]`
 

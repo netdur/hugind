@@ -19,7 +19,7 @@ the interactive wizard.
 
 ### `hugind chat start [config]`
 
-Starts a new chat session using the given config name. If no config is
+Starts a new chat session using the given config/model name. If no value is
 provided, it prompts you to select a config or enter a name manually.
 
 ### `hugind chat resume [id]`
@@ -55,6 +55,8 @@ If you pass a single positional argument that does not match a subcommand,
 1. A session id if it exists, and resumes it.
 2. Otherwise, a config name and starts a new session.
 
+If multiple positional values are passed, only the first is used.
+
 ## INTERACTIVE COMMANDS
 
 Within a chat session, the interactive prompt supports:
@@ -62,8 +64,10 @@ Within a chat session, the interactive prompt supports:
 1. `/help` - show available commands.
 2. `/image <path>` - attach an image (PNG or JPEG).
 3. `/text <path>` - attach a text file.
-4. `/clear` - clear the screen.
-5. `/exit` or `/quit` - exit the session.
+4. `/think on|off` - toggle hiding `<think>...</think>` content during stream.
+5. `/fork <name>` - placeholder command (currently not implemented).
+6. `/clear` - clear the screen.
+7. `/exit` or `/quit` - exit the session.
 
 ## SESSION BEHAVIOR
 
