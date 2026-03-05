@@ -2,7 +2,7 @@
 
 ## Scope / positioning
 
-* Local-only system (not intended to run in the cloud)
+* Local-only system
 * Uses `llama.cpp` as the inference engine
 * Aims to keep agents under control
 
@@ -13,16 +13,15 @@
 Two execution runtimes:
 
 * Javascript runtime via `rquickjs`
-* WASM runtime via Wasmtime (run WASM modules built from your favorite language)
+* WASM runtime via Wasmtime
 
 ## Server
 
 * `llama.cpp` engine (including `llama.cpp` features)
 * Continuous batching
-* Large contexts are processed by splitting work into a fixed set of request chunks
-* Context shifting
+* Context shifting (for supported modoles)
 * Stateful sessions
-* Designed for limited GPU memory: avoid recomputing full history and free GPU resources quickly
+* Designed for limited GPU memory
 
 3-tier memory / cache:
 
@@ -39,11 +38,11 @@ Session branching:
 Process model:
 
 * Each model runs with its own config, OS process, and preconfigured port
+ * a model can have several configs depends on task
 * Application clients can probe ports or use predefined ports
-* End users should not access the server directly (server is meant to sit behind an app, like a database)
 
 ## Agent
-
+ 
 * Process isolation
 * Each agent runs in its own OS process
 
@@ -73,7 +72,6 @@ Other:
 * MCP support
   * MCP servers are declared per-agent in `agent.yaml` under `dependencies.mcp` (include `command` and `transport`)
 * Agent install CLI (`hugind agent install <path>`)
-* Informs the user of requested permissions and supports granting permissions explicitly
 
 ## Model
 
@@ -86,7 +84,7 @@ Other:
 
 ## Chat (CLI)
 
-* “ChatGPT-style” CLI for quick testing and deployment validation
+* Chat CLI for quick testing and deployment validation
 * Basic administration features
 
 ## quick start
@@ -324,6 +322,48 @@ more /Users/adel/.hugind/logs/agents/ocr/20260210_122933.526.txt
 [2026-02-10T12:29:41.198Z] host.llm.chat_stream response_len=111
 [2026-02-10T12:29:41.198Z] agent.run.complete status=ok
 ```
+
+## Docs
+
+* [Agent Manifest](docs/agent_manifest.md)  
+  Defines the `agent.yaml` format and how Hugind interprets runtime fields (`backend`, `permissions`, `dependencies`, `env`).
+
+* [CLI Overview](docs/cli.md)  
+  Maps top-level CLI commands and points to per-command manuals.
+
+* [CLI: agent](docs/cli_agent.md)  
+  Covers `hugind agent run/install/list/remove`, including accepted install sources and `--cwd` behavior.
+
+* [CLI: chat](docs/cli_chat.md)  
+  Documents interactive chat flows, shorthand invocation, and in-session commands.
+
+* [CLI: config](docs/cli_config.md)  
+  Describes config listing/validation/defaults/init and where config/settings files are stored.
+
+* [CLI: model](docs/cli_model.md)  
+  Explains local model repo layout, add/show/remove flows, and Hugging Face token usage.
+
+* [CLI: server](docs/cli_server.md)  
+  Documents start/list/stop behavior, status checks, and stop semantics.
+
+* [HTTP API](docs/http_api.md)  
+  Reference for `/v1` endpoints, request/response shapes, session headers, and common status codes.
+
+* [JavaScript Runtime](docs/js_runtime.md)  
+  Describes JS agent execution model, globals/capabilities, and result/input contracts.
+
+* [Server Config](docs/server_config.md)  
+  Details `config.yml` sections, defaults, path resolution rules, and preset overlay behavior.
+
+* [Stdio Bridge](docs/stdio_bridge.md)  
+  NDJSON + MCP protocol reference for desktop/app integration (`hugind stdio`).
+
+* [WASM Runtime](docs/wasm_runtime.md)  
+  Covers WASM execution lifecycle, hostcalls, filesystem modes, and runtime limits.
+
+* [WASM SDK (AssemblyScript)](docs/wasm_sdk_assemblyscript.md)  
+  API guide for the AssemblyScript SDK and hostcall wrappers used by WASM agents.
+
 
 ## License
 
