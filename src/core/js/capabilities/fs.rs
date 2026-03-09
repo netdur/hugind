@@ -158,13 +158,7 @@ impl Fs {
     }
 
     fn ensure_host_fs_enabled(&self) -> Result<()> {
-        match self.fs_mode {
-            RuntimeFsMode::WasiMounts => Err(rquickjs::Error::new_loading_message(
-                "Filesystem Error",
-                "host filesystem access is disabled (runtime_fs_mode = wasi_mounts)",
-            )),
-            RuntimeFsMode::HostFilesystem | RuntimeFsMode::Both => Ok(()),
-        }
+        ensure_host_fs_mode_enabled(&self.fs_mode)
     }
 }
 
@@ -211,6 +205,16 @@ fn fs_err(err: anyhow::Error) -> rquickjs::Error {
     rquickjs::Error::new_loading_message("Filesystem Error", err.to_string())
 }
 
+fn ensure_host_fs_mode_enabled(fs_mode: &RuntimeFsMode) -> Result<()> {
+    match fs_mode {
+        RuntimeFsMode::WasiMounts => Err(rquickjs::Error::new_loading_message(
+            "Filesystem Error",
+            "host filesystem access is disabled (runtime_fs_mode = wasi_mounts)",
+        )),
+        RuntimeFsMode::HostFilesystem | RuntimeFsMode::Both => Ok(()),
+    }
+}
+
 pub async fn install(
     ctx: &AsyncContext,
     config: &AgentConfig,
@@ -244,4 +248,29 @@ pub async fn install(
         })
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ensure_host_fs_mode_enabled;
+    use crate::core::config::agent::RuntimeFsMode;
+
+    #[test]
+    fn rejects_host_fs_when_runtime_mode_is_wasi_mounts() {
+        let err = ensure_host_fs_mode_enabled(&RuntimeFsMode::WasiMounts).expect_err("must fail");
+        assert!(
+            err.to_string()
+                .contains("host filesystem access is disabled (runtime_fs_mode = wasi_mounts)")
+        );
+    }
+
+    #[test]
+    fn allows_host_fs_when_runtime_mode_is_host_filesystem() {
+        assert!(ensure_host_fs_mode_enabled(&RuntimeFsMode::HostFilesystem).is_ok());
+    }
+
+    #[test]
+    fn allows_host_fs_when_runtime_mode_is_both() {
+        assert!(ensure_host_fs_mode_enabled(&RuntimeFsMode::Both).is_ok());
+    }
 }

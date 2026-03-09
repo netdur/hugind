@@ -186,6 +186,7 @@ impl ThinkingBudgetState {
 pub struct RequestParams {
     pub id: String,
     pub prompt: String,
+    pub prompt_tokens_override: Option<Vec<Token>>,
     pub images: Vec<Vec<u8>>,
     pub sampling: SamplingConfig,
 
@@ -204,6 +205,7 @@ impl Default for RequestParams {
         Self {
             id: String::new(),
             prompt: String::new(),
+            prompt_tokens_override: None,
             images: Vec::new(),
             sampling: SamplingConfig::default(),
             max_output_tokens: 32_000,

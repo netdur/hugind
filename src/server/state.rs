@@ -14,6 +14,7 @@ pub struct AppState {
     pub model_name: Option<String>,
     pub config_name: Option<String>,
     pub api_key: Option<String>,
+    pub embeddings_enabled: bool,
     pub enable_thinking_default: bool,
     pub thinking_budget_tokens_default: Option<u32>,
     pub sampling_defaults: SamplingConfig,

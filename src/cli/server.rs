@@ -96,6 +96,7 @@ pub async fn run_start(_config: String, _port: Option<u16>) -> Result<()> {
     cparams.kv_unified = cfg.context_params.kv_unified;
     if cfg.embeddings_enabled {
         cparams.pooling_type = map_pooling_type(PoolingType::Mean);
+        cparams.n_ubatch = cparams.n_batch;
     }
 
     let sampling_defaults = map_sampling_config(&cfg.sampler_params);
@@ -174,6 +175,7 @@ pub async fn run_start(_config: String, _port: Option<u16>) -> Result<()> {
         model.clone(),
         model_name,
         config_name,
+        cfg.embeddings_enabled,
         cfg.chat_params.enable_thinking_default,
         cfg.chat_params.thinking_budget_tokens,
         sampling_defaults,

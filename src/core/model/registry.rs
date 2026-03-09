@@ -1,7 +1,7 @@
 use crate::shared::paths;
 use anyhow::Result;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct Repo {
@@ -36,16 +36,6 @@ impl ModelFile {
 pub struct RepoManager;
 
 impl RepoManager {
-    const RESERVED_DIRS: &'static [&'static str] = &[
-        "configs",
-        "cache",
-        "temp",
-        "sessions",
-        "agents",
-        "settings",
-        ".DS_Store",
-    ];
-
     pub fn list_repos() -> Result<Vec<Repo>> {
         let root = paths::data_home();
         if !root.exists() {
@@ -60,13 +50,16 @@ impl RepoManager {
             }
 
             let user_name = user_entry.file_name().to_string_lossy().to_string();
-            if user_name.starts_with('.') || Self::RESERVED_DIRS.contains(&user_name.as_str()) {
+            if user_name.starts_with('.') {
                 continue;
             }
 
             for repo_entry in fs::read_dir(user_entry.path())? {
                 let repo_entry = repo_entry?;
                 if !repo_entry.path().is_dir() {
+                    continue;
+                }
+                if !Self::repo_has_gguf_file(&repo_entry.path())? {
                     continue;
                 }
 
@@ -79,6 +72,22 @@ impl RepoManager {
             }
         }
         Ok(repos)
+    }
+
+    fn repo_has_gguf_file(repo_dir: &Path) -> Result<bool> {
+        for entry in fs::read_dir(repo_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                if ext.eq_ignore_ascii_case("gguf") {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
     }
 
     pub fn list_repo_files(repo: &Repo) -> Result<Vec<ModelFile>> {

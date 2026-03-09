@@ -358,6 +358,9 @@ more /Users/adel/.hugind/logs/agents/ocr/20260210_122933.526.txt
 * [Stdio Bridge](docs/stdio_bridge.md)  
   NDJSON + MCP protocol reference for desktop/app integration (`hugind stdio`).
 
+* [Testing Guide](docs/testing.md)  
+  Local test commands, CI parity commands, and troubleshooting notes.
+
 * [WASM Runtime](docs/wasm_runtime.md)  
   Covers WASM execution lifecycle, hostcalls, filesystem modes, and runtime limits.
 

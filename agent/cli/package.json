@@ -4,7 +4,11 @@
   "description": "Natural-language CLI",
   "type": "module",
   "scripts": {
-    "build": "asc main.ts -o main.wasm -O3 --path ./node_modules/assemblyscript-json/assembly"
+    "build": "asc main.ts -o main.wasm -O3 --path ./node_modules/assemblyscript-json/assembly",
+    "build:unit-wasm": "asc unit_test_exports.ts -o unit_test_exports.wasm -O3 --exportRuntime --path ./node_modules/assemblyscript-json/assembly",
+    "test:unit": "npm run build:unit-wasm && node --test test/unit.spec.mjs",
+    "test:wasm": "node --test test/wasm.spec.mjs",
+    "test": "npm run test:unit && npm run test:wasm"
   },
   "dependencies": {
     "assemblyscript-json": "^1.1.0"

@@ -167,7 +167,7 @@ pub struct StateIdleRequest {
     pub session_id: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct StateStatusResponse {
     pub session_id: String,
     pub exists: bool,
@@ -178,13 +178,17 @@ pub struct EmbeddingRequest {
     pub model: String,
     pub input: EmbeddingInput,
     pub encoding_format: Option<String>,
+    pub dimensions: Option<u32>,
+    pub user: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(untagged)]
 pub enum EmbeddingInput {
     String(String),
-    Array(Vec<String>),
+    StringArray(Vec<String>),
+    Tokens(Vec<i64>),
+    TokenArray(Vec<Vec<i64>>),
 }
 
 #[derive(Debug, Serialize)]
@@ -199,11 +203,68 @@ pub struct EmbeddingResponse {
 pub struct EmbeddingData {
     pub object: String,
     pub index: usize,
-    pub embedding: Vec<f32>,
+    pub embedding: EmbeddingVector,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub enum EmbeddingVector {
+    Float(Vec<f32>),
+    Base64(String),
 }
 
 #[derive(Debug, Serialize)]
 pub struct EmbeddingUsage {
     pub prompt_tokens: u32,
     pub total_tokens: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ChatCompletionRequest, Content, MultimodalContent};
+
+    #[test]
+    fn deserializes_thinking_aliases() {
+        let raw = r#"
+        {
+          "model": "test-model",
+          "messages": [{"role":"user","content":"hello"}],
+          "thinking": true,
+          "thinking_budget": 128
+        }
+        "#;
+
+        let req: ChatCompletionRequest = serde_json::from_str(raw).expect("valid json");
+        assert_eq!(req.enable_thinking, Some(true));
+        assert_eq!(req.thinking_budget_tokens, Some(128));
+    }
+
+    #[test]
+    fn deserializes_multimodal_message_content() {
+        let raw = r#"
+        {
+          "model": "test-model",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {"type":"text","text":"look"},
+                {"type":"image_url","image_url":{"url":"data:image/png;base64,aGVsbG8="}}
+              ]
+            }
+          ]
+        }
+        "#;
+
+        let req: ChatCompletionRequest = serde_json::from_str(raw).expect("valid json");
+        assert_eq!(req.messages.len(), 1);
+        match &req.messages[0].content {
+            Content::Multimodal(parts) => {
+                assert_eq!(parts.len(), 2);
+                assert!(matches!(parts[0], MultimodalContent::Text { .. }));
+                assert!(matches!(parts[1], MultimodalContent::ImageUrl { .. }));
+            }
+            _ => panic!("expected multimodal content"),
+        }
+    }
 }

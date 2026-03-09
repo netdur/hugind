@@ -63,6 +63,16 @@ impl Context {
         unsafe { llama_cpp::llama_get_embeddings(self.as_ptr()) }
     }
 
+    pub fn memory_clear(&mut self, data: bool) {
+        unsafe {
+            let mem = llama_cpp::llama_get_memory(self.as_ptr());
+            if mem.is_null() {
+                return;
+            }
+            llama_cpp::llama_memory_clear(mem, data);
+        }
+    }
+
     pub fn kv_cache_seq_rm(&mut self, seq_id: i32, p0: i32, p1: i32) -> bool {
         unsafe {
             let mem = llama_cpp::llama_get_memory(self.as_ptr());

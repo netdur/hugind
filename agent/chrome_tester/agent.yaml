@@ -1,0 +1,35 @@
+name: "chrome_tester"
+version: "0.1.0"
+description: "Autonomous browser testing agent using Chrome DevTools MCP."
+author: "hugind"
+license: "MIT"
+hugind_version: ">=0.6.0"
+entry_point: "main.js"
+backend:
+  config: "qwen3-8b"
+  session:
+    mode: "stateless"
+permissions:
+  network:
+    allow: false
+    allowed_domains: []
+  filesystem:
+    allow: true
+    read: true
+    write: true
+    create: true
+    delete: false
+  shell:
+    allow: false
+dependencies:
+  mcp:
+    - name: "chrome-devtools"
+      required: true
+      description: "Official Chrome DevTools MCP server."
+      transport: "stdio"
+      command: "npx"
+      args:
+        - "-y"
+        - "chrome-devtools-mcp@latest"
+        - "--isolated"
+env: []

@@ -351,3 +351,91 @@ fn dependency_to_server(dep: &McpDependency) -> Option<McpServerConfig> {
         cwd: dep.cwd.clone(),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{dependency_to_server, parse_mcp_dependencies};
+    use crate::core::config::agent::AgentConfig;
+    use serde_yaml::Value as YamlValue;
+
+    #[test]
+    fn parse_mcp_dependencies_returns_empty_when_missing() {
+        let config = AgentConfig::default();
+        let deps = parse_mcp_dependencies(&config).expect("parse should succeed");
+        assert!(deps.is_empty());
+    }
+
+    #[test]
+    fn parse_mcp_dependencies_parses_valid_shape() {
+        let mut config = AgentConfig::default();
+        config.dependencies = Some(
+            serde_yaml::from_str::<YamlValue>(
+                r#"
+mcp:
+  - name: tools
+    required: true
+    transport: stdio
+    command: node
+    args: ["server.js"]
+    cwd: "/tmp"
+"#,
+            )
+            .expect("yaml"),
+        );
+
+        let deps = parse_mcp_dependencies(&config).expect("parse should succeed");
+        assert_eq!(deps.len(), 1);
+        let dep = &deps[0];
+        assert_eq!(dep.name, "tools");
+        assert_eq!(dep.required, true);
+        assert_eq!(dep.command.as_deref(), Some("node"));
+        assert_eq!(dep.args.as_ref().map(|v| v.len()), Some(1));
+    }
+
+    #[test]
+    fn parse_mcp_dependencies_rejects_invalid_shape() {
+        let mut config = AgentConfig::default();
+        config.dependencies = Some(
+            serde_yaml::from_str::<YamlValue>(
+                r#"
+mcp: "not-a-list"
+"#,
+            )
+            .expect("yaml"),
+        );
+
+        let err = parse_mcp_dependencies(&config).expect_err("should fail");
+        assert!(
+            err.to_string()
+                .contains("Invalid dependencies.mcp in agent.yaml")
+        );
+    }
+
+    #[test]
+    fn dependency_to_server_requires_command() {
+        let dep = super::McpDependency {
+            name: "tools".to_string(),
+            command: None,
+            ..Default::default()
+        };
+        assert!(dependency_to_server(&dep).is_none());
+    }
+
+    #[test]
+    fn dependency_to_server_copies_fields() {
+        let dep = super::McpDependency {
+            name: "tools".to_string(),
+            transport: Some("stdio".to_string()),
+            command: Some("node".to_string()),
+            args: Some(vec!["server.js".to_string()]),
+            cwd: Some("/tmp".to_string()),
+            ..Default::default()
+        };
+        let server = dependency_to_server(&dep).expect("should produce server config");
+        assert_eq!(server.name, "tools");
+        assert_eq!(server.transport.as_deref(), Some("stdio"));
+        assert_eq!(server.command, "node");
+        assert_eq!(server.args.as_ref().map(|v| v.len()), Some(1));
+        assert_eq!(server.cwd.as_deref(), Some("/tmp"));
+    }
+}

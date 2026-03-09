@@ -427,3 +427,186 @@ impl FsAccess {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::FsAccess;
+    use crate::core::config::agent::FileSystemPermission;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use tempfile::tempdir;
+
+    fn canon(path: &Path) -> PathBuf {
+        fs::canonicalize(path).expect("canonicalize path")
+    }
+
+    fn permissive_perm() -> FileSystemPermission {
+        FileSystemPermission {
+            allow: true,
+            read: true,
+            write: true,
+            create: true,
+            delete: true,
+            allow_outside_agent_root: false,
+            allowed_paths: vec![],
+            denied_paths: vec![],
+            follow_symlinks: false,
+        }
+    }
+
+    #[test]
+    fn denies_all_access_when_filesystem_is_disabled() {
+        let dir = tempdir().expect("tempdir");
+        let access = FsAccess::new(canon(dir.path()), Some(FileSystemPermission::default()));
+
+        let err = access.exists("file.txt").expect_err("should fail");
+        assert!(err.to_string().contains("filesystem access is disabled"));
+    }
+
+    #[test]
+    fn blocks_parent_directory_traversal() {
+        let dir = tempdir().expect("tempdir");
+        let access = FsAccess::new(canon(dir.path()), Some(permissive_perm()));
+
+        let err = access.exists("../outside.txt").expect_err("should fail");
+        assert!(
+            err.to_string()
+                .contains("parent directory '..' is not allowed")
+        );
+    }
+
+    #[test]
+    fn enforces_allowed_and_denied_paths() {
+        let dir = tempdir().expect("tempdir");
+        let allowed = dir.path().join("allowed");
+        let denied = allowed.join("blocked.txt");
+        let file = allowed.join("ok.txt");
+        fs::create_dir_all(&allowed).expect("create dir");
+        fs::write(&file, "ok").expect("write file");
+        fs::write(&denied, "no").expect("write denied");
+
+        let mut perm = permissive_perm();
+        perm.allowed_paths = vec![canon(&allowed).to_string_lossy().into_owned()];
+        perm.denied_paths = vec![canon(&denied).to_string_lossy().into_owned()];
+        let access = FsAccess::new(canon(dir.path()), Some(perm));
+
+        assert_eq!(
+            access.read_text("allowed/ok.txt").expect("read allowed"),
+            "ok"
+        );
+        let err = access
+            .read_text("allowed/blocked.txt")
+            .expect_err("denied path should fail");
+        assert!(err.to_string().contains("path is denied"));
+
+        fs::write(dir.path().join("outside.txt"), "x").expect("write outside");
+        let err = access
+            .read_text("outside.txt")
+            .expect_err("outside allowed paths should fail");
+        assert!(err.to_string().contains("path is not within allowed paths"));
+    }
+
+    #[test]
+    fn blocks_outside_root_when_not_allowed() {
+        let root = tempdir().expect("root tempdir");
+        let outside = tempdir().expect("outside tempdir");
+        let outside_file = outside.path().join("data.txt");
+        fs::write(&outside_file, "x").expect("write outside file");
+        let outside_file = canon(&outside_file);
+
+        let access = FsAccess::new(canon(root.path()), Some(permissive_perm()));
+        let err = access
+            .read_text(outside_file.to_string_lossy().as_ref())
+            .expect_err("outside root should fail");
+        assert!(err.to_string().contains("path is not within allowed paths"));
+    }
+
+    #[test]
+    fn allows_outside_root_when_explicitly_enabled() {
+        let root = tempdir().expect("root tempdir");
+        let outside = tempdir().expect("outside tempdir");
+        let outside_file = outside.path().join("data.txt");
+        fs::write(&outside_file, "hello").expect("write outside file");
+        let outside_file = canon(&outside_file);
+
+        let mut perm = permissive_perm();
+        perm.allow_outside_agent_root = true;
+        let access = FsAccess::new(canon(root.path()), Some(perm));
+
+        let text = access
+            .read_text(outside_file.to_string_lossy().as_ref())
+            .expect("outside root should be allowed");
+        assert_eq!(text, "hello");
+    }
+
+    #[test]
+    fn write_requires_create_permission_for_new_file() {
+        let dir = tempdir().expect("tempdir");
+        let mut perm = permissive_perm();
+        perm.create = false;
+        let access = FsAccess::new(canon(dir.path()), Some(perm));
+
+        let err = access
+            .write_text("new.txt", "data", false)
+            .expect_err("create should be required");
+        assert!(
+            err.to_string()
+                .contains("filesystem create permission is disabled")
+        );
+    }
+
+    #[test]
+    fn rename_requires_delete_permission() {
+        let dir = tempdir().expect("tempdir");
+        fs::write(dir.path().join("a.txt"), "a").expect("write source");
+
+        let mut perm = permissive_perm();
+        perm.delete = false;
+        let access = FsAccess::new(canon(dir.path()), Some(perm));
+
+        let err = access
+            .rename("a.txt", "b.txt")
+            .expect_err("delete permission should be required");
+        assert!(
+            err.to_string()
+                .contains("filesystem delete permission is disabled")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn blocks_symlink_components_when_follow_symlinks_is_false() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempdir().expect("tempdir");
+        fs::write(dir.path().join("target.txt"), "target").expect("write target");
+        symlink(dir.path().join("target.txt"), dir.path().join("link.txt")).expect("symlink");
+
+        let access = FsAccess::new(canon(dir.path()), Some(permissive_perm()));
+        let err = access
+            .read_text("link.txt")
+            .expect_err("symlink should be blocked");
+        assert!(err.to_string().contains("symlinks are not allowed"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn follow_symlinks_still_enforces_allowed_root() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempdir().expect("root tempdir");
+        let outside = tempdir().expect("outside tempdir");
+        let outside_file = outside.path().join("secret.txt");
+        fs::write(&outside_file, "secret").expect("write outside file");
+        symlink(&outside_file, root.path().join("link.txt")).expect("symlink");
+
+        let mut perm = permissive_perm();
+        perm.follow_symlinks = true;
+        let access = FsAccess::new(canon(root.path()), Some(perm));
+
+        let err = access
+            .read_text("link.txt")
+            .expect_err("symlink escape should be denied");
+        assert!(err.to_string().contains("path is not within allowed paths"));
+    }
+}

@@ -37,44 +37,14 @@ impl Net {
         let max_redirects = 5;
 
         for _ in 0..=max_redirects {
-            match current.scheme() {
-                "http" | "https" => {}
-                _ => {
-                    return Err(rquickjs::Error::new_loading_message(
-                        "Network Error",
-                        format!("URL scheme '{}' is not allowed.", current.scheme()),
-                    ));
-                }
-            }
+            ensure_http_scheme(&current)
+                .map_err(|e| rquickjs::Error::new_loading_message("Network Error", e))?;
 
             let host = current.host_str().unwrap_or("");
             let port = current.port_or_known_default().unwrap_or(80);
 
-            if !self.permission.allowed_domains.is_empty()
-                || !self.permission.allowed_ips.is_empty()
-            {
-                let allowed = self
-                    .permission
-                    .allowed_domains
-                    .iter()
-                    .any(|d| host == d || host.ends_with(&format!(".{}", d)));
-                if !allowed {
-                    let is_ip_allowed = if let Ok(_ip) = host.parse::<std::net::IpAddr>() {
-                        self.permission
-                            .allowed_ips
-                            .iter()
-                            .any(|allowed_ip| allowed_ip == host)
-                    } else {
-                        false
-                    };
-                    if !is_ip_allowed {
-                        return Err(rquickjs::Error::new_loading_message(
-                            "Network Error",
-                            format!("Domain/IP '{}' is not in the allowed list.", host),
-                        ));
-                    }
-                }
-            }
+            ensure_host_allowed(host, &self.permission)
+                .map_err(|e| rquickjs::Error::new_loading_message("Network Error", e))?;
 
             if self.permission.block_private_networks {
                 let ips: Vec<std::net::IpAddr> = if let Ok(ip) = host.parse::<std::net::IpAddr>() {
@@ -93,14 +63,8 @@ impl Net {
                         .collect()
                 };
 
-                for ip in ips {
-                    if is_private_ip(&ip) {
-                        return Err(rquickjs::Error::new_loading_message(
-                            "Network Error",
-                            format!("Access to private network blocked (IP: {})", ip),
-                        ));
-                    }
-                }
+                ensure_public_network_access(&self.permission, &ips)
+                    .map_err(|e| rquickjs::Error::new_loading_message("Network Error", e))?;
             }
 
             let timeout_duration = self
@@ -180,6 +144,56 @@ impl Net {
     }
 }
 
+fn ensure_http_scheme(url: &Url) -> std::result::Result<(), String> {
+    match url.scheme() {
+        "http" | "https" => Ok(()),
+        other => Err(format!("URL scheme '{}' is not allowed.", other)),
+    }
+}
+
+fn ensure_host_allowed(host: &str, permission: &NetPermissions) -> std::result::Result<(), String> {
+    if permission.allowed_domains.is_empty() && permission.allowed_ips.is_empty() {
+        return Ok(());
+    }
+
+    let domain_allowed = permission
+        .allowed_domains
+        .iter()
+        .any(|d| host == d || host.ends_with(&format!(".{}", d)));
+    if domain_allowed {
+        return Ok(());
+    }
+
+    if let Ok(_ip) = host.parse::<std::net::IpAddr>() {
+        let ip_allowed = permission
+            .allowed_ips
+            .iter()
+            .any(|allowed_ip| allowed_ip == host);
+        if ip_allowed {
+            return Ok(());
+        }
+    }
+
+    Err(format!("Domain/IP '{}' is not in the allowed list.", host))
+}
+
+fn ensure_public_network_access(
+    permission: &NetPermissions,
+    ips: &[std::net::IpAddr],
+) -> std::result::Result<(), String> {
+    if !permission.block_private_networks {
+        return Ok(());
+    }
+
+    for ip in ips {
+        if is_private_ip(ip) {
+            return Err(format!("Access to private network blocked (IP: {})", ip));
+        }
+    }
+
+    Ok(())
+}
+
 pub async fn install(
     ctx: &AsyncContext,
     config: &AgentConfig,
@@ -211,4 +225,75 @@ pub async fn install(
         })
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ensure_host_allowed, ensure_http_scheme, ensure_public_network_access};
+    use crate::core::config::agent::NetPermissions;
+    use reqwest::Url;
+    use std::net::{IpAddr, Ipv4Addr};
+
+    #[test]
+    fn allows_http_and_https_schemes() {
+        let http = Url::parse("http://example.com").expect("url");
+        let https = Url::parse("https://example.com").expect("url");
+        assert!(ensure_http_scheme(&http).is_ok());
+        assert!(ensure_http_scheme(&https).is_ok());
+    }
+
+    #[test]
+    fn rejects_non_http_scheme() {
+        let ftp = Url::parse("ftp://example.com").expect("url");
+        let err = ensure_http_scheme(&ftp).expect_err("must reject");
+        assert!(err.contains("URL scheme 'ftp' is not allowed."));
+    }
+
+    #[test]
+    fn allows_any_host_when_lists_are_empty() {
+        let perm = NetPermissions::default();
+        assert!(ensure_host_allowed("example.com", &perm).is_ok());
+    }
+
+    #[test]
+    fn allows_exact_and_subdomain_matches() {
+        let mut perm = NetPermissions::default();
+        perm.allowed_domains = vec!["example.com".to_string()];
+        assert!(ensure_host_allowed("example.com", &perm).is_ok());
+        assert!(ensure_host_allowed("api.example.com", &perm).is_ok());
+        assert!(ensure_host_allowed("badexample.com", &perm).is_err());
+    }
+
+    #[test]
+    fn allows_ip_when_ip_is_whitelisted() {
+        let mut perm = NetPermissions::default();
+        perm.allowed_ips = vec!["127.0.0.1".to_string()];
+        assert!(ensure_host_allowed("127.0.0.1", &perm).is_ok());
+        assert!(ensure_host_allowed("127.0.0.2", &perm).is_err());
+    }
+
+    #[test]
+    fn rejects_host_not_in_any_allowlist() {
+        let mut perm = NetPermissions::default();
+        perm.allowed_domains = vec!["allowed.com".to_string()];
+        perm.allowed_ips = vec!["10.0.0.2".to_string()];
+        let err = ensure_host_allowed("blocked.com", &perm).expect_err("must reject");
+        assert!(err.contains("Domain/IP 'blocked.com' is not in the allowed list."));
+    }
+
+    #[test]
+    fn blocks_private_ips_when_private_network_blocking_is_enabled() {
+        let mut perm = NetPermissions::default();
+        perm.block_private_networks = true;
+        let ips = vec![IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))];
+        let err = ensure_public_network_access(&perm, &ips).expect_err("must reject");
+        assert!(err.contains("Access to private network blocked (IP: 127.0.0.1)"));
+    }
+
+    #[test]
+    fn allows_private_ips_when_private_network_blocking_is_disabled() {
+        let perm = NetPermissions::default();
+        let ips = vec![IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))];
+        assert!(ensure_public_network_access(&perm, &ips).is_ok());
+    }
 }

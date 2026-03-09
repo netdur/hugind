@@ -1,0 +1,40 @@
+{
+  "name": "marrakech_restaurant_phone_workflow",
+  "continueOnFailure": false,
+  "steps": [
+    {
+      "name": "Google Search To Maps",
+      "startUrl": "https://www.google.com",
+      "maxSteps": 20,
+      "goal": "Search Google for restaurants in Marrakech and open the Maps experience/results page.",
+      "checks": [
+        "Handle cookie/consent and overlays if they appear",
+        "Search for: restaurants in marrakech",
+        "Open Google Maps results for restaurants in Marrakech"
+      ],
+      "instructions": "If blocked by modal/ad/overlay, run detect_blocking_overlay then dismiss_blocking_overlay."
+    },
+    {
+      "name": "Open One Restaurant",
+      "maxSteps": 20,
+      "goal": "From the Maps results/listing, open one specific restaurant detail panel/page.",
+      "checks": [
+        "Choose one visible restaurant result",
+        "Open its details page/panel",
+        "Ensure detail view is loaded before continuing"
+      ]
+    },
+    {
+      "name": "Extract And Print Phone",
+      "maxSteps": 22,
+      "goal": "Extract the restaurant phone number and finish only after printing it on console.",
+      "checks": [
+        "Run extract_phone_numbers",
+        "If multiple numbers exist, choose the main restaurant contact number",
+        "When done, include the selected phone number in done.reason"
+      ],
+      "instructions": "Do not finish without a valid phone number candidate."
+    }
+  ]
+}
+

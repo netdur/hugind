@@ -1,0 +1,40 @@
+{
+  "name": "reddit_research_workflow",
+  "continueOnFailure": false,
+  "steps": [
+    {
+      "name": "Open Reddit",
+      "startUrl": "https://old.reddit.com",
+      "maxSteps": 14,
+      "goal": "Open old Reddit and confirm the page is readable and interactive.",
+      "checks": [
+        "If blocked by overlay, run detect_blocking_overlay and dismiss_blocking_overlay",
+        "Confirm Reddit home page loaded",
+        "Do not finish until content is visible"
+      ]
+    },
+    {
+      "name": "Search Topic",
+      "startUrl": "https://old.reddit.com/search?q=marrakech+restaurant",
+      "maxSteps": 18,
+      "goal": "Search Reddit for Marrakech restaurant discussions and open one relevant post.",
+      "checks": [
+        "Find a relevant post title",
+        "Open the post",
+        "Confirm you are on a post page (comments section visible)"
+      ]
+    },
+    {
+      "name": "Extract Post Info",
+      "maxSteps": 20,
+      "goal": "Extract and report post details. Completion criteria is printing post URL and subreddit in the done reason.",
+      "checks": [
+        "Use evaluate to extract post title, subreddit, and canonical URL",
+        "Include extracted URL and subreddit in done.reason",
+        "Only finish when those two fields are present"
+      ],
+      "instructions": "Use evaluate with a small JSON return object: {title, subreddit, url}."
+    }
+  ]
+}
+

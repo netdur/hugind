@@ -1,6 +1,16 @@
 // @ts-nocheck
 import { print, printRaw, input, llmChatStream, runCommand, getArgsJson, alloc } from "./wasm_sdk";
 import { JSON } from "assemblyscript-json/assembly";
+import { ParsedResponse, extractJson, parseJsonResponse, parseResponse } from "./lib/json";
+import { isIncompleteCommand, looksUnsafe, shouldExit } from "./lib/safety";
+import {
+  buildCancelPrompt,
+  buildFollowupPrompt,
+  buildInitialPrompt,
+  buildInvalidCommandPrompt,
+  escapeJsonString,
+} from "./lib/prompt";
+import { smartTruncate } from "./lib/truncate";
 
 export { alloc };
 
@@ -20,13 +30,6 @@ const THINK_OPEN_TAG = "<think>";
 const THINK_CLOSE_TAG = "</think>";
 const THINK_SPINNER_FRAMES = "|/-\\";
 
-class ParsedResponse {
-  kind: string = "answer";
-  command: string = "";
-  confirm: bool = false;
-  answer: string = "";
-}
-
 let thinkingStreamActive: bool = false;
 let thinkingSpinnerVisible: bool = false;
 let thinkingSpinnerStep: i32 = 0;
@@ -37,65 +40,6 @@ let debugPromptIo: bool = false;
 let debugRawStream: bool = false;
 let streamOutputPrinted: bool = false;
 let fallbackThinkingActive: bool = false;
-
-// -----------------------------
-// JSON extraction/parsing
-// -----------------------------
-function extractJson(text: string): string {
-  const trimmed = text.trim();
-  if (trimmed.startsWith("{") && trimmed.endsWith("}")) return trimmed;
-
-  // Allow fenced JSON, but don’t rely on it
-  const startMarker = "```json";
-  const endMarker = "```";
-  const start = trimmed.indexOf(startMarker);
-  if (start >= 0) {
-    const after = start + startMarker.length;
-    const end = trimmed.indexOf(endMarker, after);
-    if (end > after) return trimmed.substring(after, end).trim();
-  }
-
-  // Fallback: first { .. last }
-  const a = trimmed.indexOf("{");
-  const b = trimmed.lastIndexOf("}");
-  if (a >= 0 && b > a) return trimmed.substring(a, b + 1);
-
-  return "";
-}
-
-function parseJsonResponse(text: string): ParsedResponse | null {
-  const jsonText = extractJson(text);
-  if (jsonText.length == 0) return null;
-
-  const value = JSON.parse(jsonText);
-  if (!value.isObj) return null;
-
-  const obj = changetype<JSON.Obj>(value);
-
-  const kindVal = obj.getString("kind");
-  const cmdVal = obj.getString("command");
-  const answerVal = obj.getString("answer");
-  const confirmVal = obj.getBool("confirm");
-
-  const kind = kindVal ? kindVal._str : "";
-  const command = cmdVal ? cmdVal._str : "";
-  const answer = answerVal ? answerVal._str : "";
-  const confirm = confirmVal ? confirmVal._bool : false;
-
-  // Normalize: if answer present, treat as answer; if command present, treat as command
-  if (kind == "command" || command.length > 0) {
-    return { kind: "command", command, confirm, answer: "" };
-  }
-  return { kind: "answer", command: "", confirm: false, answer };
-}
-
-function parseResponse(text: string): ParsedResponse {
-  const jsonParsed = parseJsonResponse(text);
-  if (jsonParsed != null) return jsonParsed as ParsedResponse;
-
-  // Last-resort fallback: treat whole text as answer
-  return { kind: "answer", command: "", confirm: false, answer: text.trim() };
-}
 
 function showThinkingSpinnerTick(): void {
   if (debugPromptIo || debugRawStream) return;
@@ -268,27 +212,6 @@ function parseDebugRawStreamFlag(): bool {
   );
 }
 
-function escapeJsonString(value: string): string {
-  let out = "";
-  for (let i = 0; i < value.length; i++) {
-    const code = value.charCodeAt(i);
-    if (code == 34) {
-      out += '\\"';
-    } else if (code == 92) {
-      out += "\\\\";
-    } else if (code == 10) {
-      out += "\\n";
-    } else if (code == 13) {
-      out += "\\r";
-    } else if (code == 9) {
-      out += "\\t";
-    } else {
-      out += value.charAt(i);
-    }
-  }
-  return out;
-}
-
 function buildLlmRequestJson(prompt: string): string {
   const escapedPrompt = escapeJsonString(prompt);
   let req =
@@ -364,129 +287,6 @@ function llmJsonWithRetries(basePrompt: string, maxRetries: i32): string {
     if (value.isObj) return resp;
   }
   return lastRaw;
-}
-
-// -----------------------------
-// Output truncation
-// -----------------------------
-function smartTruncate(text: string, maxChars: i32): string {
-  if (text.length <= maxChars) return text;
-
-  const lines = text.split("\n");
-  if (lines.length < 20) {
-    return "... (truncated)\n" + text.substring(text.length - maxChars);
-  }
-
-  const header = lines.slice(0, 5).join("\n");
-  let remaining = maxChars - header.length - 50;
-  if (remaining <= 0) return text.substring(text.length - maxChars);
-
-  let tailStr = text.substring(text.length - remaining);
-  const nextNl = tailStr.indexOf("\n");
-  if (nextNl >= 0) tailStr = tailStr.substring(nextNl + 1);
-
-  return header + "\n\n... (middle content truncated) ...\n\n" + tailStr;
-}
-
-// -----------------------------
-// Runtime policy helpers
-// -----------------------------
-function shouldExit(inputText: string): bool {
-  const v = inputText.trim().toLowerCase();
-  return v == "exit" || v == "quit";
-}
-
-function isIncompleteCommand(cmd: string): bool {
-  const c = cmd.trim();
-  if (c.length == 0) return true;
-
-  // Obvious broken shells
-  if (c.endsWith("|") || c.endsWith("&&") || c.endsWith("||")) return true;
-
-  // Your exact bad case
-  if (c.indexOf("find ") == 0 && c.indexOf("-name") >= 0) {
-    // Reject if "-name" is last token
-    const parts = c.split(" ");
-    if (parts.length > 0 && parts[parts.length - 1] == "-name") return true;
-    // Reject if "-name" has empty pattern like: -name "" or -name ''
-    if (c.indexOf('-name ""') >= 0 || c.indexOf("-name ''") >= 0) return true;
-  }
-
-  return false;
-}
-
-function looksUnsafe(cmd: string): bool {
-  const c = cmd.trim().toLowerCase();
-
-  // destructive-ish
-  if (c.indexOf("rm ") >= 0) return true;
-  if (c.indexOf("sudo") >= 0) return true;
-  if (c.indexOf("dd ") >= 0) return true;
-  if (c.indexOf("mkfs") >= 0) return true;
-
-  // “find /” is expensive / permissiony on macOS; treat as unsafe/confirm
-  if (c.indexOf("find /") >= 0) return true;
-
-  return false;
-}
-
-// -----------------------------
-// ReAct prompts
-// -----------------------------
-function buildInitialPrompt(user: string, osShort: string): string {
-  return (
-    "You are a CLI command planner operating in an iterative loop.\n" +
-    "Final output must be a single JSON object. No markdown.\n" +
-    "Schema:\n" +
-    "{\n" +
-    '  "kind": "command" | "answer",\n' +
-    '  "command": "<single shell command or empty>",\n' +
-    '  "confirm": true | false,\n' +
-    '  "answer": "<final response or empty>"\n' +
-    "}\n\n" +
-    "Decision rule:\n" +
-    '- If more info is needed, return kind="command" with ONE command.\n' +
-    '- If info is sufficient, return kind="answer" with the final answer.\n' +
-    "- After each command output, decide again.\n\n" +
-    "Safety:\n" +
-    "- Prefer read-only commands first.\n" +
-    "- If a command is destructive/privileged/slow, set confirm=true.\n" +
-    '- When kind="answer", command must be empty. When kind="command", answer must be empty.\n' +
-    "\n" +
-    "Platform note:\n" +
-    "- Your commands are evaluated in a full `/bin/sh` shell environment. You CAN use pipes (`|`), boolean operators (`&&`), redirects, and subshells.\n" +
-    "- If OS is macOS (Darwin): prefer `mdfind` / `/Applications` checks / `open -Ra` for app existence.\n" +
-    "- Avoid `find /` unless absolutely necessary.\n\n" +
-    "OS: " + osShort + "\n" +
-    "New user request: " + user
-  );
-}
-
-function buildFollowupPrompt(command: string, output: string): string {
-  return (
-    "Command executed:\n" + command + "\n\n" +
-    "Command output:\n" + output + "\n\n" +
-    "Decide next step now:\n" +
-    '- If enough info, return kind="answer".\n' +
-    '- Otherwise return next kind="command".\n' +
-    "Final output must be a JSON object with schema (kind, command, confirm, answer)."
-  );
-}
-
-function buildCancelPrompt(command: string): string {
-  return (
-    "User canceled this command:\n" + command + "\n\n" +
-    "Return an alternative safer command, or return an answer if possible.\n" +
-    "Final output must be a JSON object with schema (kind, command, confirm, answer)."
-  );
-}
-
-function buildInvalidCommandPrompt(command: string): string {
-  return (
-    "Invalid or incomplete command was returned:\n" + command + "\n\n" +
-    "Return ONE complete valid command or a final answer.\n" +
-    "Final output must be a JSON object with schema (kind, command, confirm, answer)."
-  );
 }
 
 // -----------------------------

@@ -1,0 +1,37 @@
+{
+  "name": "local_restaurant_phone_workflow",
+  "continueOnFailure": false,
+  "steps": [
+    {
+      "name": "Open Local Fixture",
+      "startUrl": "http://127.0.0.1:8787/index.html",
+      "maxSteps": 16,
+      "goal": "Open the local fixture, close the takeover overlay, and confirm the search box is usable.",
+      "checks": [
+        "If blocked, run detect_blocking_overlay then dismiss_blocking_overlay",
+        "Ensure search input is visible and interactive"
+      ]
+    },
+    {
+      "name": "Search Restaurants",
+      "maxSteps": 20,
+      "goal": "Type restaurants in marrakech, submit search, and open one restaurant detail page.",
+      "checks": [
+        "Type query restaurants in marrakech",
+        "Open one result detail page",
+        "Ensure a phone field is visible on details page"
+      ]
+    },
+    {
+      "name": "Extract Phone And Finish",
+      "maxSteps": 18,
+      "goal": "Extract a restaurant phone number, print it in console, and finish only after phone is found.",
+      "checks": [
+        "Run extract_phone_numbers",
+        "Use done only when at least one phone candidate exists",
+        "Include selected phone number in done.reason"
+      ]
+    }
+  ]
+}
+

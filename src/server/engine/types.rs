@@ -44,6 +44,7 @@ pub enum EventKind {
 
     Embedding {
         embedding: Vec<f32>,
+        prompt_tokens: u32,
         request: RequestHandle,
     },
 

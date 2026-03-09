@@ -1,0 +1,51 @@
+{
+  "name": "wikipedia_complex_workflow",
+  "continueOnFailure": false,
+  "steps": [
+    {
+      "name": "Landing Page Health",
+      "startUrl": "https://www.wikipedia.org",
+      "maxSteps": 12,
+      "goal": "Validate Wikipedia home page is usable and not blocked by overlays.",
+      "checks": [
+        "Detect blocking overlay and dismiss it if needed",
+        "Confirm page title references Wikipedia",
+        "Finish only when page is readable"
+      ]
+    },
+    {
+      "name": "Search Antikythera",
+      "startUrl": "https://www.wikipedia.org",
+      "maxSteps": 20,
+      "goal": "Search for Antikythera mechanism and open the main article page.",
+      "checks": [
+        "Type query: Antikythera mechanism",
+        "Open the article result",
+        "Confirm URL contains /wiki/Antikythera_mechanism"
+      ]
+    },
+    {
+      "name": "Content Verification",
+      "maxSteps": 18,
+      "goal": "Verify the article introduction says it is an ancient Greek analog computer and extract one additional interesting fact.",
+      "checks": [
+        "Use snapshot/evaluate to confirm the phrase ancient Greek analog computer",
+        "Capture one extra fact from the intro",
+        "Complete only after both checks pass"
+      ],
+      "instructions": "If a blocking modal or ad takeover appears, run detect_blocking_overlay then dismiss_blocking_overlay before continuing."
+    },
+    {
+      "name": "Secondary Interesting Topic",
+      "startUrl": "https://en.wikipedia.org/wiki/Voynich_manuscript",
+      "maxSteps": 16,
+      "goal": "Open Voynich manuscript page and verify the intro identifies it as an illustrated codex written in an unknown script.",
+      "checks": [
+        "Ensure page content loaded",
+        "Verify intro statement about unknown script",
+        "Finish with done when verified"
+      ]
+    }
+  ]
+}
+

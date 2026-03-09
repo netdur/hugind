@@ -387,9 +387,7 @@ impl WasmRuntime {
                     log_host(&caller, format!("host.shell.run_command cmd={}", cmd_str));
 
                     let perm = caller.data().shell_permission.clone().unwrap_or_default();
-                    if !perm.allow {
-                        bail!("Shell execution is disabled.");
-                    }
+                    ensure_shell_command_allowed(&perm)?;
 
                     // We don't check whitelist/blacklist here anymore as it breaks when wrapped in `sh -c`.
                     // The WASM environment is designed to be an agent running bash commands.
@@ -433,27 +431,12 @@ impl WasmRuntime {
                         .and_then(parse_memory_string)
                         .unwrap_or(1024 * 1024);
 
-                    let result_str = if output.status.success() {
-                        if output.stdout.len() > max_len {
-                            let mut s =
-                                String::from_utf8_lossy(&output.stdout[..max_len]).to_string();
-                            s.push_str("...[truncated]");
-                            s
-                        } else {
-                            String::from_utf8_lossy(&output.stdout).to_string()
-                        }
-                    } else {
-                        let mut s = format!("Error: {}", String::from_utf8_lossy(&output.stderr));
-                        if s.len() > max_len {
-                            let mut actual_len = max_len;
-                            while !s.is_char_boundary(actual_len) {
-                                actual_len -= 1;
-                            }
-                            s.truncate(actual_len);
-                            s.push_str("...[truncated]");
-                        }
-                        s
-                    };
+                    let result_str = format_run_command_output(
+                        output.status.success(),
+                        &output.stdout,
+                        &output.stderr,
+                        max_len,
+                    );
 
                     let (out_ptr, out_len) =
                         write_bytes_async(&mut caller, result_str.as_bytes()).await?;
@@ -485,21 +468,7 @@ impl WasmRuntime {
                     );
 
                     let perm = caller.data().shell_permission.clone().unwrap_or_default();
-                    if !perm.allow {
-                        bail!("Shell execution is disabled.");
-                    }
-
-                    if let Some(whitelist) = &perm.whitelist {
-                        if !whitelist.iter().any(|cmd| cmd == program) {
-                            bail!("Command '{}' is not whitelisted.", program);
-                        }
-                    }
-
-                    if let Some(blacklist) = &perm.blacklist {
-                        if blacklist.iter().any(|cmd| cmd == program) {
-                            bail!("Command '{}' is blacklisted.", program);
-                        }
-                    }
+                    ensure_spawn_program_allowed(program, &perm)?;
 
                     let mut command = if cfg!(target_os = "macos") {
                         let profile = "(version 1) (allow default)";
@@ -540,33 +509,12 @@ impl WasmRuntime {
                         .and_then(parse_memory_string)
                         .unwrap_or(1024 * 1024);
 
-                    let mut result_str = String::new();
-                    
-                    if !output.status.success() {
-                        result_str.push_str("Error:\n");
-                    }
-                    
-                    let stdout_str = String::from_utf8_lossy(&output.stdout);
-                    if !stdout_str.is_empty() {
-                        result_str.push_str(&stdout_str);
-                        if !output.stderr.is_empty() {
-                            result_str.push('\n');
-                        }
-                    }
-                    
-                    let stderr_str = String::from_utf8_lossy(&output.stderr);
-                    if !stderr_str.is_empty() {
-                        result_str.push_str(&stderr_str);
-                    }
-
-                    if result_str.len() > max_len {
-                        let mut actual_len = max_len;
-                        while !result_str.is_char_boundary(actual_len) {
-                            actual_len -= 1;
-                        }
-                        result_str.truncate(actual_len);
-                        result_str.push_str("...[truncated]");
-                    }
+                    let result_str = format_spawn_output(
+                        output.status.success(),
+                        &output.stdout,
+                        &output.stderr,
+                        max_len,
+                    );
 
                     let (out_ptr, out_len) =
                         write_bytes_async(&mut caller, result_str.as_bytes()).await?;
@@ -584,68 +532,27 @@ impl WasmRuntime {
                     log_host(&caller, format!("host.net.fetch url={}", url));
                     let permission = caller.data().net_permission.clone();
                     let client = caller.data().net_client.clone();
-                    if !permission.allow {
-                        bail!("Network access is disabled for this agent.");
-                    }
 
                     let mut current =
                         Url::parse(&url).map_err(|e| anyhow!("Invalid URL: {}", e))?;
                     let max_redirects = 5;
 
                     for _ in 0..=max_redirects {
-                        match current.scheme() {
-                            "http" | "https" => {}
-                            _ => bail!("URL scheme '{}' is not allowed.", current.scheme()),
-                        }
+                        let (host, port) = validate_net_fetch_target(&current, &permission)?;
 
-                        let host = current.host_str().unwrap_or("");
-                        let port = current.port_or_known_default().unwrap_or(80);
-
-                        if !permission.allowed_domains.is_empty()
-                            || !permission.allowed_ips.is_empty()
+                        let ips: Vec<std::net::IpAddr> = if let Ok(ip) =
+                            host.parse::<std::net::IpAddr>()
                         {
-                            let allowed = permission
-                                .allowed_domains
-                                .iter()
-                                .any(|d| host == d || host.ends_with(&format!(".{}", d)));
-
-                            if !allowed {
-                                let is_ip_allowed =
-                                    if let Ok(_ip) = host.parse::<std::net::IpAddr>() {
-                                        permission
-                                            .allowed_ips
-                                            .iter()
-                                            .any(|allowed_ip| allowed_ip == host)
-                                    } else {
-                                        false
-                                    };
-                                if !is_ip_allowed {
-                                    bail!("Domain/IP '{}' is not in the allowed list.", host);
-                                }
-                            }
-                        }
-
-                        if permission.block_private_networks {
-                            let ips: Vec<std::net::IpAddr> =
-                                if let Ok(ip) = host.parse::<std::net::IpAddr>() {
-                                    vec![ip]
-                                } else {
-                                    let addr_str = format!("{}:{}", host, port);
-                                    tokio::net::lookup_host(&addr_str)
-                                        .await
-                                        .map_err(|e| {
-                                            anyhow!("DNS resolution failed for {}: {}", host, e)
-                                        })?
-                                        .map(|sa| sa.ip())
-                                        .collect()
-                                };
-
-                            for ip in ips {
-                                if is_private_ip(&ip) {
-                                    bail!("Access to private network blocked (IP: {})", ip);
-                                }
-                            }
-                        }
+                            vec![ip]
+                        } else {
+                            let addr_str = format!("{}:{}", host, port);
+                            tokio::net::lookup_host(&addr_str)
+                                .await
+                                .map_err(|e| anyhow!("DNS resolution failed for {}: {}", host, e))?
+                                .map(|sa| sa.ip())
+                                .collect()
+                        };
+                        ensure_public_network_access(&permission, &ips)?;
 
                         let timeout_duration = permission
                             .timeout
@@ -1496,7 +1403,142 @@ struct ToolsCallInput {
 }
 
 fn ensure_host_fs_enabled(caller: &Caller<'_, HostState>) -> Result<()> {
-    match caller.data().fs_mode {
+    ensure_host_fs_mode_enabled(&caller.data().fs_mode)
+}
+
+fn ensure_shell_command_allowed(perm: &ShellPermission) -> Result<()> {
+    if !perm.allow {
+        bail!("Shell execution is disabled.");
+    }
+    Ok(())
+}
+
+fn ensure_spawn_program_allowed(program: &str, perm: &ShellPermission) -> Result<()> {
+    ensure_shell_command_allowed(perm)?;
+
+    if let Some(whitelist) = &perm.whitelist {
+        if !whitelist.iter().any(|cmd| cmd == program) {
+            bail!("Command '{}' is not whitelisted.", program);
+        }
+    }
+
+    if let Some(blacklist) = &perm.blacklist {
+        if blacklist.iter().any(|cmd| cmd == program) {
+            bail!("Command '{}' is blacklisted.", program);
+        }
+    }
+
+    Ok(())
+}
+
+fn truncate_at_char_boundary(mut s: String, max_len: usize) -> String {
+    if s.len() <= max_len {
+        return s;
+    }
+
+    let mut actual_len = max_len;
+    while !s.is_char_boundary(actual_len) {
+        actual_len -= 1;
+    }
+    s.truncate(actual_len);
+    s.push_str("...[truncated]");
+    s
+}
+
+fn format_run_command_output(
+    success: bool,
+    stdout: &[u8],
+    stderr: &[u8],
+    max_len: usize,
+) -> String {
+    if success {
+        let out = String::from_utf8_lossy(stdout).to_string();
+        truncate_at_char_boundary(out, max_len)
+    } else {
+        let out = format!("Error: {}", String::from_utf8_lossy(stderr));
+        truncate_at_char_boundary(out, max_len)
+    }
+}
+
+fn format_spawn_output(success: bool, stdout: &[u8], stderr: &[u8], max_len: usize) -> String {
+    let mut out = String::new();
+    if !success {
+        out.push_str("Error:\n");
+    }
+
+    let stdout_str = String::from_utf8_lossy(stdout);
+    if !stdout_str.is_empty() {
+        out.push_str(&stdout_str);
+        if !stderr.is_empty() {
+            out.push('\n');
+        }
+    }
+
+    let stderr_str = String::from_utf8_lossy(stderr);
+    if !stderr_str.is_empty() {
+        out.push_str(&stderr_str);
+    }
+
+    truncate_at_char_boundary(out, max_len)
+}
+
+fn validate_net_fetch_target(url: &Url, permission: &NetPermissions) -> Result<(String, u16)> {
+    if !permission.allow {
+        bail!("Network access is disabled for this agent.");
+    }
+
+    match url.scheme() {
+        "http" | "https" => {}
+        _ => bail!("URL scheme '{}' is not allowed.", url.scheme()),
+    }
+
+    let host = url.host_str().unwrap_or("").to_string();
+    let port = url.port_or_known_default().unwrap_or(80);
+
+    if !permission.allowed_domains.is_empty() || !permission.allowed_ips.is_empty() {
+        let allowed = permission
+            .allowed_domains
+            .iter()
+            .any(|d| host == *d || host.ends_with(&format!(".{}", d)));
+
+        if !allowed {
+            let ip_allowed = if host.parse::<std::net::IpAddr>().is_ok() {
+                permission
+                    .allowed_ips
+                    .iter()
+                    .any(|allowed_ip| allowed_ip == &host)
+            } else {
+                false
+            };
+
+            if !ip_allowed {
+                bail!("Domain/IP '{}' is not in the allowed list.", host);
+            }
+        }
+    }
+
+    Ok((host, port))
+}
+
+fn ensure_public_network_access(
+    permission: &NetPermissions,
+    ips: &[std::net::IpAddr],
+) -> Result<()> {
+    if !permission.block_private_networks {
+        return Ok(());
+    }
+
+    for ip in ips {
+        if is_private_ip(ip) {
+            bail!("Access to private network blocked (IP: {})", ip);
+        }
+    }
+
+    Ok(())
+}
+
+fn ensure_host_fs_mode_enabled(fs_mode: &RuntimeFsMode) -> Result<()> {
+    match fs_mode {
         RuntimeFsMode::WasiMounts => {
             bail!("host filesystem access is disabled (runtime_fs_mode = wasi_mounts)")
         }
@@ -1588,4 +1630,250 @@ fn get_memory(caller: &mut Caller<'_, HostState>) -> Result<wasmtime::Memory> {
 
 fn pack_ptr_len(ptr: u32, len: u32) -> i64 {
     ((ptr as i64) << 32) | (len as i64 & 0xffff_ffff)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        build_wasm_llm_body, ensure_host_fs_mode_enabled, ensure_public_network_access,
+        ensure_shell_command_allowed, ensure_spawn_program_allowed, extract_llm_content,
+        format_run_command_output, format_spawn_output, is_likely_llm_request_object, pack_ptr_len,
+        validate_net_fetch_target,
+    };
+    use crate::core::config::agent::{NetPermissions, RuntimeFsMode, ShellPermission};
+    use reqwest::Url;
+    use serde_json::json;
+    use std::net::{IpAddr, Ipv4Addr};
+
+    #[test]
+    fn build_wasm_llm_body_from_plain_prompt_sets_defaults() {
+        let default_model = Some("test-model".to_string());
+        let (body, used_object_input) =
+            build_wasm_llm_body("hello", default_model.as_ref(), false, "llm_chat").expect("body");
+
+        assert!(!used_object_input);
+        assert_eq!(body.get("model"), Some(&json!("test-model")));
+        assert_eq!(body.get("stream"), Some(&json!(false)));
+        assert_eq!(
+            body.get("response_format"),
+            Some(&json!({"type": "json_object"}))
+        );
+        assert_eq!(
+            body.get("messages"),
+            Some(&json!([{"role":"user","content":"hello"}]))
+        );
+    }
+
+    #[test]
+    fn build_wasm_llm_body_converts_prompt_in_object_request() {
+        let (body, used_object_input) = build_wasm_llm_body(
+            r#"{"prompt":"hello from prompt"}"#,
+            None,
+            true,
+            "llm_chat_stream",
+        )
+        .expect("body");
+
+        assert!(used_object_input);
+        assert_eq!(body.get("stream"), Some(&json!(true)));
+        assert_eq!(
+            body.get("messages"),
+            Some(&json!([{"role":"user","content":"hello from prompt"}]))
+        );
+        assert!(!body.contains_key("prompt"));
+        assert!(!body.contains_key("response_format"));
+    }
+
+    #[test]
+    fn build_wasm_llm_body_errors_when_prompt_is_not_string() {
+        let err = build_wasm_llm_body(r#"{"prompt":123}"#, None, false, "llm_chat")
+            .expect_err("must fail");
+        assert!(
+            err.to_string()
+                .contains("llm_chat() prompt must be a string.")
+        );
+    }
+
+    #[test]
+    fn build_wasm_llm_body_errors_when_messages_and_prompt_missing() {
+        let err = build_wasm_llm_body(r#"{"temperature":0.2}"#, None, false, "llm_chat")
+            .expect_err("must fail");
+        assert!(
+            err.to_string()
+                .contains("llm_chat() request body must include messages or prompt.")
+        );
+    }
+
+    #[test]
+    fn build_wasm_llm_body_preserves_object_response_format() {
+        let (body, used_object_input) = build_wasm_llm_body(
+            r#"{"messages":[{"role":"user","content":"hi"}],"response_format":{"type":"text"}}"#,
+            None,
+            false,
+            "llm_chat",
+        )
+        .expect("body");
+
+        assert!(used_object_input);
+        assert_eq!(body.get("stream"), Some(&json!(false)));
+        assert_eq!(body.get("response_format"), Some(&json!({"type":"text"})));
+    }
+
+    #[test]
+    fn likely_llm_request_object_detects_known_keys() {
+        let with_messages = serde_json::from_value(json!({"messages": []})).expect("object");
+        let with_thinking_budget =
+            serde_json::from_value(json!({"thinking_budget": 128})).expect("object");
+        let unknown = serde_json::from_value(json!({"foo": "bar"})).expect("object");
+
+        assert!(is_likely_llm_request_object(&with_messages));
+        assert!(is_likely_llm_request_object(&with_thinking_budget));
+        assert!(!is_likely_llm_request_object(&unknown));
+    }
+
+    #[test]
+    fn extract_llm_content_from_standard_json_payload() {
+        let text = r#"{"choices":[{"message":{"content":"hello"}}]}"#;
+        assert_eq!(extract_llm_content(text), "hello");
+    }
+
+    #[test]
+    fn extract_llm_content_from_markdown_wrapped_json() {
+        let text =
+            "prefix ```json{\"choices\":[{\"message\":{\"content\":\"wrapped\"}}]}``` suffix";
+        assert_eq!(extract_llm_content(text), "wrapped");
+    }
+
+    #[test]
+    fn extract_llm_content_from_sse_stream() {
+        let text = "data: {\"choices\":[{\"delta\":{\"content\":\"hel\"}}]}\n\
+data: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\
+data: [DONE]\n";
+        assert_eq!(extract_llm_content(text), "hello");
+    }
+
+    #[test]
+    fn extract_llm_content_falls_back_to_original_text() {
+        let raw = "not-json content";
+        assert_eq!(extract_llm_content(raw), raw);
+    }
+
+    #[test]
+    fn pack_ptr_len_combines_pointer_and_length() {
+        let packed = pack_ptr_len(0x1234_5678, 0x9abc_def0);
+        let ptr = ((packed >> 32) & 0xffff_ffff) as u32;
+        let len = (packed & 0xffff_ffff) as u32;
+        assert_eq!(ptr, 0x1234_5678);
+        assert_eq!(len, 0x9abc_def0);
+    }
+
+    #[test]
+    fn run_command_permission_rejects_when_disabled() {
+        let perm = ShellPermission::default();
+        let err = ensure_shell_command_allowed(&perm).expect_err("must reject");
+        assert!(err.to_string().contains("Shell execution is disabled."));
+    }
+
+    #[test]
+    fn run_command_permission_allows_when_enabled() {
+        let mut perm = ShellPermission::default();
+        perm.allow = true;
+        assert!(ensure_shell_command_allowed(&perm).is_ok());
+    }
+
+    #[test]
+    fn spawn_permission_enforces_whitelist_and_blacklist() {
+        let mut perm = ShellPermission::default();
+        perm.allow = true;
+        perm.whitelist = Some(vec!["echo".to_string()]);
+        perm.blacklist = Some(vec!["rm".to_string()]);
+
+        assert!(ensure_spawn_program_allowed("echo", &perm).is_ok());
+        assert!(ensure_spawn_program_allowed("ls", &perm).is_err());
+        assert!(ensure_spawn_program_allowed("rm", &perm).is_err());
+    }
+
+    #[test]
+    fn run_command_output_formats_and_truncates() {
+        let ok = format_run_command_output(true, b"abcdef", b"", 3);
+        assert_eq!(ok, "abc...[truncated]");
+
+        let err = format_run_command_output(false, b"", b"oops", 64);
+        assert_eq!(err, "Error: oops");
+    }
+
+    #[test]
+    fn spawn_output_formats_and_truncates() {
+        let err = format_spawn_output(false, b"out", b"err", 64);
+        assert_eq!(err, "Error:\nout\nerr");
+
+        let truncated = format_spawn_output(true, b"abcdef", b"", 4);
+        assert_eq!(truncated, "abcd...[truncated]");
+    }
+
+    #[test]
+    fn net_target_rejects_when_network_is_disabled() {
+        let perm = NetPermissions::default();
+        let url = Url::parse("https://example.com").expect("url");
+        let err = validate_net_fetch_target(&url, &perm).expect_err("must reject");
+        assert!(
+            err.to_string()
+                .contains("Network access is disabled for this agent.")
+        );
+    }
+
+    #[test]
+    fn net_target_rejects_non_http_scheme() {
+        let mut perm = NetPermissions::default();
+        perm.allow = true;
+        let url = Url::parse("ftp://example.com").expect("url");
+        let err = validate_net_fetch_target(&url, &perm).expect_err("must reject");
+        assert!(err.to_string().contains("URL scheme 'ftp' is not allowed."));
+    }
+
+    #[test]
+    fn net_target_honors_domain_and_ip_allowlists() {
+        let mut perm = NetPermissions::default();
+        perm.allow = true;
+        perm.allowed_domains = vec!["example.com".to_string()];
+        perm.allowed_ips = vec!["127.0.0.1".to_string()];
+
+        let domain = Url::parse("https://api.example.com/path").expect("url");
+        let ip = Url::parse("http://127.0.0.1:8080").expect("url");
+        let blocked = Url::parse("https://blocked.com").expect("url");
+
+        assert!(validate_net_fetch_target(&domain, &perm).is_ok());
+        assert!(validate_net_fetch_target(&ip, &perm).is_ok());
+        assert!(validate_net_fetch_target(&blocked, &perm).is_err());
+    }
+
+    #[test]
+    fn private_network_access_blocks_private_ips_when_enabled() {
+        let mut perm = NetPermissions::default();
+        perm.block_private_networks = true;
+        let ips = vec![IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))];
+        let err = ensure_public_network_access(&perm, &ips).expect_err("must reject");
+        assert!(
+            err.to_string()
+                .contains("Access to private network blocked (IP: 127.0.0.1)")
+        );
+    }
+
+    #[test]
+    fn private_network_access_allows_private_ips_when_disabled() {
+        let perm = NetPermissions::default();
+        let ips = vec![IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))];
+        assert!(ensure_public_network_access(&perm, &ips).is_ok());
+    }
+
+    #[test]
+    fn host_fs_mode_gating_matches_runtime_mode() {
+        assert!(ensure_host_fs_mode_enabled(&RuntimeFsMode::HostFilesystem).is_ok());
+        assert!(ensure_host_fs_mode_enabled(&RuntimeFsMode::Both).is_ok());
+        let err = ensure_host_fs_mode_enabled(&RuntimeFsMode::WasiMounts).expect_err("must fail");
+        assert!(
+            err.to_string()
+                .contains("host filesystem access is disabled (runtime_fs_mode = wasi_mounts)")
+        );
+    }
 }

@@ -28,6 +28,21 @@ pub fn apply_template(
     enable_thinking: Option<bool>,
     enable_thinking_default: bool,
 ) -> Result<String> {
+    #[cfg(test)]
+    if model.is_dummy() {
+        let mut out = String::new();
+        for msg in messages {
+            out.push_str(&msg.role);
+            out.push_str(": ");
+            out.push_str(&msg.content);
+            out.push('\n');
+        }
+        if enable_thinking.unwrap_or(enable_thinking_default) {
+            out.push_str("<think>dummy</think>\n");
+        }
+        return Ok(out);
+    }
+
     let chat_messages: Vec<ChatMessage<'_>> = messages
         .iter()
         .map(|m| ChatMessage {
@@ -38,8 +53,7 @@ pub fn apply_template(
 
     let options = ChatTemplateOptions {
         add_generation_prompt: true,
-        enable_thinking_default,
-        enable_thinking,
+        enable_thinking: Some(enable_thinking.unwrap_or(enable_thinking_default)),
         chat_template_kwargs: Map::new(),
     };
 

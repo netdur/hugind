@@ -93,6 +93,10 @@ impl Model {
         unsafe { llama_cpp::llama_model_n_embd(self.ptr.as_ptr()) }
     }
 
+    pub fn n_embd_out(&self) -> i32 {
+        unsafe { llama_cpp::llama_model_n_embd_out(self.ptr.as_ptr()) }
+    }
+
     pub fn has_encoder(&self) -> bool {
         unsafe { llama_cpp::llama_model_has_encoder(self.ptr.as_ptr()) }
     }
@@ -109,8 +113,26 @@ impl Model {
     }
 }
 
+#[cfg(test)]
+impl Model {
+    pub fn dummy() -> Self {
+        Self {
+            ptr: NonNull::dangling(),
+        }
+    }
+
+    pub fn is_dummy(&self) -> bool {
+        self.ptr == NonNull::dangling()
+    }
+}
+
 impl Drop for Model {
     fn drop(&mut self) {
+        #[cfg(test)]
+        if self.ptr == NonNull::dangling() {
+            return;
+        }
+
         unsafe {
             llama_cpp::llama_free_model(self.ptr.as_ptr());
         }

@@ -67,10 +67,16 @@ pub struct LlmEngine<'a> {
     prep_tx: Option<mpsc::Sender<PrepJob>>,
     prep_rx: mpsc::Receiver<PrepResult>,
     _prep_handle: Option<thread::JoinHandle<()>>,
+    embeddings_mode: bool,
     trace_flow: bool,
+    trace_flow_verbose: bool,
     last_flow_pull_start: Option<(usize, usize, usize)>,
     last_flow_post_schedule: Option<(usize, usize, usize)>,
     last_flow_batch_built: Option<(i32, usize)>,
+    eval_diag_request_logs: u32,
+    eval_diag_encode_logs: u32,
+    eval_diag_decode_logs: u32,
+    eval_diag_decode_unexpected_logs: u32,
     think_tag_markers: ThinkTagMarkers,
 }
 
@@ -87,24 +93,38 @@ pub struct EngineStats {
 }
 
 impl<'a> LlmEngine<'a> {
-    fn flow_enabled() -> bool {
-        std::env::var("HUGIND_ENGINE_TRACE")
-            .ok()
-            .map(|v| {
-                let v = v.trim().to_ascii_lowercase();
-                matches!(v.as_str(), "1" | "true" | "yes" | "on" | "debug")
-            })
-            .unwrap_or(false)
+    fn flow_mode() -> (bool, bool) {
+        let Some(value) = std::env::var("HUGIND_ENGINE_TRACE").ok() else {
+            return (false, false);
+        };
+        let value = value.trim().to_ascii_lowercase();
+        if matches!(value.as_str(), "debug" | "verbose" | "all") {
+            return (true, true);
+        }
+        if matches!(value.as_str(), "1" | "true" | "yes" | "on" | "important") {
+            return (true, false);
+        }
+        (false, false)
+    }
+
+    fn important_flow_message(msg: &str) -> bool {
+        msg.starts_with("push error")
+            || msg.starts_with("prep failed")
+            || msg.starts_with("schedule pause")
     }
 
     fn flow_log(&self, msg: impl AsRef<str>) {
-        if self.trace_flow {
-            eprintln!("[Flow] {}", msg.as_ref());
+        if !self.trace_flow {
+            return;
+        }
+        let msg = msg.as_ref();
+        if self.trace_flow_verbose || Self::important_flow_message(msg) {
+            eprintln!("[Flow] {}", msg);
         }
     }
 
     fn flow_log_pull_start(&mut self) {
-        if !self.trace_flow {
+        if !self.trace_flow_verbose {
             return;
         }
         let snapshot = (
@@ -122,7 +142,7 @@ impl<'a> LlmEngine<'a> {
     }
 
     fn flow_log_post_schedule(&mut self) {
-        if !self.trace_flow {
+        if !self.trace_flow_verbose {
             return;
         }
         let snapshot = (
@@ -140,7 +160,7 @@ impl<'a> LlmEngine<'a> {
     }
 
     fn flow_log_batch_built(&mut self, n_tokens: i32, tracked_logits_seqs: usize) {
-        if !self.trace_flow {
+        if !self.trace_flow_verbose {
             return;
         }
         let snapshot = (n_tokens, tracked_logits_seqs);
@@ -150,6 +170,68 @@ impl<'a> LlmEngine<'a> {
                 snapshot.0, snapshot.1
             );
             self.last_flow_batch_built = Some(snapshot);
+        }
+    }
+
+    fn log_decode_unexpected(
+        &mut self,
+        slot_batch_idx: &HashMap<i32, i32>,
+        batch_embedding_mode: Option<bool>,
+        batch_has_embedding: bool,
+    ) {
+        if self.eval_diag_decode_unexpected_logs >= 32 {
+            return;
+        }
+
+        let model_has_encoder = self._model.has_encoder();
+        let model_has_decoder = self._model.has_decoder();
+
+        let mut seq_items: Vec<(i32, i32)> = slot_batch_idx
+            .iter()
+            .map(|(&seq_id, &batch_idx)| (seq_id, batch_idx))
+            .collect();
+        seq_items.sort_by_key(|(seq_id, _)| *seq_id);
+
+        let mut seq_summaries = Vec::new();
+        for (seq_id, batch_idx) in seq_items.into_iter().take(8) {
+            if let Some(slot) = self.slots.get(&seq_id) {
+                if let Some(req) = self.requests.get(&slot.request_id) {
+                    let req_short = req.params.id.chars().take(8).collect::<String>();
+                    seq_summaries.push(format!(
+                        "seq={} batch_idx={} req={} state={:?} emb={} prompt_processed={}/{} generated={}",
+                        seq_id,
+                        batch_idx,
+                        req_short,
+                        req.state,
+                        req.params.embedding,
+                        slot.n_prompt_processed,
+                        req.prompt_tokens.len(),
+                        req.generated_tokens.len()
+                    ));
+                }
+            }
+        }
+        let seq_summary = if seq_summaries.is_empty() {
+            "none".to_string()
+        } else {
+            seq_summaries.join(" | ")
+        };
+
+        eprintln!(
+            "[EvalDiag] decode-unexpected cfg_embeddings={} model_has_encoder={} model_has_decoder={} batch_mode={:?} batch_has_embedding={} n_tokens={} tracked_logits_seqs={} active={}",
+            self.embeddings_mode,
+            model_has_encoder,
+            model_has_decoder,
+            batch_embedding_mode,
+            batch_has_embedding,
+            self.batch.handle.n_tokens,
+            slot_batch_idx.len(),
+            seq_summary
+        );
+
+        self.eval_diag_decode_unexpected_logs += 1;
+        if self.eval_diag_decode_unexpected_logs == 32 {
+            eprintln!("[EvalDiag] decode-unexpected further logs suppressed");
         }
     }
 
@@ -191,7 +273,19 @@ impl<'a> LlmEngine<'a> {
 
         let (prep_tx, prep_job_rx) = mpsc::channel::<PrepJob>();
         let (prep_result_tx, prep_rx) = mpsc::channel::<PrepResult>();
-        let trace_flow = Self::flow_enabled();
+        let (trace_flow, trace_flow_verbose) = Self::flow_mode();
+        let embeddings_mode = ctx_params.embeddings;
+
+        eprintln!(
+            "[EvalDiag] init cfg_embeddings={} model_has_encoder={} model_has_decoder={} n_ctx={} n_batch={} n_ubatch={} n_seq_max={}",
+            embeddings_mode,
+            model.has_encoder(),
+            model.has_decoder(),
+            ctx_params.n_ctx,
+            ctx_params.n_batch,
+            ctx_params.n_ubatch,
+            ctx_params.n_seq_max
+        );
 
         let worker_mmproj = mmproj.clone();
         let mm_debug = std::env::var("HUGIND_LLAMA_DEBUG")
@@ -298,10 +392,16 @@ impl<'a> LlmEngine<'a> {
             prep_tx: Some(prep_tx),
             prep_rx,
             _prep_handle,
+            embeddings_mode,
             trace_flow,
+            trace_flow_verbose,
             last_flow_pull_start: None,
             last_flow_post_schedule: None,
             last_flow_batch_built: None,
+            eval_diag_request_logs: 0,
+            eval_diag_encode_logs: 0,
+            eval_diag_decode_logs: 0,
+            eval_diag_decode_unexpected_logs: 0,
             think_tag_markers,
         })
     }
@@ -315,6 +415,26 @@ impl<'a> LlmEngine<'a> {
 
         let mut req = request;
         req.params.id = id.clone();
+        if req.params.embedding != self.embeddings_mode && self.eval_diag_request_logs < 32 {
+            eprintln!(
+                "[EvalDiag] request-mode-mismatch request={} req_embedding={} cfg_embeddings={} state={:?} prompt_override_tokens={} prompt_chars={} images={}",
+                id,
+                req.params.embedding,
+                self.embeddings_mode,
+                req.state,
+                req.params
+                    .prompt_tokens_override
+                    .as_ref()
+                    .map(|tokens| tokens.len())
+                    .unwrap_or(0),
+                req.params.prompt.chars().count(),
+                req.params.images.len()
+            );
+            self.eval_diag_request_logs += 1;
+            if self.eval_diag_request_logs == 32 {
+                eprintln!("[EvalDiag] request-mode-mismatch further logs suppressed");
+            }
+        }
         self.flow_log(format!(
             "push request={} session_id={:?} parent_id={:?} prompt_chars={} images={}",
             id,
@@ -327,7 +447,17 @@ impl<'a> LlmEngine<'a> {
         let response_tx = req.response_tx.clone();
         let mut submission_error = None;
 
-        if self.mmproj.is_some() && !req.params.images.is_empty() {
+        if req.params.embedding != self.embeddings_mode {
+            submission_error = Some(if self.embeddings_mode {
+                "Server is running in embedding mode; non-embedding requests are rejected"
+                    .to_string()
+            } else {
+                "Server is not running in embedding mode; embedding requests are rejected"
+                    .to_string()
+            });
+        }
+
+        if submission_error.is_none() && self.mmproj.is_some() && !req.params.images.is_empty() {
             req.state = RequestState::Preparing;
             let job = PrepJob {
                 request_id: id.clone(),
@@ -350,24 +480,39 @@ impl<'a> LlmEngine<'a> {
                     self.requests.remove(&id);
                 }
             }
-        } else {
-            match self.tokenizer.tokenize(&req.params.prompt, true, true) {
-                Ok(tokens) => {
-                    req.prompt_tokens = tokens;
-                    req.state = RequestState::Waiting;
-                    self.flow_log(format!(
-                        "push tokenized request={} prompt_tokens={}",
-                        id,
-                        req.prompt_tokens.len()
-                    ));
-                    self.requests.insert(id.clone(), req);
-                    if let Err(msg) = self.request_queue.push(id.clone()) {
-                        submission_error = Some(msg);
-                        self.requests.remove(&id);
-                    }
+        } else if submission_error.is_none() {
+            if let Some(tokens) = req.params.prompt_tokens_override.take() {
+                req.prompt_tokens = tokens;
+                req.state = RequestState::Waiting;
+                self.flow_log(format!(
+                    "push pretokenized request={} prompt_tokens={}",
+                    id,
+                    req.prompt_tokens.len()
+                ));
+                self.requests.insert(id.clone(), req);
+                if let Err(msg) = self.request_queue.push(id.clone()) {
+                    submission_error = Some(msg);
+                    self.requests.remove(&id);
                 }
-                Err(_) => {
-                    submission_error = Some("Tokenization failed".to_string());
+            } else {
+                match self.tokenizer.tokenize(&req.params.prompt, true, true) {
+                    Ok(tokens) => {
+                        req.prompt_tokens = tokens;
+                        req.state = RequestState::Waiting;
+                        self.flow_log(format!(
+                            "push tokenized request={} prompt_tokens={}",
+                            id,
+                            req.prompt_tokens.len()
+                        ));
+                        self.requests.insert(id.clone(), req);
+                        if let Err(msg) = self.request_queue.push(id.clone()) {
+                            submission_error = Some(msg);
+                            self.requests.remove(&id);
+                        }
+                    }
+                    Err(_) => {
+                        submission_error = Some("Tokenization failed".to_string());
+                    }
                 }
             }
         }
@@ -405,6 +550,8 @@ impl<'a> LlmEngine<'a> {
         events.append(&mut self.pending_events);
 
         let mut abort_seqs = Vec::new();
+        let trace_flow = self.trace_flow;
+        let trace_flow_verbose = self.trace_flow_verbose;
 
         for prep in self.prep_rx.try_iter() {
             if let Some(req) = self.requests.get_mut(&prep.request_id) {
@@ -414,7 +561,7 @@ impl<'a> LlmEngine<'a> {
                         req.multimodal_chunks = prepared.multimodal_chunks;
                         req.multimodal_meta = prepared.multimodal_meta;
                         req.state = RequestState::Waiting;
-                        if self.trace_flow {
+                        if trace_flow_verbose {
                             eprintln!(
                                 "[Flow] prep ready request={} prompt_tokens={} mm_chunks={}",
                                 prep.request_id,
@@ -439,7 +586,7 @@ impl<'a> LlmEngine<'a> {
                         }
                     }
                     Err(msg) => {
-                        if self.trace_flow {
+                        if trace_flow {
                             eprintln!(
                                 "[Flow] prep failed request={} message={}",
                                 prep.request_id, msg
@@ -475,6 +622,7 @@ impl<'a> LlmEngine<'a> {
         let mut slot_batch_idx = HashMap::new();
         let mut eval_tokens: HashMap<i32, Vec<Token>> = HashMap::new();
         let mut prefill_progress: HashMap<i32, usize> = HashMap::new();
+        let mut batch_embedding_mode: Option<bool> = None;
         {
             let slots = &mut self.slots;
             let requests = &mut self.requests;
@@ -515,11 +663,17 @@ impl<'a> LlmEngine<'a> {
                 if req.state != RequestState::Processing {
                     continue;
                 }
+                let req_is_embedding = req.params.embedding;
+                if let Some(mode) = batch_embedding_mode {
+                    if mode != req_is_embedding {
+                        continue;
+                    }
+                }
 
                 if req.state == RequestState::Processing
                     && slot.n_prompt_processed < req.prompt_tokens.len()
                 {
-                    if self.trace_flow {
+                    if trace_flow_verbose {
                         eprintln!(
                             "[Flow] force waiting request={} seq={} processed={} prompt_len={}",
                             slot.request_id,
@@ -533,7 +687,10 @@ impl<'a> LlmEngine<'a> {
                 }
 
                 if slot.sample_from_cache {
-                    if self.trace_flow {
+                    if batch_embedding_mode.is_none() {
+                        batch_embedding_mode = Some(req_is_embedding);
+                    }
+                    if trace_flow_verbose {
                         eprintln!(
                             "[Flow] sample-from-cache request={} seq={}",
                             slot.request_id, seq_id
@@ -572,10 +729,13 @@ impl<'a> LlmEngine<'a> {
                     }
                     None => req.prompt_tokens.last().unwrap(),
                 };
+                if batch_embedding_mode.is_none() {
+                    batch_embedding_mode = Some(req_is_embedding);
+                }
                 let pos_last = Self::pos_for_last_token(req);
                 let idx = batch.handle.n_tokens;
                 batch.add_seq(last_tok.0, pos_last, seq_id, true)?;
-                if self.trace_flow {
+                if trace_flow_verbose {
                     eprintln!(
                         "[Flow] processing add request={} seq={} token={} pos={} idx={}",
                         slot.request_id, seq_id, last_tok.0, pos_last, idx
@@ -623,6 +783,12 @@ impl<'a> LlmEngine<'a> {
                 if req.state != RequestState::Waiting {
                     continue;
                 }
+                let req_is_embedding = req.params.embedding;
+                if let Some(mode) = batch_embedding_mode {
+                    if mode != req_is_embedding {
+                        continue;
+                    }
+                }
 
                 if req.prompt_tokens.is_empty() {
                     Self::emit_event(
@@ -667,11 +833,14 @@ impl<'a> LlmEngine<'a> {
                     }
 
                     let is_last = tok_idx == total_len - 1;
-                    let logits_flag = is_last;
+                    let logits_flag = req.params.embedding || is_last;
                     let pos = Self::pos_for_prompt_index(req, tok_idx);
+                    if batch_embedding_mode.is_none() {
+                        batch_embedding_mode = Some(req_is_embedding);
+                    }
                     let idx = batch.handle.n_tokens;
                     batch.add_seq(tok.0, pos, seq_id, logits_flag)?;
-                    if self.trace_flow {
+                    if trace_flow_verbose {
                         eprintln!(
                             "[Flow] prefill add request={} seq={} tok_idx={} token={} pos={} logits={}",
                             slot.request_id, seq_id, tok_idx, tok.0, pos, logits_flag
@@ -704,10 +873,108 @@ impl<'a> LlmEngine<'a> {
             return Ok(events);
         }
 
+        if batch_embedding_mode.is_none() {
+            batch_embedding_mode = slot_batch_idx.keys().find_map(|seq_id| {
+                self.slots
+                    .get(seq_id)
+                    .and_then(|slot| self.requests.get(&slot.request_id))
+                    .map(|req| req.params.embedding)
+            });
+        }
+        let model_has_encoder = self._model.has_encoder();
+        let model_has_decoder = self._model.has_decoder();
+        let batch_has_embedding = batch_embedding_mode.unwrap_or(false);
+
+        if self.embeddings_mode && batch_has_embedding {
+            // In embedding-only mode, we do not preserve conversational KV state.
+            // Clearing memory each step mirrors llama.cpp embedding examples and
+            // avoids stale sequence state across independent requests.
+            self.ctx.memory_clear(true);
+        }
+
+        let should_use_encode = batch_has_embedding || (model_has_encoder && !model_has_decoder);
+
         if self.batch.handle.n_tokens == 0 {
-        } else if self._model.has_encoder() && !self._model.has_decoder() {
-            self.ctx.encode(&mut self.batch)?;
+        } else if should_use_encode {
+            if self.eval_diag_encode_logs < 16 {
+                let (embedding_reqs, generation_reqs) =
+                    self.requests
+                        .values()
+                        .fold((0usize, 0usize), |(e, g), req| {
+                            if req.params.embedding {
+                                (e + 1, g)
+                            } else {
+                                (e, g + 1)
+                            }
+                        });
+                eprintln!(
+                    "[EvalDiag] branch=encode n_tokens={} slot_batch_idx={} batch_mode={:?} cfg_embeddings={} has_encoder={} has_decoder={} req_embedding={} req_generation={}",
+                    self.batch.handle.n_tokens,
+                    slot_batch_idx.len(),
+                    batch_embedding_mode,
+                    self.embeddings_mode,
+                    model_has_encoder,
+                    model_has_decoder,
+                    embedding_reqs,
+                    generation_reqs
+                );
+                self.eval_diag_encode_logs += 1;
+                if self.eval_diag_encode_logs == 16 {
+                    eprintln!("[EvalDiag] branch=encode further logs suppressed");
+                }
+            }
+            if let Err(e) = self.ctx.encode(&mut self.batch) {
+                let can_retry_decode =
+                    batch_has_embedding && !model_has_encoder && model_has_decoder;
+                if can_retry_decode {
+                    eprintln!(
+                        "[EvalDiag] encode failed on embedding batch; retrying decode (model_has_encoder={}, model_has_decoder={})",
+                        model_has_encoder, model_has_decoder
+                    );
+                    self.ctx.decode(&mut self.batch)?;
+                } else {
+                    return Err(e);
+                }
+            }
         } else {
+            let decode_unexpected = self.embeddings_mode
+                || batch_has_embedding
+                || (model_has_encoder && !model_has_decoder);
+            if decode_unexpected {
+                self.log_decode_unexpected(
+                    &slot_batch_idx,
+                    batch_embedding_mode,
+                    batch_has_embedding,
+                );
+            }
+            if self.eval_diag_decode_logs < 64 {
+                let (embedding_reqs, generation_reqs) =
+                    self.requests
+                        .values()
+                        .fold((0usize, 0usize), |(e, g), req| {
+                            if req.params.embedding {
+                                (e + 1, g)
+                            } else {
+                                (e, g + 1)
+                            }
+                        });
+                eprintln!(
+                    "[EvalDiag] branch=decode n_tokens={} slot_batch_idx={} batch_mode={:?} batch_has_embedding={} cfg_embeddings={} has_encoder={} has_decoder={} req_embedding={} req_generation={}",
+                    self.batch.handle.n_tokens,
+                    slot_batch_idx.len(),
+                    batch_embedding_mode,
+                    batch_has_embedding,
+                    self.embeddings_mode,
+                    model_has_encoder,
+                    model_has_decoder,
+                    embedding_reqs,
+                    generation_reqs
+                );
+                self.eval_diag_decode_logs += 1;
+                if self.eval_diag_decode_logs == 64 {
+                    eprintln!("[EvalDiag] branch=decode further logs suppressed");
+                }
+            }
             self.flow_log(format!(
                 "decode start n_tokens={}",
                 self.batch.handle.n_tokens
@@ -801,7 +1068,7 @@ impl<'a> LlmEngine<'a> {
                         }
 
                         if !emb_ptr.is_null() {
-                            let n_embd = self._model.n_embd() as usize;
+                            let n_embd = self._model.n_embd_out() as usize;
                             let slice = unsafe { std::slice::from_raw_parts(emb_ptr, n_embd) };
                             let mut embedding = slice.to_vec();
 
@@ -821,6 +1088,7 @@ impl<'a> LlmEngine<'a> {
                                 req,
                                 EventKind::Embedding {
                                     embedding,
+                                    prompt_tokens: req.prompt_tokens.len() as u32,
                                     request: RequestHandle::new(
                                         req.params.id.clone(),
                                         req.cancel_flag.clone(),
@@ -1442,11 +1710,7 @@ impl<'a> LlmEngine<'a> {
     }
 
     fn apply_context_shifts(&mut self, events: &mut Vec<Event>) -> Result<()> {
-        let n_seq = usize::try_from(self.n_seq_max)
-            .ok()
-            .filter(|v| *v > 0)
-            .unwrap_or(1);
-        let n_ctx = (self.n_ctx / n_seq).max(1);
+        let n_ctx = self.n_ctx.max(1);
         let ctx = &self.ctx;
 
         let mut finished = Vec::new();
@@ -1458,6 +1722,11 @@ impl<'a> LlmEngine<'a> {
             };
 
             if req.state != RequestState::Processing && req.state != RequestState::Waiting {
+                continue;
+            }
+            if req.params.embedding {
+                // Embedding requests are single-pass encode jobs and should not
+                // trigger conversational context-shift behavior.
                 continue;
             }
 

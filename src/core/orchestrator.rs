@@ -409,3 +409,85 @@ fn parse_env_entry(entry: &serde_yaml::Value) -> anyhow::Result<(String, bool)> 
         )),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_env_entry, resolve_runtime_env};
+    use crate::core::config::agent::AgentConfig;
+    use serde_yaml::Value as YamlValue;
+
+    #[test]
+    fn parse_env_entry_accepts_string_name() {
+        let (name, required) = parse_env_entry(&YamlValue::String("  API_KEY  ".to_string()))
+            .expect("valid env string");
+        assert_eq!(name, "API_KEY");
+        assert!(!required);
+    }
+
+    #[test]
+    fn parse_env_entry_accepts_mapping_name_and_required() {
+        let value = serde_yaml::from_str::<YamlValue>(
+            r#"
+name: TOKEN
+required: true
+"#,
+        )
+        .expect("valid yaml");
+
+        let (name, required) = parse_env_entry(&value).expect("valid env mapping");
+        assert_eq!(name, "TOKEN");
+        assert!(required);
+    }
+
+    #[test]
+    fn parse_env_entry_rejects_invalid_shapes() {
+        let missing_name = serde_yaml::from_str::<YamlValue>("required: true").expect("yaml");
+        let err = parse_env_entry(&missing_name).expect_err("missing name should fail");
+        assert!(err.to_string().contains("missing non-empty name"));
+
+        let err = parse_env_entry(&YamlValue::Number(1u64.into())).expect_err("invalid type");
+        assert!(err.to_string().contains("expected string or mapping"));
+    }
+
+    #[test]
+    fn resolve_runtime_env_returns_empty_when_no_entries() {
+        let config = AgentConfig::default();
+        let env = resolve_runtime_env(&config).expect("should succeed");
+        assert!(env.is_empty());
+    }
+
+    #[test]
+    fn resolve_runtime_env_errors_for_missing_required_var() {
+        let mut config = AgentConfig::default();
+        let var_name = format!("HUGIND_TEST_MISSING_{}", std::process::id());
+        config.env = Some(vec![
+            serde_yaml::from_str::<YamlValue>(&format!("name: {var_name}\nrequired: true\n"))
+                .expect("yaml"),
+        ]);
+
+        let err = resolve_runtime_env(&config).expect_err("missing required var should fail");
+        assert!(err.to_string().contains(&var_name));
+    }
+
+    #[test]
+    fn resolve_runtime_env_omits_missing_optional_var() {
+        let mut config = AgentConfig::default();
+        let var_name = format!("HUGIND_TEST_OPTIONAL_{}", std::process::id());
+        config.env = Some(vec![YamlValue::String(var_name)]);
+
+        let env = resolve_runtime_env(&config).expect("optional missing should pass");
+        assert!(env.is_empty());
+    }
+
+    #[test]
+    fn resolve_runtime_env_includes_present_variable() {
+        let (key, value) = std::env::vars()
+            .next()
+            .expect("environment should not be empty");
+        let mut config = AgentConfig::default();
+        config.env = Some(vec![YamlValue::String(key.clone())]);
+
+        let env = resolve_runtime_env(&config).expect("should include variable");
+        assert_eq!(env.get(&key).and_then(|v| v.as_str()), Some(value.as_str()));
+    }
+}
