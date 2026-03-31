@@ -1,12 +1,11 @@
-use crate::core::config::agent::SessionMode;
+use crate::core::config::agent::{AgentConfig, SessionMode};
 use crate::core::config::backend::{ResolvedBackend, prepare_backend};
 use crate::core::js::runtime::JsRuntime;
 use crate::core::wasm::runtime::WasmRuntime;
 use crate::shared::logging::{RunLogger, create_agent_logger, create_agent_logger_at};
 use semver::{Version, VersionReq};
 use serde_json::{Map as JsonMap, Value as JsonValue};
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub async fn execute(
     path: String,
@@ -29,22 +28,24 @@ pub async fn execute_with_result(
         .canonicalize()
         .map_err(|e| anyhow::anyhow!("Error resolving path {}: {}", path, e))?;
 
+    // Check if this is a workflow file
     if target_path.is_file() && target_path.extension().and_then(|s| s.to_str()) == Some("yaml") {
-        if let Ok(workflow) =
-            crate::core::config::workflow::WorkflowConfig::load_from_file(&target_path)
-        {
-            return run_workflow(
-                workflow,
-                target_path.parent().unwrap().to_path_buf(),
-                args_vec,
-                log_file,
-            )
-            .await;
+        match crate::core::config::workflow::WorkflowConfig::load_from_file(&target_path) {
+            Ok(workflow) => {
+                let root = target_path
+                    .parent()
+                    .ok_or_else(|| anyhow::anyhow!("Workflow file has no parent directory"))?
+                    .to_path_buf();
+                return run_workflow(workflow, root, args_vec, log_file).await;
+            }
+            Err(_) => {
+                // Not a workflow — fall through to agent loading
+            }
         }
     }
 
     let (agent_root, entry_path, mut config) = if target_path.is_dir() {
-        let config = crate::core::config::agent::AgentConfig::load_from_dir(&target_path)?;
+        let config = AgentConfig::load_from_dir(&target_path)?;
         let entry = target_path.join(&config.entry_point);
         (target_path, entry, config)
     } else {
@@ -52,12 +53,9 @@ pub async fn execute_with_result(
             .parent()
             .ok_or_else(|| anyhow::anyhow!("Invalid entry path"))?
             .to_path_buf();
-        (
-            root,
-            target_path,
-            crate::core::config::agent::AgentConfig::default(),
-        )
+        (root, target_path, AgentConfig::default())
     };
+
     let runtime_cwd = resolve_runtime_cwd(&agent_root, &config, cwd_override)?;
     if runtime_cwd != agent_root {
         if let Some(perms) = config.permissions.as_mut() {
@@ -70,35 +68,74 @@ pub async fn execute_with_result(
     }
 
     let logger = init_agent_logger(&config, &agent_root, log_file.as_deref());
+
+    let output = run_agent(
+        &agent_root,
+        &entry_path,
+        &runtime_cwd,
+        &mut config,
+        args_vec,
+        logger,
+    )
+    .await?;
+
+    Ok(output)
+}
+
+/// Core agent execution logic shared between direct invocation and workflow steps.
+async fn run_agent(
+    agent_root: &Path,
+    entry_path: &Path,
+    runtime_cwd: &Path,
+    config: &mut AgentConfig,
+    args_vec: Vec<String>,
+    logger: Option<RunLogger>,
+) -> anyhow::Result<serde_json::Value> {
+    // Validate entry point exists before doing anything else
+    if !entry_path.exists() {
+        return Err(anyhow::anyhow!(
+            "Entry point not found: {}",
+            entry_path.display()
+        ));
+    }
+
     if let Some(l) = &logger {
         let args_json = serde_json::to_string(&args_vec).unwrap_or_default();
         l.log_line(format!(
             "agent.run.start name={} entry={} args_len={} args={}",
-            log_agent_name(&config, &agent_root),
+            log_agent_name(config, agent_root),
             entry_path.display(),
             args_json.len(),
             args_json
         ));
     }
 
-    enforce_hugind_version(&config)?;
-    let backend = prepare_backend(&mut config)?;
+    enforce_hugind_version(config)?;
+    let backend = prepare_backend(config)?;
+
+    // Health check with timeout
     println!("Checking server health at {}...", backend.health_url);
-    if let Err(_) = reqwest::get(&backend.health_url)
+    let health_client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+    if let Err(e) = health_client
+        .get(&backend.health_url)
+        .send()
         .await
         .and_then(|r| r.error_for_status())
     {
-        eprintln!(
-            "Error: Server is not up or healthy at {}. Aborting agent run.",
-            backend.health_url
-        );
         if let Some(l) = &logger {
             l.log_line(format!(
-                "agent.run.error server_health_check_failed url={}",
-                backend.health_url
+                "agent.run.error server_health_check_failed url={} error={}",
+                backend.health_url, e
             ));
         }
-        return Err(anyhow::anyhow!("Server health check failed"));
+        return Err(anyhow::anyhow!(
+            "Server not reachable at {}: {}",
+            backend.health_url,
+            e
+        ));
     }
     println!("Server is up. Starting agent...");
 
@@ -106,32 +143,32 @@ pub async fn execute_with_result(
         "args": args_vec,
         "meta": {
             "session": config.runtime_session.clone(),
-            "env": resolve_runtime_env(&config)?,
+            "env": resolve_runtime_env(config)?,
         }
     });
 
     let run_result = if entry_path.extension().and_then(|s| s.to_str()) == Some("wasm") {
         let wasm = WasmRuntime::new(
-            agent_root.clone(),
-            runtime_cwd.clone(),
-            &config,
+            agent_root.to_path_buf(),
+            runtime_cwd.to_path_buf(),
+            config,
             logger.clone(),
         )
         .map_err(|e| anyhow::anyhow!("Runtime error: {}", e))?;
-        wasm.run_module(&entry_path, initial_data)
+        wasm.run_module(entry_path, initial_data)
             .await
             .map_err(|e| anyhow::anyhow!("Execution error: {}", e))
     } else {
         let js = JsRuntime::new(
-            agent_root.clone(),
-            runtime_cwd.clone(),
-            &config,
+            agent_root.to_path_buf(),
+            runtime_cwd.to_path_buf(),
+            config,
             logger.clone(),
         )
         .await
         .map_err(|e| anyhow::anyhow!("Runtime error: {}", e))?;
         let res = js
-            .run_module(&entry_path, initial_data)
+            .run_module(entry_path, initial_data)
             .await
             .map_err(|e| anyhow::anyhow!("Execution error: {}", e));
         js.wait_idle().await;
@@ -145,10 +182,9 @@ pub async fn execute_with_result(
         }
     }
 
-    cleanup_fresh_session(&backend, &config).await;
+    cleanup_fresh_session(&backend, config).await;
 
-    let output = run_result?;
-    Ok(output)
+    run_result
 }
 
 async fn run_workflow(
@@ -159,85 +195,43 @@ async fn run_workflow(
 ) -> anyhow::Result<serde_json::Value> {
     println!("Starting workflow: {}", workflow.name);
 
-    let mut last_output = serde_json::json!({
-        "args": initial_args
-    });
+    let mut last_output = serde_json::json!({ "args": initial_args });
 
     for step in workflow.steps {
         println!("==> Step: {}", step.name);
         let agent_dir = root.join(&step.agent);
-        let mut config = crate::core::config::agent::AgentConfig::load_from_dir(&agent_dir)?;
-        let logger = init_agent_logger(&config, &agent_dir, log_file.as_deref());
-        if let Some(l) = &logger {
-            let args_json = serde_json::to_string(&last_output).unwrap_or_default();
-            l.log_line(format!(
-                "agent.run.start name={} entry={} args_len={}",
-                log_agent_name(&config, &agent_dir),
-                config.entry_point,
-                args_json.len()
-            ));
-        }
-        enforce_hugind_version(&config)?;
-        let backend = prepare_backend(&mut config)?;
+        let mut config = AgentConfig::load_from_dir(&agent_dir)?;
         let entry = agent_dir.join(&config.entry_point);
+        let logger = init_agent_logger(&config, &agent_dir, log_file.as_deref());
 
-        if entry.extension().and_then(|s| s.to_str()) == Some("wasm") {
-            let wasm = WasmRuntime::new(
-                agent_dir.clone(),
-                agent_dir.clone(),
-                &config,
-                logger.clone(),
-            )
-            .map_err(|e| anyhow::anyhow!("Runtime error: {}", e))?;
-            let res = wasm
-                .run_module(&entry, last_output)
-                .await
-                .map_err(|e| anyhow::anyhow!("Execution error in step {}: {}", step.name, e));
-            if let Some(l) = &logger {
-                match &res {
-                    Ok(_) => l.log_line("agent.run.complete status=ok"),
-                    Err(err) => {
-                        l.log_line(format!("agent.run.complete status=error error={}", err))
-                    }
-                }
-            }
-            cleanup_fresh_session(&backend, &config).await;
-            last_output = res?;
+        // Convert last output back to args for next step
+        let step_args = if let Some(args) = last_output.get("args").and_then(|a| a.as_array()) {
+            args.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
         } else {
-            let js = JsRuntime::new(
-                agent_dir.clone(),
-                agent_dir.clone(),
-                &config,
-                logger.clone(),
-            )
-            .await
-            .map_err(|e| anyhow::anyhow!("Runtime error: {}", e))?;
-            let res = js
-                .run_module(&entry, last_output)
-                .await
-                .map_err(|e| anyhow::anyhow!("Execution error in step {}: {}", step.name, e));
-            js.wait_idle().await;
-            if let Some(l) = &logger {
-                match &res {
-                    Ok(_) => l.log_line("agent.run.complete status=ok"),
-                    Err(err) => {
-                        l.log_line(format!("agent.run.complete status=error error={}", err))
-                    }
-                }
-            }
-            cleanup_fresh_session(&backend, &config).await;
-            last_output = res?;
-        }
+            vec![serde_json::to_string(&last_output).unwrap_or_default()]
+        };
+
+        let result = run_agent(
+            &agent_dir,
+            &entry,
+            &agent_dir,
+            &mut config,
+            step_args,
+            logger,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("Error in step '{}': {}", step.name, e))?;
+
+        last_output = result;
     }
 
     println!("Workflow completed.");
     Ok(last_output)
 }
 
-async fn cleanup_fresh_session(
-    backend: &ResolvedBackend,
-    config: &crate::core::config::agent::AgentConfig,
-) {
+async fn cleanup_fresh_session(backend: &ResolvedBackend, config: &AgentConfig) {
     let session = match &config.runtime_session {
         Some(s) if s.mode == SessionMode::Fresh => s,
         _ => return,
@@ -262,7 +256,7 @@ async fn cleanup_fresh_session(
     }
 }
 
-fn enforce_hugind_version(config: &crate::core::config::agent::AgentConfig) -> anyhow::Result<()> {
+fn enforce_hugind_version(config: &AgentConfig) -> anyhow::Result<()> {
     let Some(req_str) = &config.hugind_version else {
         return Ok(());
     };
@@ -285,7 +279,7 @@ fn enforce_hugind_version(config: &crate::core::config::agent::AgentConfig) -> a
 }
 
 fn init_agent_logger(
-    config: &crate::core::config::agent::AgentConfig,
+    config: &AgentConfig,
     agent_root: &Path,
     log_file: Option<&str>,
 ) -> Option<RunLogger> {
@@ -303,7 +297,7 @@ fn init_agent_logger(
     }
 }
 
-fn log_agent_name(config: &crate::core::config::agent::AgentConfig, agent_root: &Path) -> String {
+fn log_agent_name(config: &AgentConfig, agent_root: &Path) -> String {
     let name = config.name.trim();
     if !name.is_empty() && name != "default" {
         return name.to_string();
@@ -317,7 +311,7 @@ fn log_agent_name(config: &crate::core::config::agent::AgentConfig, agent_root: 
 
 fn resolve_runtime_cwd(
     agent_root: &Path,
-    config: &crate::core::config::agent::AgentConfig,
+    config: &AgentConfig,
     cwd_override: Option<String>,
 ) -> anyhow::Result<PathBuf> {
     let Some(raw) = cwd_override else {
@@ -350,9 +344,7 @@ fn resolve_runtime_cwd(
     }
 }
 
-fn resolve_runtime_env(
-    config: &crate::core::config::agent::AgentConfig,
-) -> anyhow::Result<JsonMap<String, JsonValue>> {
+fn resolve_runtime_env(config: &AgentConfig) -> anyhow::Result<JsonMap<String, JsonValue>> {
     let mut env_values = JsonMap::new();
     let Some(entries) = &config.env else {
         return Ok(env_values);

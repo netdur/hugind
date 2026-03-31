@@ -1,5 +1,5 @@
+pub mod auth;
 pub mod downloader;
-pub mod loader;
-pub mod metadata;
+pub mod migrate;
 pub mod registry;
 pub mod remote;

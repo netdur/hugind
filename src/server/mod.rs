@@ -1,6 +1,7 @@
 use crate::engine::request::Request;
 use axum::{
     Router,
+    extract::DefaultBodyLimit,
     http::{HeaderMap, header::AUTHORIZATION},
     response::IntoResponse,
     routing::{get, post},
@@ -17,6 +18,8 @@ pub mod state;
 pub mod types;
 
 fn build_app(state: Arc<state::AppState>) -> Router {
+    const MAX_REQUEST_BODY_BYTES: usize = 20 * 1024 * 1024; // 20 MiB
+
     Router::new()
         .route("/v1/chat/completions", post(routes::chat_completions))
         .route("/v1/models", get(routes::list_models))
@@ -34,6 +37,7 @@ fn build_app(state: Arc<state::AppState>) -> Router {
         ))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
+        .layer(DefaultBodyLimit::max(MAX_REQUEST_BODY_BYTES))
         .with_state(state)
 }
 
@@ -113,8 +117,16 @@ fn validate_bearer_auth(headers: &HeaderMap, expected_key: &str) -> Result<(), &
     if !auth_str.starts_with("Bearer ") {
         return Err("Invalid Authorization Header Format. Expected 'Bearer <key>'");
     }
-    let token = &auth_str[7..];
-    if token != expected_key {
+    let token = auth_str[7..].as_bytes();
+    let expected = expected_key.as_bytes();
+    // Constant-time comparison to prevent timing attacks
+    if token.len() != expected.len()
+        || token
+            .iter()
+            .zip(expected.iter())
+            .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+            != 0
+    {
         return Err("Invalid API Key");
     }
     Ok(())

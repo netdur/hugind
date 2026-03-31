@@ -5,8 +5,6 @@ use futures::StreamExt;
 use rquickjs::class::Trace;
 use rquickjs::{AsyncContext, Class, Result};
 
-const LLM_REQUEST_TIMEOUT_SECS: u64 = 600;
-
 #[derive(rquickjs::JsLifetime)]
 #[rquickjs::class]
 pub struct Llm {
@@ -146,7 +144,6 @@ impl Llm {
         let mut request = self
             .client
             .post(&url)
-            .timeout(std::time::Duration::from_secs(LLM_REQUEST_TIMEOUT_SECS))
             .json(&body);
         if let Some(id) = &self.session_id {
             request = request.header("X-Session-ID", id);
@@ -283,7 +280,6 @@ impl Llm {
         let mut request = self
             .client
             .post(&url)
-            .timeout(std::time::Duration::from_secs(LLM_REQUEST_TIMEOUT_SECS))
             .json(&body);
         if let Some(id) = &self.session_id {
             request = request.header("X-Session-ID", id);

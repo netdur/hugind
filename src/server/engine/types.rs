@@ -26,7 +26,7 @@ impl RequestHandle {
     }
 
     pub fn cancel(&self) {
-        self.cancel_flag.store(true, Ordering::SeqCst);
+        self.cancel_flag.store(true, Ordering::Release);
     }
 }
 

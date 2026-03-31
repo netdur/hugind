@@ -29,7 +29,8 @@ impl ConfigLoader {
         let system_prompt_file =
             trim_non_empty(raw.server.system_prompt_file).map(|p| resolve_path_relative(&p, path));
         let system_prompt = if let Some(p) = &system_prompt_file {
-            fs::read_to_string(p).unwrap_or(raw.server.system_prompt)
+            fs::read_to_string(p)
+                .with_context(|| format!("Failed to read system_prompt_file: {:?}", p))?
         } else {
             raw.server.system_prompt
         };
@@ -71,7 +72,11 @@ impl ConfigLoader {
         let mut context_params = raw.context;
         let multimodal_params = raw.multimodal;
         let mut sampler_params = raw.sampling;
-        let chat_params = raw.chat;
+        let enable_thinking_default = raw.server.enable_thinking_default
+            .as_ref()
+            .and_then(Boolish::as_bool)
+            .unwrap_or(false);
+        let thinking_budget_tokens = raw.server.thinking_budget_tokens;
         let mut lora_params = raw.lora;
         let fit_params = raw.fit;
         let quantize_params = raw.quantize;
@@ -108,8 +113,6 @@ impl ConfigLoader {
             vector.path = resolve_path_relative(&vector.path.to_string_lossy(), path);
         }
 
-        let chat_format = chat_params.format;
-
         // Ensure main_gpu is valid if no explicit devices were chosen.
         if model_params.devices.is_empty() && model_params.main_gpu < 0 {
             model_params.main_gpu = 0;
@@ -134,12 +137,12 @@ impl ConfigLoader {
             context_params,
             multimodal_params,
             sampler_params,
-            chat_params,
+            enable_thinking_default,
+            thinking_budget_tokens,
             lora_params,
             fit_params,
             quantize_params,
             advanced_params,
-            chat_format,
         })
     }
 }
@@ -152,7 +155,6 @@ struct RawConfigFile {
     context: ContextParams,
     multimodal: MultimodalParams,
     sampling: SamplerParams,
-    chat: ChatParams,
     lora: LoraParams,
     fit: FitParams,
     quantize: QuantizeParams,
@@ -172,6 +174,8 @@ struct RawServerSection {
     session_home: Option<String>,
     unified_memory_mode: Option<Boolish>,
     verbose: Option<Boolish>,
+    enable_thinking_default: Option<Boolish>,
+    thinking_budget_tokens: Option<u32>,
 }
 
 impl Default for RawServerSection {
@@ -187,6 +191,8 @@ impl Default for RawServerSection {
             session_home: None,
             unified_memory_mode: None,
             verbose: None,
+            enable_thinking_default: None,
+            thinking_budget_tokens: None,
         }
     }
 }
@@ -228,7 +234,13 @@ impl Boolish {
                 match normalized.as_str() {
                     "true" | "on" | "yes" | "enabled" | "1" => Some(true),
                     "false" | "off" | "no" | "disabled" | "0" => Some(false),
-                    _ => None,
+                    _ => {
+                        eprintln!(
+                            "Warning: unrecognized boolean value '{}', expected true/false/on/off/yes/no/enabled/disabled/1/0",
+                            s
+                        );
+                        None
+                    }
                 }
             }
         }
@@ -286,8 +298,8 @@ mod tests {
         assert_eq!(config.context_params.n_seq_max, 4);
         assert_eq!(config.sampler_params.top_k, 40);
         assert_eq!(config.multimodal_params.image_max_tokens, 0);
-        assert!(!config.chat_params.enable_thinking_default);
-        assert_eq!(config.chat_params.thinking_budget_tokens, None);
+        assert!(!config.enable_thinking_default);
+        assert_eq!(config.thinking_budget_tokens, None);
         assert!(config.advanced_params.warmup);
     }
 }

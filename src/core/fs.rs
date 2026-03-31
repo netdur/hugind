@@ -403,6 +403,15 @@ impl FsAccess {
         Ok(canon)
     }
 
+    /// Reject any path component that is a symlink.
+    ///
+    /// Note: There is an inherent TOCTOU gap between this check and the actual
+    /// file operation. For write operations the WASM runtime uses cap_std which
+    /// provides path-based guarantees. For read operations in the JS runtime,
+    /// an attacker with write access to a parent directory could replace a
+    /// component with a symlink between check and open. This is acceptable
+    /// because such an attacker already has filesystem write access within the
+    /// agent root, which is the trust boundary.
     fn reject_symlink_components(&self, path: &Path) -> Result<()> {
         let mut cur = PathBuf::new();
         for comp in path.components() {
@@ -413,12 +422,18 @@ impl FsAccess {
                 Component::ParentDir => bail!("parent directory '..' is not allowed"),
                 Component::Normal(c) => {
                     cur.push(c);
-                    if cur.exists() {
-                        let meta = fs::symlink_metadata(&cur).with_context(|| {
-                            format!("failed to read metadata {}", cur.display())
-                        })?;
-                        if meta.file_type().is_symlink() {
-                            bail!("symlinks are not allowed in path: {}", cur.display());
+                    // Use symlink_metadata (lstat) which doesn't follow symlinks
+                    match fs::symlink_metadata(&cur) {
+                        Ok(meta) => {
+                            if meta.file_type().is_symlink() {
+                                bail!("symlinks are not allowed in path: {}", cur.display());
+                            }
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                            // Path doesn't exist yet — OK for create operations
+                        }
+                        Err(e) => {
+                            bail!("failed to read metadata {}: {}", cur.display(), e);
                         }
                     }
                 }

@@ -119,6 +119,10 @@ fn parse_bool_header(headers: &HeaderMap, name: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Check if the system prompt should be injected.
+/// Note: there is a small race window where a session could be created between
+/// this check and when the engine processes the request. The worst case is
+/// a redundant system prompt on one turn — acceptable for the simplicity.
 fn should_apply_system_prompt(
     state: &AppState,
     session_id: Option<&str>,
@@ -132,7 +136,14 @@ fn should_apply_system_prompt(
         None => true,
         Some(id) => {
             let sessions = state.kv_manager.sessions.read();
-            !sessions.contains_key(id)
+            let is_new = !sessions.contains_key(id);
+            // Also check if session exists but has no tokens yet (just registered)
+            if !is_new {
+                if let Some(session) = sessions.get(id) {
+                    return session.tokens.is_empty();
+                }
+            }
+            is_new
         }
     }
 }
@@ -165,6 +176,8 @@ fn classify_chat_error(message: &str) -> (StatusCode, serde_json::Value) {
     )
 }
 
+const MAX_IMAGE_BYTES: u64 = 100 * 1024 * 1024; // 100 MiB
+
 async fn load_image_bytes(url: &str) -> Result<Vec<u8>, String> {
     if url.starts_with("data:") {
         let (_, data_part) = url
@@ -173,12 +186,28 @@ async fn load_image_bytes(url: &str) -> Result<Vec<u8>, String> {
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(data_part.as_bytes())
             .map_err(|e| format!("Failed to decode base64 image: {}", e))?;
+        if bytes.len() as u64 > MAX_IMAGE_BYTES {
+            return Err(format!("Image too large ({} bytes, max {})", bytes.len(), MAX_IMAGE_BYTES));
+        }
         return Ok(bytes);
     }
 
     if url.starts_with("http://") || url.starts_with("https://") {
+        // Reject URLs pointing to private/link-local networks (SSRF protection)
+        if let Some(host) = extract_host(url) {
+            if let Ok(addr) = host.parse::<std::net::IpAddr>() {
+                if addr.is_loopback() || is_private_ip(&addr) || is_link_local(&addr) {
+                    return Err("Image URL must not point to private/internal networks".to_string());
+                }
+            }
+            if host == "metadata.google.internal" || host.ends_with(".internal") {
+                return Err("Image URL must not point to internal services".to_string());
+            }
+        }
+
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(20))
+            .redirect(reqwest::redirect::Policy::limited(3))
             .build()
             .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
         let resp = client
@@ -189,14 +218,54 @@ async fn load_image_bytes(url: &str) -> Result<Vec<u8>, String> {
         if !resp.status().is_success() {
             return Err(format!("Image URL returned HTTP {}", resp.status()));
         }
+
+        // Check Content-Length before downloading
+        if let Some(cl) = resp.content_length() {
+            if cl > MAX_IMAGE_BYTES {
+                return Err(format!("Image too large ({} bytes, max {})", cl, MAX_IMAGE_BYTES));
+            }
+        }
+
         let bytes = resp
             .bytes()
             .await
             .map_err(|e| format!("Failed to read image bytes: {}", e))?;
+        if bytes.len() as u64 > MAX_IMAGE_BYTES {
+            return Err(format!("Image too large ({} bytes, max {})", bytes.len(), MAX_IMAGE_BYTES));
+        }
         return Ok(bytes.to_vec());
     }
 
     Err("image_url must be a data URL or http(s) URL".to_string())
+}
+
+fn extract_host(url: &str) -> Option<String> {
+    // Strip scheme
+    let after_scheme = url.split("://").nth(1)?;
+    // Take host:port part (before first /)
+    let authority = after_scheme.split('/').next()?;
+    // Strip port
+    let host = if authority.starts_with('[') {
+        // IPv6 in brackets
+        authority.split(']').next().map(|s| s.trim_start_matches('['))
+    } else {
+        authority.rsplit_once(':').map(|(h, _)| h).or(Some(authority))
+    };
+    host.map(|h| h.to_string())
+}
+
+fn is_private_ip(addr: &std::net::IpAddr) -> bool {
+    match addr {
+        std::net::IpAddr::V4(v4) => v4.is_private(),
+        std::net::IpAddr::V6(_) => false,
+    }
+}
+
+fn is_link_local(addr: &std::net::IpAddr) -> bool {
+    match addr {
+        std::net::IpAddr::V4(v4) => v4.is_link_local(),
+        std::net::IpAddr::V6(_) => false,
+    }
 }
 
 pub async fn chat_completions(
@@ -294,9 +363,12 @@ pub async fn chat_completions(
 
     params.prompt = full_prompt;
     params.images = images;
-    params.thinking_budget_tokens = thinking_budget_tokens;
+    params.thinking_budget_tokens = thinking_budget_tokens.map(|b| b.min(1_000_000));
     params.enable_thinking = effective_enable_thinking;
-    params.max_output_tokens = payload.max_tokens.map(|n| n as i32).unwrap_or(1024);
+    params.max_output_tokens = payload
+        .max_tokens
+        .map(|n| (n as i32).min(128_000))
+        .unwrap_or(1024);
     params.sampling.temp = payload.temperature.unwrap_or(params.sampling.temp);
     params.sampling.top_p = payload.top_p.unwrap_or(params.sampling.top_p);
 
@@ -1067,16 +1139,32 @@ mod tests {
             false
         ));
 
-        let mut session = make_session("known-session", CacheTier::Vram);
+        // Session exists but has no tokens — should still apply system prompt
+        let mut session = make_session("empty-session", CacheTier::Vram);
         session.vram_seq_id = Some(1);
         state
             .kv_manager
             .sessions
             .write()
-            .insert("known-session".to_string(), session);
+            .insert("empty-session".to_string(), session);
+        assert!(should_apply_system_prompt(
+            state.as_ref(),
+            Some("empty-session"),
+            false
+        ));
+
+        // Session with tokens — should NOT apply system prompt
+        let mut active_session = make_session("active-session", CacheTier::Vram);
+        active_session.vram_seq_id = Some(2);
+        active_session.tokens = vec![Token(1), Token(2), Token(3)];
+        state
+            .kv_manager
+            .sessions
+            .write()
+            .insert("active-session".to_string(), active_session);
         assert!(!should_apply_system_prompt(
             state.as_ref(),
-            Some("known-session"),
+            Some("active-session"),
             false
         ));
     }

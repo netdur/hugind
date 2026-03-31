@@ -1,5 +1,5 @@
 use crate::shared::paths;
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -37,7 +37,7 @@ pub struct RepoManager;
 
 impl RepoManager {
     pub fn list_repos() -> Result<Vec<Repo>> {
-        let root = paths::data_home();
+        let root = paths::models_dir();
         if !root.exists() {
             return Ok(vec![]);
         }
@@ -72,6 +72,21 @@ impl RepoManager {
             }
         }
         Ok(repos)
+    }
+
+    /// Look up a single repo by "user/repo" name without scanning everything.
+    pub fn get_repo(repo: &str) -> Result<Option<Repo>> {
+        let (user, name) = Self::parse_repo_name(repo)?;
+        let path = paths::models_dir().join(&user).join(&name);
+        if path.is_dir() && Self::repo_has_gguf_file(&path)? {
+            Ok(Some(Repo {
+                user,
+                name,
+                path,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
     fn repo_has_gguf_file(repo_dir: &Path) -> Result<bool> {
@@ -116,21 +131,21 @@ impl RepoManager {
         files.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(files)
     }
-    pub fn get_repo_dir(repo: &str) -> PathBuf {
-        let parts: Vec<&str> = repo.split('/').collect();
-        if parts.len() == 2 {
-            paths::data_home().join(parts[0]).join(parts[1])
-        } else {
-            paths::data_home().join(repo)
-        }
+
+    /// Returns the filesystem path for a "user/repo" string under the models directory.
+    pub fn get_repo_dir(repo: &str) -> Result<PathBuf> {
+        let (user, name) = Self::parse_repo_name(repo)?;
+        Ok(paths::models_dir().join(user).join(name))
     }
 
     pub fn repo_exists(repo: &str) -> bool {
-        Self::get_repo_dir(repo).exists()
+        Self::get_repo_dir(repo)
+            .map(|d| d.exists())
+            .unwrap_or(false)
     }
 
     pub fn delete_repo(repo: &str) -> Result<()> {
-        let dir = Self::get_repo_dir(repo);
+        let dir = Self::get_repo_dir(repo)?;
         if dir.exists() {
             fs::remove_dir_all(&dir)?;
         }
@@ -146,10 +161,20 @@ impl RepoManager {
     }
 
     pub fn delete_file(repo: &str, filename: &str) -> Result<()> {
-        let path = Self::get_repo_dir(repo).join(filename);
+        let path = Self::get_repo_dir(repo)?.join(filename);
         if path.exists() {
             fs::remove_file(path)?;
         }
         Ok(())
+    }
+
+    fn parse_repo_name(repo: &str) -> Result<(String, String)> {
+        let (user, name) = repo
+            .split_once('/')
+            .ok_or_else(|| anyhow!("Invalid repo format '{}', expected 'user/repo'", repo))?;
+        if user.is_empty() || name.is_empty() {
+            return Err(anyhow!("Invalid repo format '{}', expected 'user/repo'", repo));
+        }
+        Ok((user.to_string(), name.to_string()))
     }
 }

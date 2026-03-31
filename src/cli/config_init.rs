@@ -1,37 +1,36 @@
-use crate::core::sys::{SystemInfo, SystemInspector};
-use crate::shared::paths;
+use crate::core::config::generator::{self, ConfigGenParams};
+use crate::core::config::helpers;
+use crate::core::sys::SystemInspector;
 use anyhow::Result;
 use inquire::{Confirm, Select, Text};
 use std::fs;
-use std::path::Path;
 
 pub fn init(name: String, model_override: Option<String>) -> Result<()> {
-    ensure_default_configs()?;
+    helpers::validate_config_name(&name)?;
 
-    println!("Probing hardware... (this may take a moment)");
+    println!("Probing hardware...");
     let info = SystemInspector::inspect();
-    let recommended_preset = SystemInspector::recommend_preset(&info);
 
-    print_hardware_summary(&info, recommended_preset);
+    let sys_mem_gb = info.memory_bytes as f64 / 1_073_741_824.0;
+    let is_apple_silicon = cfg!(target_os = "macos") && std::env::consts::ARCH == "aarch64";
+    let has_nvidia = info.gpus.iter().any(|g| g.name.to_lowercase().contains("nvidia"));
+    let is_unified = is_apple_silicon;
 
-    let presets = vec!["metal_unified", "cuda_dedicated", "cpu_only"];
-    let default_idx = presets
-        .iter()
-        .position(|&p| p == recommended_preset)
-        .unwrap_or(0);
+    println!("  CPU: {} ({}c/{}t)", info.cpu_model, info.physical_cores, info.logical_cores);
+    println!("  RAM: {:.1} GB", sys_mem_gb);
+    if info.gpus.is_empty() {
+        println!("  GPU: None detected (CPU-only mode)");
+    } else {
+        for gpu in &info.gpus {
+            let mem_str = gpu.memory.as_deref().unwrap_or(if is_unified { "shared with RAM" } else { "unknown" });
+            println!("  GPU: {} ({})", gpu.name, mem_str);
+        }
+    }
+    if is_unified {
+        println!("  Memory: Unified (model + KV cache share RAM)");
+    }
 
-    let chosen_preset = Select::new("Choose a hardware preset to apply", presets.clone())
-        .with_starting_cursor(default_idx)
-        .prompt()?;
-
-    let base_content = include_str!("../resources/config.yml");
-    let preset_content = match chosen_preset {
-        "metal_unified" => include_str!("../resources/metal_unified.yml"),
-        "cuda_dedicated" => include_str!("../resources/cuda_dedicated.yml"),
-        "cpu_only" => include_str!("../resources/cpu_only.yml"),
-        _ => "",
-    };
-
+    // --- Model selection ---
     let (model_path, model_size_gb) = if let Some(m) = model_override {
         let size = if let Ok(meta) = fs::metadata(&m) {
             meta.len() as f64 / 1_073_741_824.0
@@ -45,8 +44,7 @@ pub fn init(name: String, model_override: Option<String>) -> Result<()> {
 
         if repos.is_empty() {
             let path =
-                Text::new("No repositories found in data home. Enter absolute path to .gguf file:")
-                    .with_help_message("Could not find any models in data directory.")
+                Text::new("No downloaded models found. Enter absolute path to .gguf file:")
                     .prompt()?;
             let size = if let Ok(meta) = fs::metadata(&path) {
                 meta.len() as f64 / 1_073_741_824.0
@@ -56,7 +54,7 @@ pub fn init(name: String, model_override: Option<String>) -> Result<()> {
             (path, size)
         } else {
             let repo_options: Vec<String> = repos.iter().map(|r| r.full_name()).collect();
-            let repo_selection = Select::new("Select a Model Repository", repo_options)
+            let repo_selection = Select::new("Select a Model Repository:", repo_options)
                 .with_page_size(10)
                 .prompt()?;
 
@@ -73,21 +71,22 @@ pub fn init(name: String, model_override: Option<String>) -> Result<()> {
                 .collect();
 
             if gguf_files.is_empty() {
-                anyhow::bail!(
-                    "No .gguf model files found in repository {}",
-                    repo_selection
-                );
+                anyhow::bail!("No .gguf model files found in repository {}", repo_selection);
             }
 
-            let file_options: Vec<String> = gguf_files.iter().map(|f| f.name.clone()).collect();
+            // Show file sizes in selection
+            let file_options: Vec<String> = gguf_files
+                .iter()
+                .map(|f| format!("{} ({:.1} GB)", f.name, f.size_gb()))
+                .collect();
 
-            let file_selection = Select::new("Select the Model File", file_options)
+            let file_selection = Select::new("Select the Model File:", file_options)
                 .with_page_size(10)
                 .prompt()?;
 
             let file_idx = gguf_files
                 .iter()
-                .position(|f| f.name == file_selection)
+                .position(|f| format!("{} ({:.1} GB)", f.name, f.size_gb()) == file_selection)
                 .unwrap();
             let selected_file = gguf_files[file_idx];
 
@@ -98,255 +97,132 @@ pub fn init(name: String, model_override: Option<String>) -> Result<()> {
         }
     };
 
-    let mmproj_path = detect_sibling(&model_path, &["mmproj", "projector", "vision"]);
+    let mmproj_path = helpers::detect_sibling(&model_path, &["mmproj", "projector", "vision"]);
     if let Some(ref mm) = mmproj_path {
         println!(
-            "✨ Auto-detected Vision Projector: {}",
-            Path::new(mm)
+            "  Vision projector detected: {}",
+            std::path::Path::new(mm)
                 .file_name()
                 .unwrap_or_default()
                 .to_string_lossy()
         );
     }
 
-    let chosen_format = "auto";
+    // --- Memory analysis ---
+    println!("\nMemory budget:");
+    println!("  Model file: {:.1} GB", model_size_gb);
 
-    println!("\n🧠 Memory Analysis:");
-    let sys_mem_gb = info.memory_bytes as f64 / 1_073_741_824.0;
-    println!("  System RAM: {:.1} GB", sys_mem_gb);
-    println!("  Model Size: {:.1} GB", model_size_gb);
+    let gpu_vram_bytes = info.gpus.iter().find_map(|g| {
+        g.memory.as_deref().and_then(helpers::parse_gpu_memory)
+    });
 
-    let available_for_ctx = (sys_mem_gb - model_size_gb - 2.0).max(0.5);
+    let available_mem = helpers::available_mem_for_ctx(
+        info.memory_bytes,
+        gpu_vram_bytes,
+        model_size_gb,
+        is_unified,
+    );
+    let available_mem_gb = available_mem as f64 / 1_073_741_824.0;
 
-    let est_tokens = (available_for_ctx * 10.0 * 1024.0) as u64;
-    println!("  Est. Max Context: ~{} tokens", est_tokens);
-
-    let mut ctx_options = vec![2048, 4096, 8192, 16384, 32768, 65536];
-    let mut next_ctx = 131072u64;
-    let max_ctx = est_tokens.min(262_144);
-    while next_ctx <= max_ctx {
-        ctx_options.push(next_ctx);
-        next_ctx *= 2;
+    if is_unified {
+        println!("  Available for KV cache: ~{:.1} GB (RAM - model - 2 GB headroom)", available_mem_gb);
+    } else if has_nvidia {
+        if let Some(vram) = gpu_vram_bytes {
+            let vram_gb = vram as f64 / 1_073_741_824.0;
+            println!("  GPU VRAM: {:.1} GB", vram_gb);
+            let vram_after = vram.saturating_sub((model_size_gb * 1_073_741_824.0) as u64);
+            if vram_after > 512 * 1_048_576 {
+                println!("  Available for KV cache: ~{:.1} GB (VRAM after model)", available_mem_gb);
+            } else {
+                println!("  Model fills most of VRAM, KV cache will use RAM");
+                println!("  Available for KV cache: ~{:.1} GB", available_mem_gb);
+            }
+        }
+    } else {
+        println!("  Available for KV cache: ~{:.1} GB (RAM - model - 2 GB headroom)", available_mem_gb);
     }
 
-    let recommended_ctx = ctx_options
-        .iter()
-        .filter(|&&c| c as u64 <= est_tokens)
-        .last()
-        .copied()
-        .unwrap_or(2048);
+    // --- Slots ---
+    let n_slots = 4u32;
 
-    let ctx_options_display: Vec<String> = ctx_options
-        .iter()
-        .map(|&c| {
-            if c == recommended_ctx {
-                format!("{} (Recommended)", c)
-            } else {
-                c.to_string()
-            }
-        })
-        .collect();
-
-    let ctx_idx = ctx_options
-        .iter()
-        .position(|&c| c == recommended_ctx)
-        .unwrap_or(1);
-
-    let final_ctx_str = Select::new("Select Context Size (Ctx)", ctx_options_display)
-        .with_starting_cursor(ctx_idx)
+    // --- Fit or manual context ---
+    println!("\nAuto-fit lets the engine determine the best context size at startup");
+    println!("based on your available memory. You can skip this and choose manually.");
+    let enable_fit = Confirm::new("Enable auto-fit?")
+        .with_default(true)
         .prompt()?;
 
-    let final_ctx = final_ctx_str
-        .split_whitespace()
-        .next()
-        .unwrap()
-        .parse::<u64>()?;
+    let final_ctx = if enable_fit {
+        // With fit enabled, use a generous default — the engine will shrink if needed
+        let recommended = helpers::recommend_ctx(available_mem, model_size_gb, n_slots);
+        println!("  Starting context: {} tokens (engine will adjust to fit)", recommended);
+        Some(recommended)
+    } else {
+        let recommended = helpers::recommend_ctx(available_mem, model_size_gb, n_slots);
+        println!("  Recommended context: {} tokens ({} slots)", recommended, n_slots);
 
-    let mut final_content = base_content.to_string();
+        let options: Vec<u64> = vec![2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144];
+        let display: Vec<String> = options
+            .iter()
+            .map(|&c| {
+                if c == recommended {
+                    format!("{} (recommended)", c)
+                } else if c > recommended * 2 {
+                    format!("{} (may not fit)", c)
+                } else {
+                    c.to_string()
+                }
+            })
+            .collect();
 
-    for line in preset_content.lines() {
-        if let Some((k, v)) = parse_yaml_line(line) {
-            final_content = replace_value(&final_content, &k, &v);
-        }
-    }
+        let ctx_idx = options
+            .iter()
+            .position(|&c| c == recommended)
+            .unwrap_or(1);
 
-    final_content = replace_value(
-        &final_content,
-        "path",
-        &format!("\"{}\"", shorten_path(&model_path)),
-    );
+        let final_ctx_str = Select::new("Context size:", display)
+            .with_starting_cursor(ctx_idx)
+            .prompt()?;
 
-    if let Some(mm) = &mmproj_path {
-        final_content = replace_value(
-            &final_content,
-            "mmproj_path",
-            &format!("\"{}\"", shorten_path(mm)),
-        );
-        final_content = replace_value(&final_content, "batch_size", "8192");
-    }
+        let chosen = final_ctx_str
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .parse::<u64>()?;
+        Some(chosen)
+    };
 
-    let unified_memory_mode = chosen_preset == "metal_unified";
-    final_content = replace_value(
-        &final_content,
-        "unified_memory_mode",
-        if unified_memory_mode { "true" } else { "false" },
-    );
-    final_content = replace_value(&final_content, "format", chosen_format);
-    final_content = replace_value(&final_content, "size", &final_ctx.to_string());
-
-    let dest_dir = paths::configs_dir();
-    fs::create_dir_all(&dest_dir)?;
-    let dest_file = dest_dir.join(format!("{}.yml", name));
-
-    if dest_file.exists() {
-        if !Confirm::new(&format!("Config \"{}\" exists. Overwrite?", name))
+    // --- Overwrite check ---
+    let overwrite = if helpers::find_config_path(&name).is_some() {
+        Confirm::new(&format!("Config \"{}\" exists. Overwrite?", name))
             .with_default(false)
             .prompt()?
-        {
-            return Ok(());
-        }
+    } else {
+        true
+    };
+
+    if !overwrite {
+        return Ok(());
     }
 
-    fs::write(&dest_file, final_content)?;
+    let result = generator::generate_config(ConfigGenParams {
+        name: name.clone(),
+        model_path: model_path.clone(),
+        ctx: final_ctx,
+        mmproj_path,
+        overwrite: true,
+        n_slots: Some(n_slots),
+        enable_fit,
+        fit_target_mib: vec![],
+    })?;
 
-    println!("\n✔ Config written to {:?}", dest_file);
-    println!("  • Preset: {}", chosen_preset);
-    println!("  • Model: {}", shorten_path(&model_path));
-    println!("  • Context: {}", final_ctx);
+    println!("\nConfig written to {}", result.path);
+    println!("  Model:   {}", result.model_path);
+    println!("  Context: {} tokens", result.ctx);
+    println!("  GPU:     {}", if has_nvidia || is_apple_silicon { "enabled (99 layers)" } else { "disabled (CPU only)" });
+    if enable_fit {
+        println!("  Fit:     enabled (min 2048 tokens)");
+    }
 
     Ok(())
-}
-
-fn ensure_default_configs() -> Result<()> {
-    let dest_dir = paths::presets_dir();
-    fs::create_dir_all(&dest_dir)?;
-
-    let defaults = [
-        ("config.yml", include_str!("../resources/config.yml")),
-        ("cpu_only.yml", include_str!("../resources/cpu_only.yml")),
-        (
-            "cuda_dedicated.yml",
-            include_str!("../resources/cuda_dedicated.yml"),
-        ),
-        (
-            "metal_unified.yml",
-            include_str!("../resources/metal_unified.yml"),
-        ),
-    ];
-
-    for (name, content) in defaults {
-        let path = dest_dir.join(name);
-        if path.exists() {
-            continue;
-        }
-        fs::write(&path, content)?;
-    }
-    Ok(())
-}
-
-fn print_hardware_summary(info: &SystemInfo, recommendation: &str) {
-    println!("System probe complete:");
-    println!(
-        "  CPU: {} ({}c/{}t)",
-        info.cpu_model, info.physical_cores, info.logical_cores
-    );
-    println!(
-        "  Memory: {:.1} GB",
-        info.memory_bytes as f64 / 1_073_741_824.0
-    );
-
-    println!("Recommended preset: {}", recommendation);
-}
-
-fn detect_sibling(main_path: &str, keywords: &[&str]) -> Option<String> {
-    let path = Path::new(main_path);
-    if !path.exists() {
-        return None;
-    }
-
-    let parent = path.parent()?;
-    let main_name = path.file_name()?.to_str()?.to_lowercase();
-
-    if let Ok(entries) = fs::read_dir(parent) {
-        for entry in entries.filter_map(Result::ok) {
-            let p = entry.path();
-            if p.is_file() {
-                if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
-                    let name_lower = name.to_lowercase();
-                    if name_lower != main_name && name_lower.ends_with(".gguf") {
-                        if keywords.iter().any(|k| name_lower.contains(k)) {
-                            return Some(p.to_string_lossy().to_string());
-                        }
-                    }
-                }
-            }
-        }
-    }
-    None
-}
-
-fn shorten_path(path: &str) -> String {
-    if let Some(home) = dirs::home_dir() {
-        let home_str = home.to_string_lossy();
-        if path.starts_with(home_str.as_ref()) {
-            return path.replacen(home_str.as_ref(), "~", 1);
-        }
-    }
-    path.to_string()
-}
-
-fn replace_value(content: &str, key: &str, new_value: &str) -> String {
-    let mut output = String::new();
-    let key_pat = format!("{}:", key);
-
-    for line in content.lines() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with(&key_pat) {
-            let indent = &line[0..line.len() - trimmed.len()];
-
-            let parts: Vec<&str> = trimmed.splitn(2, ':').collect();
-            if parts.len() == 2 {
-                let rest = parts[1];
-                let comment_idx = rest.find('#');
-                let comment = if let Some(idx) = comment_idx {
-                    &rest[idx..]
-                } else {
-                    ""
-                };
-
-                output.push_str(&format!(
-                    "{}{}: {}{}\n",
-                    indent,
-                    key,
-                    new_value,
-                    if comment.is_empty() {
-                        String::new()
-                    } else {
-                        format!("  {}", comment)
-                    }
-                ));
-                continue;
-            }
-        }
-        output.push_str(line);
-        output.push('\n');
-    }
-    output
-}
-
-fn parse_yaml_line(line: &str) -> Option<(String, String)> {
-    let line = line.trim();
-    if line.starts_with('#') || line.is_empty() {
-        return None;
-    }
-    let parts: Vec<&str> = line.splitn(2, ':').collect();
-    if parts.len() == 2 {
-        let key = parts[0].trim().to_string();
-        let val_part = parts[1];
-        let val = val_part.split('#').next()?.trim().to_string();
-        if !val.is_empty() {
-            return Some((key, val));
-        }
-    }
-    None
 }

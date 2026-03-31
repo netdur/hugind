@@ -43,15 +43,6 @@ pub struct Session {
     pub kv_head: usize,
 }
 
-#[repr(C)]
-struct StateHeader {
-    magic: [u8; 4],
-    version: u32,
-    n_tokens: u32,
-    n_keep: u32,
-    reserved: [u8; 16],
-}
-
 pub struct KvCacheManager {
     pub sessions: RwLock<HashMap<String, Session>>,
     pub unified_memory_mode: bool,
@@ -305,24 +296,20 @@ impl KvCacheManager {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| Error::BackendError(e.to_string()))?;
         }
-        let header = StateHeader {
-            magic: *b"HUGN",
-            version: 1,
-            n_tokens,
-            n_keep,
-            reserved: [0; 16],
-        };
 
         let mut file =
             std::fs::File::create(path).map_err(|e| Error::BackendError(e.to_string()))?;
 
-        let header_slice = unsafe {
-            std::slice::from_raw_parts(
-                &header as *const _ as *const u8,
-                std::mem::size_of::<StateHeader>(),
-            )
-        };
-        file.write_all(header_slice)
+        // Write header fields explicitly to avoid padding/alignment issues
+        file.write_all(b"HUGN")
+            .map_err(|e| Error::BackendError(e.to_string()))?;
+        file.write_all(&1u32.to_le_bytes())
+            .map_err(|e| Error::BackendError(e.to_string()))?;
+        file.write_all(&n_tokens.to_le_bytes())
+            .map_err(|e| Error::BackendError(e.to_string()))?;
+        file.write_all(&n_keep.to_le_bytes())
+            .map_err(|e| Error::BackendError(e.to_string()))?;
+        file.write_all(&[0u8; 16])
             .map_err(|e| Error::BackendError(e.to_string()))?;
 
         file.write_all(data)
@@ -331,6 +318,8 @@ impl KvCacheManager {
         Ok(())
     }
 
+    const HEADER_SIZE: u64 = 4 + 4 + 4 + 4 + 16; // magic + version + n_tokens + n_keep + reserved
+
     fn read_state_file(path: &PathBuf) -> Result<(Vec<u8>, u32, u32)> {
         let mut file = std::fs::File::open(path).map_err(|e| Error::BackendError(e.to_string()))?;
         let len = file
@@ -338,25 +327,37 @@ impl KvCacheManager {
             .map_err(|e| Error::BackendError(e.to_string()))?
             .len();
 
-        let header_size = std::mem::size_of::<StateHeader>() as u64;
-        if len < header_size {
+        if len < Self::HEADER_SIZE {
             return Err(Error::BackendError("State file too small".to_string()));
         }
 
-        let mut header_buf = [0u8; std::mem::size_of::<StateHeader>()];
-        file.read_exact(&mut header_buf)
-            .map_err(|e| Error::BackendError(e.to_string()))?;
-
-        let header: StateHeader = unsafe { std::mem::transmute(header_buf) };
-
-        if &header.magic != b"HUGN" {
+        // Read header fields explicitly
+        let mut magic = [0u8; 4];
+        file.read_exact(&mut magic).map_err(|e| Error::BackendError(e.to_string()))?;
+        if &magic != b"HUGN" {
             return Err(Error::BackendError("Invalid state file magic".to_string()));
         }
+
+        let mut buf4 = [0u8; 4];
+        file.read_exact(&mut buf4).map_err(|e| Error::BackendError(e.to_string()))?;
+        let version = u32::from_le_bytes(buf4);
+        if version != 1 {
+            return Err(Error::BackendError(format!("Unsupported state file version: {}", version)));
+        }
+
+        file.read_exact(&mut buf4).map_err(|e| Error::BackendError(e.to_string()))?;
+        let n_tokens = u32::from_le_bytes(buf4);
+
+        file.read_exact(&mut buf4).map_err(|e| Error::BackendError(e.to_string()))?;
+        let n_keep = u32::from_le_bytes(buf4);
+
+        let mut reserved = [0u8; 16];
+        file.read_exact(&mut reserved).map_err(|e| Error::BackendError(e.to_string()))?;
 
         let mut body = Vec::new();
         file.read_to_end(&mut body)
             .map_err(|e| Error::BackendError(e.to_string()))?;
 
-        Ok((body, header.n_tokens, header.n_keep))
+        Ok((body, n_tokens, n_keep))
     }
 }

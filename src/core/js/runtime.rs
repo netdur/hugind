@@ -162,17 +162,21 @@ impl JsRuntime {
             })
             .await;
 
-        loop {
-            self.wait_idle().await;
-            if let Some(res) = explicit_output.lock().unwrap().take() {
-                return Ok(res);
-            }
-            if let Some(res) = output.lock().unwrap().take() {
-                return res;
-            }
+        // Wait for the runtime to become idle (all promises settled)
+        self.wait_idle().await;
 
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        // Check for explicit set_result() call first
+        if let Some(res) = explicit_output.lock().unwrap().take() {
+            return Ok(res);
         }
+        // Then check for default export return value
+        if let Some(res) = output.lock().unwrap().take() {
+            return res;
+        }
+
+        // If neither produced a result, the module had no default export
+        // and didn't call set_result — return null
+        Ok(serde_json::Value::Null)
     }
 
     pub async fn wait_idle(&self) {
@@ -188,10 +192,15 @@ fn json_to_js<'js>(
         serde_json::Value::Null => Ok(rquickjs::Value::new_null(ctx.clone())),
         serde_json::Value::Bool(b) => Ok(rquickjs::Value::new_bool(ctx.clone(), b)),
         serde_json::Value::Number(n) => {
-            if let Some(f) = n.as_f64() {
+            if let Some(i) = n.as_i64() {
+                if i >= (i32::MIN as i64) && i <= (i32::MAX as i64) {
+                    Ok(rquickjs::Value::new_int(ctx.clone(), i as i32))
+                } else {
+                    // Use float for values outside i32 range to avoid precision loss
+                    Ok(rquickjs::Value::new_float(ctx.clone(), i as f64))
+                }
+            } else if let Some(f) = n.as_f64() {
                 Ok(rquickjs::Value::new_float(ctx.clone(), f))
-            } else if let Some(i) = n.as_i64() {
-                Ok(rquickjs::Value::new_int(ctx.clone(), i as i32))
             } else {
                 Ok(rquickjs::Value::new_null(ctx.clone()))
             }

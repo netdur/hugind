@@ -10,7 +10,7 @@ use crate::core::config::settings::GlobalSettings;
 use crate::core::model::downloader::{Downloader, ProgressSink};
 use crate::core::model::registry::RepoManager;
 use crate::core::model::remote::RemoteClient;
-use crate::core::sys::{SystemInfo, SystemInspector};
+use crate::core::sys::SystemInspector;
 use crate::shared::stdio::PrintSink;
 use crate::shared::{configs, paths};
 
@@ -297,12 +297,17 @@ async fn dispatch_method(
         }
         "server.stop" => {
             let params: ServerStopParams = parse_params(params)?;
+            let config = params.config.clone();
             let result = stop_server(params)?;
+            spawn_server_stop_status(mode, config, result.stopped);
             Ok(serde_json::to_value(result)?)
         }
         "server.start" => {
             let params: ServerStartParams = parse_params(params)?;
+            let config = params.config.clone();
+            let port = params.port;
             let result = start_server(params)?;
+            spawn_server_start_status(mode, config, port);
             Ok(serde_json::to_value(result)?)
         }
         _ => Err(anyhow!("Unknown method {}", method)),
@@ -437,7 +442,7 @@ fn mcp_tools() -> Vec<JsonValue> {
         json!({"name":"config.info","description":"Inspect system info","inputSchema":empty_schema()}),
         json!({"name":"config.remove","description":"Remove a config","inputSchema":json!({"type":"object","properties":{"name":{"type":"string"},"confirm":{"type":"boolean"}},"required":["name","confirm"]})}),
         json!({"name":"config.defaults","description":"Get or set global defaults","inputSchema":json!({"type":"object","properties":{"lib":{"type":"string"},"hf_token":{"type":"string"}}})}),
-        json!({"name":"config.init","description":"Create a config from explicit params","inputSchema":json!({"type":"object","properties":{"name":{"type":"string"},"model_path":{"type":"string"},"preset":{"type":"string"},"ctx":{"type":"number"},"mmproj_path":{"type":"string"},"format":{"type":"string"},"overwrite":{"type":"boolean"}},"required":["name","model_path"]})}),
+        json!({"name":"config.init","description":"Create a config from explicit params","inputSchema":json!({"type":"object","properties":{"name":{"type":"string"},"model_path":{"type":"string"},"ctx":{"type":"number"},"mmproj_path":{"type":"string"},"overwrite":{"type":"boolean"},"n_slots":{"type":"number"},"enable_fit":{"type":"boolean"},"fit_target_mib":{"type":"array","items":{"type":"number"}}},"required":["name","model_path"]})}),
         json!({"name":"model.list","description":"List downloaded model repos","inputSchema":empty_schema()}),
         json!({"name":"model.show","description":"Show files for a model repo","inputSchema":json!({"type":"object","properties":{"repo":{"type":"string"}},"required":["repo"]})}),
         json!({"name":"model.add","description":"Download model files from a repo","inputSchema":json!({"type":"object","properties":{"repo":{"type":"string"},"files":{"type":"array","items":{"type":"string"}}},"required":["repo","files"]})}),
@@ -574,7 +579,8 @@ impl StatusEmitter for StdioEmitter {
             event: "status".to_string(),
             id: self.id.clone(),
             data: StatusEvent {
-                message: message.to_string(),
+                message: Some(message.to_string()),
+                status: None,
             },
             schema_version: SCHEMA_VERSION,
         };
@@ -646,7 +652,10 @@ impl PrintSink for McpEmitter {
 
 #[derive(Debug, Serialize)]
 struct StatusEvent {
-    message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    status: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -971,32 +980,14 @@ struct ConfigListItem {
 }
 
 fn list_configs() -> Result<Vec<ConfigListItem>> {
-    let config_dir = paths::configs_dir();
-    if !config_dir.exists() {
-        return Ok(vec![]);
-    }
-    let mut items = Vec::new();
-    for entry in std::fs::read_dir(&config_dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_file() {
-            if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
-                if ext == "yml" || ext == "yaml" {
-                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                        if configs::is_reserved_config_name(stem) {
-                            continue;
-                        }
-                        items.push(ConfigListItem {
-                            name: stem.to_string(),
-                            path: path.to_string_lossy().to_string(),
-                        });
-                    }
-                }
-            }
-        }
-    }
-    items.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(items)
+    let items = crate::core::config::helpers::list_config_names()?;
+    Ok(items
+        .into_iter()
+        .map(|(name, path)| ConfigListItem {
+            name,
+            path: path.to_string_lossy().to_string(),
+        })
+        .collect())
 }
 
 #[derive(Debug, Deserialize)]
@@ -1034,16 +1025,7 @@ fn remove_config(params: &ConfigRemoveParams) -> Result<ConfigRemoveResult> {
     if !params.confirm {
         return Err(anyhow!("Removal not confirmed"));
     }
-    let config_dir = paths::configs_dir();
-    let yml_path = config_dir.join(format!("{}.yml", params.name));
-    let yaml_path = config_dir.join(format!("{}.yaml", params.name));
-    let path_to_remove = if yml_path.exists() {
-        Some(yml_path)
-    } else if yaml_path.exists() {
-        Some(yaml_path)
-    } else {
-        None
-    };
+    let path_to_remove = crate::core::config::helpers::find_config_path(&params.name);
     if let Some(p) = path_to_remove {
         std::fs::remove_file(&p)?;
         Ok(ConfigRemoveResult {
@@ -1110,21 +1092,22 @@ struct ConfigInitParams {
     name: String,
     model_path: String,
     #[serde(default)]
-    preset: Option<String>,
-    #[serde(default)]
     ctx: Option<u64>,
     #[serde(default)]
     mmproj_path: Option<String>,
     #[serde(default)]
-    format: Option<String>,
-    #[serde(default)]
     overwrite: bool,
+    #[serde(default)]
+    n_slots: Option<u32>,
+    #[serde(default)]
+    enable_fit: bool,
+    #[serde(default)]
+    fit_target_mib: Vec<usize>,
 }
 
 #[derive(Debug, Serialize)]
 struct ConfigInitResult {
     path: String,
-    preset: String,
     model_path: String,
     ctx: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1132,129 +1115,29 @@ struct ConfigInitResult {
 }
 
 fn config_init(params: ConfigInitParams) -> Result<ConfigInitResult> {
-    ensure_default_configs()?;
-    let info = SystemInspector::inspect();
-    let recommended_preset = SystemInspector::recommend_preset(&info);
-    let chosen_preset = params
-        .preset
-        .unwrap_or_else(|| recommended_preset.to_string());
+    use crate::core::config::generator::{self, ConfigGenParams};
 
-    let base_content = include_str!("../resources/config.yml");
-    let preset_content = match chosen_preset.as_str() {
-        "metal_unified" => include_str!("../resources/metal_unified.yml"),
-        "cuda_dedicated" => include_str!("../resources/cuda_dedicated.yml"),
-        "cpu_only" => include_str!("../resources/cpu_only.yml"),
-        _ => return Err(anyhow!("Unknown preset {}", chosen_preset)),
-    };
-
-    let model_path = params.model_path;
-    if !Path::new(&model_path).exists() {
-        return Err(anyhow!("Model path not found: {}", model_path));
-    }
-    let model_size_gb = if let Ok(meta) = std::fs::metadata(&model_path) {
-        meta.len() as f64 / 1_073_741_824.0
-    } else {
-        0.0
-    };
-
-    let mmproj_path = params
-        .mmproj_path
-        .or_else(|| detect_sibling(&model_path, &["mmproj", "projector", "vision"]));
-    let chosen_format = params.format.unwrap_or_else(|| "auto".to_string());
-
-    let final_ctx = params
-        .ctx
-        .unwrap_or_else(|| recommend_ctx(&info, model_size_gb));
-
-    let mut final_content = base_content.to_string();
-    for line in preset_content.lines() {
-        if let Some((k, v)) = parse_yaml_line(line) {
-            final_content = replace_value(&final_content, &k, &v);
-        }
+    if !Path::new(&params.model_path).exists() {
+        return Err(anyhow!("Model path not found: {}", params.model_path));
     }
 
-    final_content = replace_value(
-        &final_content,
-        "path",
-        &format!("\"{}\"", shorten_path(&model_path)),
-    );
-    if let Some(mm) = &mmproj_path {
-        final_content = replace_value(
-            &final_content,
-            "mmproj_path",
-            &format!("\"{}\"", shorten_path(mm)),
-        );
-        final_content = replace_value(&final_content, "batch_size", "8192");
-    }
-    let unified_memory_mode = chosen_preset == "metal_unified";
-    final_content = replace_value(
-        &final_content,
-        "unified_memory_mode",
-        if unified_memory_mode { "true" } else { "false" },
-    );
-    final_content = replace_value(&final_content, "format", &chosen_format);
-    final_content = replace_value(&final_content, "size", &final_ctx.to_string());
-
-    let dest_dir = paths::configs_dir();
-    std::fs::create_dir_all(&dest_dir)?;
-    let dest_file = dest_dir.join(format!("{}.yml", params.name));
-    if dest_file.exists() && !params.overwrite {
-        return Err(anyhow!("Config '{}' already exists", params.name));
-    }
-    std::fs::write(&dest_file, final_content)?;
+    let result = generator::generate_config(ConfigGenParams {
+        name: params.name,
+        model_path: params.model_path,
+        ctx: params.ctx,
+        mmproj_path: params.mmproj_path,
+        overwrite: params.overwrite,
+        n_slots: params.n_slots,
+        enable_fit: params.enable_fit,
+        fit_target_mib: params.fit_target_mib,
+    })?;
 
     Ok(ConfigInitResult {
-        path: dest_file.to_string_lossy().to_string(),
-        preset: chosen_preset,
-        model_path: shorten_path(&model_path),
-        ctx: final_ctx,
-        mmproj_path: mmproj_path.as_deref().map(shorten_path),
+        path: result.path,
+        model_path: result.model_path,
+        ctx: result.ctx,
+        mmproj_path: result.mmproj_path,
     })
-}
-
-fn ensure_default_configs() -> Result<()> {
-    let dest_dir = paths::presets_dir();
-    std::fs::create_dir_all(&dest_dir)?;
-    let defaults = [
-        ("config.yml", include_str!("../resources/config.yml")),
-        ("cpu_only.yml", include_str!("../resources/cpu_only.yml")),
-        (
-            "cuda_dedicated.yml",
-            include_str!("../resources/cuda_dedicated.yml"),
-        ),
-        (
-            "metal_unified.yml",
-            include_str!("../resources/metal_unified.yml"),
-        ),
-    ];
-    for (name, content) in defaults {
-        let path = dest_dir.join(name);
-        if path.exists() {
-            continue;
-        }
-        std::fs::write(&path, content)?;
-    }
-    Ok(())
-}
-
-fn recommend_ctx(info: &SystemInfo, model_size_gb: f64) -> u64 {
-    let sys_mem_gb = info.memory_bytes as f64 / 1_073_741_824.0;
-    let available_for_ctx = (sys_mem_gb - model_size_gb - 2.0).max(0.5);
-    let est_tokens = (available_for_ctx * 10.0 * 1024.0) as u64;
-
-    let mut ctx_options = vec![2048, 4096, 8192, 16384, 32768, 65536];
-    let mut next_ctx = 131072u64;
-    let max_ctx = est_tokens.min(262_144);
-    while next_ctx <= max_ctx {
-        ctx_options.push(next_ctx);
-        next_ctx *= 2;
-    }
-    ctx_options
-        .iter()
-        .filter(|&&c| c <= est_tokens)
-        .last()
-        .copied()
-        .unwrap_or(2048)
 }
 
 #[derive(Debug, Serialize)]
@@ -1300,15 +1183,9 @@ struct ModelFileItem {
 }
 
 fn show_model(repo: String) -> Result<ModelShowResult> {
-    if !RepoManager::repo_exists(&repo) {
-        return Err(anyhow!("Repository '{}' not found", repo));
-    }
-    let repos = RepoManager::list_repos()?;
-    let repo_obj = repos
-        .iter()
-        .find(|r| r.full_name() == repo)
-        .ok_or_else(|| anyhow!("Repository metadata not found"))?;
-    let files = RepoManager::list_repo_files(repo_obj)?;
+    let repo_obj = RepoManager::get_repo(&repo)?
+        .ok_or_else(|| anyhow!("Repository '{}' not found", repo))?;
+    let files = RepoManager::list_repo_files(&repo_obj)?;
     let items = files
         .into_iter()
         .map(|f| ModelFileItem {
@@ -1343,16 +1220,20 @@ where
     let available = RemoteClient::fetch_repo_files(&params.repo)
         .await
         .context("Failed to fetch remote files")?;
-    let available_set: std::collections::HashSet<String> = available.into_iter().collect();
+    let available_map: std::collections::HashMap<String, _> = available
+        .into_iter()
+        .map(|f| (f.filename.clone(), f))
+        .collect();
 
     for file in &params.files {
-        if !available_set.contains(file) {
+        if !available_map.contains_key(file) {
             return Err(anyhow!("File '{}' not found in repo {}", file, params.repo));
         }
     }
 
     for filename in &params.files {
-        Downloader::download_file_with_sink(&params.repo, filename, Some(emitter)).await?;
+        let sha = available_map.get(filename).and_then(|f| f.sha256.as_deref());
+        Downloader::download_file_with_sink(&params.repo, filename, sha, Some(emitter)).await?;
     }
 
     Ok(ModelAddResult {
@@ -1403,9 +1284,8 @@ fn remove_model(params: ModelRemoveParams) -> Result<ModelRemoveResult> {
     }
 
     if params.delete_if_empty {
-        let repos = RepoManager::list_repos()?;
-        if let Some(repo_obj) = repos.iter().find(|r| r.full_name() == params.repo) {
-            let remaining = RepoManager::list_repo_files(repo_obj)?;
+        if let Some(repo_obj) = RepoManager::get_repo(&params.repo)? {
+            let remaining = RepoManager::list_repo_files(&repo_obj)?;
             if remaining.is_empty() {
                 RepoManager::delete_repo(&params.repo)?;
                 return Ok(ModelRemoveResult {
@@ -1510,22 +1390,129 @@ async fn list_servers() -> Result<Vec<ServerItem>> {
 }
 
 fn stop_server(params: ServerStopParams) -> Result<ServerStopResult> {
-    let path = find_config_path(&params.config)
-        .ok_or_else(|| anyhow!("Config '{}' not found", params.config))?;
+    let config = params.config;
+    let path = find_config_path(&config).ok_or_else(|| anyhow!("Config '{}' not found", config))?;
     let (_host, port) = read_host_port(&path).unwrap_or(("127.0.0.1".to_string(), 8080));
     if cfg!(target_os = "windows") {
         return Ok(ServerStopResult {
-            config: params.config,
+            config,
             stopped: false,
             pids: Vec::new(),
         });
     }
     let pids = kill_by_port(port)?;
+    let stopped = !pids.is_empty();
     Ok(ServerStopResult {
-        config: params.config,
-        stopped: !pids.is_empty(),
+        config,
+        stopped,
         pids,
     })
+}
+
+fn spawn_server_start_status(mode: EventMode, config: String, port_override: Option<u16>) {
+    tokio::spawn(async move {
+        let (host, port) = resolve_server_target(&config, port_override);
+        let probe_host = normalize_host(&host).to_string();
+        let is_ready = wait_for_server_up(&probe_host, port).await;
+        if is_ready {
+            emit_server_lifecycle_for_mode(&mode, "started");
+        } else {
+            emit_server_lifecycle_for_mode(&mode, "start_timeout");
+        }
+    });
+}
+
+fn spawn_server_stop_status(mode: EventMode, config: String, stop_requested: bool) {
+    tokio::spawn(async move {
+        let (host, port) = resolve_server_target(&config, None);
+        let probe_host = normalize_host(&host).to_string();
+        let is_down = wait_for_server_down(&probe_host, port).await;
+        let status = if is_down {
+            if stop_requested {
+                "stopped"
+            } else {
+                "already_stopped"
+            }
+        } else {
+            "stop_timeout"
+        };
+        emit_server_lifecycle_for_mode(&mode, status);
+    });
+}
+
+fn resolve_server_target(config: &str, port_override: Option<u16>) -> (String, u16) {
+    if let Some(path) = find_config_path(config) {
+        let (host, port) = read_host_port(&path).unwrap_or(("127.0.0.1".to_string(), 8080));
+        return (host, port_override.unwrap_or(port));
+    }
+    ("127.0.0.1".to_string(), port_override.unwrap_or(8080))
+}
+
+fn emit_server_lifecycle_for_mode(mode: &EventMode, status: &str) {
+    match mode {
+        EventMode::Stdio { id, outbox } => {
+            let event = Event {
+                event: "status".to_string(),
+                id: id.clone(),
+                data: StatusEvent {
+                    message: None,
+                    status: Some(status.to_string()),
+                },
+                schema_version: SCHEMA_VERSION,
+            };
+            outbox.send(event);
+        }
+        EventMode::Mcp { id, outbox } => {
+            outbox.send(json!({
+                "jsonrpc": "2.0",
+                "method": "notifications/hugind.status",
+                "params": {
+                    "id": id,
+                    "status": status
+                }
+            }));
+        }
+    }
+}
+
+async fn wait_for_server_up(host: &str, port: u16) -> bool {
+    const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+    const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(300);
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+
+    loop {
+        if probe_server_port(host, port).await {
+            return true;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+}
+
+async fn wait_for_server_down(host: &str, port: u16) -> bool {
+    const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+    const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+
+    loop {
+        if !probe_server_port(host, port).await {
+            return true;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+}
+
+async fn probe_server_port(host: &str, port: u16) -> bool {
+    let connect = tokio::net::TcpStream::connect((host, port));
+    matches!(
+        tokio::time::timeout(std::time::Duration::from_millis(500), connect).await,
+        Ok(Ok(_))
+    )
 }
 
 fn list_config_files(config_dir: &Path) -> Result<Vec<PathBuf>> {
@@ -1550,16 +1537,7 @@ fn list_config_files(config_dir: &Path) -> Result<Vec<PathBuf>> {
 }
 
 fn find_config_path(config: &str) -> Option<PathBuf> {
-    let config_dir = paths::configs_dir();
-    let yml_path = config_dir.join(format!("{}.yml", config));
-    let yaml_path = config_dir.join(format!("{}.yaml", config));
-    if yml_path.exists() {
-        Some(yml_path)
-    } else if yaml_path.exists() {
-        Some(yaml_path)
-    } else {
-        None
-    }
+    crate::core::config::helpers::find_config_path(config)
 }
 
 fn read_host_port(path: &Path) -> Result<(String, u16)> {
@@ -1873,111 +1851,3 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
-fn detect_sibling(main_path: &str, keywords: &[&str]) -> Option<String> {
-    let path = Path::new(main_path);
-    if !path.exists() {
-        return None;
-    }
-    let parent = path.parent()?;
-    let main_name = path.file_name()?.to_str()?.to_lowercase();
-    if let Ok(entries) = std::fs::read_dir(parent) {
-        for entry in entries.filter_map(Result::ok) {
-            let p = entry.path();
-            if p.is_file() {
-                if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
-                    let name_lower = name.to_lowercase();
-                    if name_lower != main_name && name_lower.ends_with(".gguf") {
-                        if keywords.iter().any(|k| name_lower.contains(k)) {
-                            return Some(p.to_string_lossy().to_string());
-                        }
-                    }
-                }
-            }
-        }
-    }
-    None
-}
-
-fn shorten_path(path: &str) -> String {
-    if let Some(home) = dirs::home_dir() {
-        let home_str = home.to_string_lossy();
-        if path.starts_with(home_str.as_ref()) {
-            return path.replacen(home_str.as_ref(), "~", 1);
-        }
-    }
-    path.to_string()
-}
-
-fn replace_value(content: &str, key: &str, new_value: &str) -> String {
-    let mut output = String::new();
-    let key_pat = format!("{}:", key);
-    for line in content.lines() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with(&key_pat) {
-            let indent = &line[0..line.len() - trimmed.len()];
-            let parts: Vec<&str> = trimmed.splitn(2, ':').collect();
-            if parts.len() == 2 {
-                let rest = parts[1];
-                let comment_idx = rest.find('#');
-                let comment = if let Some(idx) = comment_idx {
-                    &rest[idx..]
-                } else {
-                    ""
-                };
-                output.push_str(&format!(
-                    "{}{}: {}{}\n",
-                    indent,
-                    key,
-                    new_value,
-                    if comment.is_empty() {
-                        String::new()
-                    } else {
-                        format!("  {}", comment)
-                    }
-                ));
-                continue;
-            }
-        }
-        output.push_str(line);
-        output.push('\n');
-    }
-    output
-}
-
-fn parse_yaml_line(line: &str) -> Option<(String, String)> {
-    let line = line.trim();
-    if line.starts_with('#') || line.is_empty() {
-        return None;
-    }
-    let parts: Vec<&str> = line.splitn(2, ':').collect();
-    if parts.len() == 2 {
-        let key = parts[0].trim().to_string();
-        let val_part = parts[1];
-        let val = val_part.split('#').next()?.trim().to_string();
-        if !val.is_empty() {
-            return Some((key, val));
-        }
-    }
-    None
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_yaml_line_parses_key_value() {
-        let line = "path: \"model.gguf\"  # comment";
-        let parsed = parse_yaml_line(line);
-        assert_eq!(
-            parsed,
-            Some(("path".to_string(), "\"model.gguf\"".to_string()))
-        );
-    }
-
-    #[test]
-    fn parse_yaml_line_skips_comments() {
-        assert_eq!(parse_yaml_line("# hello"), None);
-        assert_eq!(parse_yaml_line("   "), None);
-    }
-}

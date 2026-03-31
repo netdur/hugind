@@ -87,8 +87,10 @@ Event types currently emitted:
 1. `server.list` (no params)
 2. `server.start`
    params: `{ "config": string, "port"?: number }`
+   events: `status` (`data.status: "started"` when server port is reachable)
 3. `server.stop`
    params: `{ "config": string }`
+   events: `status` (`data.status: "stopped" | "already_stopped" | "stop_timeout"`)
 
 ## Result Shapes (high-level)
 

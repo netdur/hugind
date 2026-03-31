@@ -21,13 +21,12 @@ pub struct ServerConfig {
     pub context_params: ContextParams,
     pub multimodal_params: MultimodalParams,
     pub sampler_params: SamplerParams,
-    pub chat_params: ChatParams,
+    pub enable_thinking_default: bool,
+    pub thinking_budget_tokens: Option<u32>,
     pub lora_params: LoraParams,
     pub fit_params: FitParams,
     pub quantize_params: QuantizeParams,
     pub advanced_params: AdvancedParams,
-    // Legacy compatibility: mirrors chat.format when present.
-    pub chat_format: Option<ChatFormat>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -244,24 +243,6 @@ pub struct LogitBiasItem {
     pub bias: f32,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-pub struct ChatParams {
-    pub enable_thinking_default: bool,
-    pub thinking_budget_tokens: Option<u32>,
-    pub format: Option<ChatFormat>,
-}
-
-impl Default for ChatParams {
-    fn default() -> Self {
-        Self {
-            enable_thinking_default: false,
-            thinking_budget_tokens: None,
-            format: None,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(default)]
 pub struct LoraParams {
@@ -402,20 +383,6 @@ pub enum FlashAttnType {
     Auto,
     On,
     Off,
-}
-
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ChatFormat {
-    Llama2,
-    Chatml,
-    Gemma,
-    Vicuna,
-    #[serde(alias = "zepyhr")]
-    Zephyr,
-    Openchat,
-    Deepseek,
-    Qwen3,
 }
 
 fn default_scale() -> f32 {

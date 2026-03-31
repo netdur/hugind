@@ -1,5 +1,0 @@
-model:
-  gpu_layers: 0
-  
-context:
-  offload_kqv: false

@@ -335,27 +335,28 @@ impl<'a> LlmEngine<'a> {
                                     })
                                 }
                                 Err(e) => {
-                                    let image_marker_count = job.prompt.matches("<image>").count();
                                     let media_marker_count =
                                         job.prompt.matches("<__media__>").count();
+                                    let deprecated_marker_count =
+                                        job.prompt.matches("<__image__>").count();
                                     if mm_debug {
                                         let snippet: String =
                                             job.prompt.chars().take(300).collect();
                                         eprintln!(
-                                            "[MM DEBUG] tokenize failed: images={}, <image>={}, <__media__>={}, prompt_chars={}, prompt_prefix={:?}",
+                                            "[MM DEBUG] tokenize failed: images={}, <__media__>={}, <__image__>={}, prompt_chars={}, prompt_prefix={:?}",
                                             images.len(),
-                                            image_marker_count,
                                             media_marker_count,
+                                            deprecated_marker_count,
                                             job.prompt.chars().count(),
                                             snippet
                                         );
                                     }
                                     Err(format!(
-                                        "Multimodal tokenization failed: {} (images={}, <image> markers={}, <__media__> markers={}, prompt_chars={})",
+                                        "Multimodal tokenization failed: {} (images={}, <__media__> markers={}, <__image__> markers={}, prompt_chars={})",
                                         e,
                                         images.len(),
-                                        image_marker_count,
                                         media_marker_count,
+                                        deprecated_marker_count,
                                         job.prompt.chars().count()
                                     ))
                                 }
@@ -982,11 +983,17 @@ impl<'a> LlmEngine<'a> {
             if let Err(e) = self.ctx.decode(&mut self.batch) {
                 eprintln!("[Step] Decode FAILED: {}", e);
 
-                unsafe {
+                {
                     eprintln!("[Step] Batch n_tokens: {}", self.batch.handle.n_tokens);
-                    if self.batch.handle.n_tokens > 0 {
-                        let pos = *self.batch.handle.pos.add(0);
-                        let seq = *(*self.batch.handle.seq_id.add(0));
+                    if self.batch.handle.n_tokens > 0
+                        && !self.batch.handle.pos.is_null()
+                        && !self.batch.handle.seq_id.is_null()
+                    {
+                        let pos = unsafe { *self.batch.handle.pos.add(0) };
+                        let seq = unsafe {
+                            let seq_ptr = *self.batch.handle.seq_id.add(0);
+                            if seq_ptr.is_null() { -1 } else { *seq_ptr }
+                        };
                         eprintln!("[Step] First Token: Pos={}, Seq={}", pos, seq);
 
                         if let Some(slot) = self.slots.get(&seq) {
@@ -2091,10 +2098,23 @@ impl<'a> LlmEngine<'a> {
 
 impl<'a> Drop for LlmEngine<'a> {
     fn drop(&mut self) {
+        // Signal the prep thread to stop by dropping the sender
         self.prep_tx.take();
 
         if let Some(handle) = self._prep_handle.take() {
-            let _ = handle.join();
+            // Wait up to 5 seconds for the prep thread to finish
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            loop {
+                if handle.is_finished() {
+                    let _ = handle.join();
+                    break;
+                }
+                if std::time::Instant::now() >= deadline {
+                    eprintln!("Warning: prep thread did not finish within 5s, abandoning");
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
         }
     }
 }

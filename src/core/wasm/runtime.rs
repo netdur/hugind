@@ -2,7 +2,7 @@ use crate::core::config::agent::{AgentConfig, NetPermissions, RuntimeFsMode, She
 use crate::core::config::backend::resolve_backend;
 use crate::core::fs::FsAccess;
 use crate::core::mcp::McpManager;
-use crate::core::runtime::util::{is_private_ip, parse_duration_string, parse_memory_string};
+use crate::core::runtime::util::{parse_duration_string, parse_memory_string};
 use crate::shared::logging::RunLogger;
 use anyhow::{Context, Result, anyhow, bail};
 use cap_std::fs::Dir as CapDir;
@@ -79,9 +79,7 @@ impl WasmRuntime {
                     wasm_config.consume_fuel(true);
                 }
 
-                if let Some(mem_str) = &resources.memory {
-                    if let Some(_bytes) = parse_memory_string(mem_str) {}
-                }
+                // Memory limits applied via StoreLimitsBuilder below
             }
         }
 
@@ -263,8 +261,10 @@ impl WasmRuntime {
 
         if let Some(wasm_opts) = &self.config.wasm {
             if let Some(res) = &wasm_opts.resources {
-                if let Some(_cpu) = &res.cpu {
-                    store.set_fuel(1_000_000_000).ok();
+                if let Some(cpu_str) = &res.cpu {
+                    // Parse CPU budget as instruction count (e.g., "1000000" or "1M")
+                    let fuel = parse_memory_string(cpu_str).unwrap_or(1_000_000_000);
+                    store.set_fuel(fuel as u64).ok();
                 }
             }
         }
@@ -393,7 +393,7 @@ impl WasmRuntime {
                     // The WASM environment is designed to be an agent running bash commands.
 
                     let mut command = if cfg!(target_os = "macos") {
-                        let profile = "(version 1) (allow default)";
+                        let profile = crate::core::runtime::sandbox::macos_sandbox_profile(&perm);
                         let mut cmd = Command::new("sandbox-exec");
                         cmd.arg("-p").arg(profile).arg("sh").arg("-c").arg(&cmd_str);
                         cmd
@@ -471,7 +471,7 @@ impl WasmRuntime {
                     ensure_spawn_program_allowed(program, &perm)?;
 
                     let mut command = if cfg!(target_os = "macos") {
-                        let profile = "(version 1) (allow default)";
+                        let profile = crate::core::runtime::sandbox::macos_sandbox_profile(&perm);
                         let mut cmd = Command::new("sandbox-exec");
                         cmd.arg("-p").arg(profile).arg(program);
                         cmd
@@ -651,7 +651,6 @@ impl WasmRuntime {
 
                     let mut request = client
                         .post(&url)
-                        .timeout(std::time::Duration::from_secs(120))
                         .json(&body);
                     if let Some(id) = session_id {
                         request = request.header("X-Session-ID", id);
@@ -730,7 +729,6 @@ impl WasmRuntime {
 
                     let mut request = client
                         .post(&url)
-                        .timeout(std::time::Duration::from_secs(120))
                         .json(&body);
                     if let Some(id) = session_id {
                         request = request.header("X-Session-ID", id);
@@ -1407,28 +1405,13 @@ fn ensure_host_fs_enabled(caller: &Caller<'_, HostState>) -> Result<()> {
 }
 
 fn ensure_shell_command_allowed(perm: &ShellPermission) -> Result<()> {
-    if !perm.allow {
-        bail!("Shell execution is disabled.");
-    }
-    Ok(())
+    crate::core::runtime::util::validate_shell_allowed(perm)
+        .map_err(|e| anyhow!(e))
 }
 
 fn ensure_spawn_program_allowed(program: &str, perm: &ShellPermission) -> Result<()> {
-    ensure_shell_command_allowed(perm)?;
-
-    if let Some(whitelist) = &perm.whitelist {
-        if !whitelist.iter().any(|cmd| cmd == program) {
-            bail!("Command '{}' is not whitelisted.", program);
-        }
-    }
-
-    if let Some(blacklist) = &perm.blacklist {
-        if blacklist.iter().any(|cmd| cmd == program) {
-            bail!("Command '{}' is blacklisted.", program);
-        }
-    }
-
-    Ok(())
+    crate::core::runtime::util::validate_program_allowed(program, perm)
+        .map_err(|e| anyhow!(e))
 }
 
 fn truncate_at_char_boundary(mut s: String, max_len: usize) -> String {
@@ -1487,35 +1470,14 @@ fn validate_net_fetch_target(url: &Url, permission: &NetPermissions) -> Result<(
         bail!("Network access is disabled for this agent.");
     }
 
-    match url.scheme() {
-        "http" | "https" => {}
-        _ => bail!("URL scheme '{}' is not allowed.", url.scheme()),
-    }
+    crate::core::runtime::util::validate_http_scheme(url.scheme())
+        .map_err(|e| anyhow!(e))?;
 
     let host = url.host_str().unwrap_or("").to_string();
     let port = url.port_or_known_default().unwrap_or(80);
 
-    if !permission.allowed_domains.is_empty() || !permission.allowed_ips.is_empty() {
-        let allowed = permission
-            .allowed_domains
-            .iter()
-            .any(|d| host == *d || host.ends_with(&format!(".{}", d)));
-
-        if !allowed {
-            let ip_allowed = if host.parse::<std::net::IpAddr>().is_ok() {
-                permission
-                    .allowed_ips
-                    .iter()
-                    .any(|allowed_ip| allowed_ip == &host)
-            } else {
-                false
-            };
-
-            if !ip_allowed {
-                bail!("Domain/IP '{}' is not in the allowed list.", host);
-            }
-        }
-    }
+    crate::core::runtime::util::validate_host_allowed(&host, permission)
+        .map_err(|e| anyhow!(e))?;
 
     Ok((host, port))
 }
@@ -1524,17 +1486,8 @@ fn ensure_public_network_access(
     permission: &NetPermissions,
     ips: &[std::net::IpAddr],
 ) -> Result<()> {
-    if !permission.block_private_networks {
-        return Ok(());
-    }
-
-    for ip in ips {
-        if is_private_ip(ip) {
-            bail!("Access to private network blocked (IP: {})", ip);
-        }
-    }
-
-    Ok(())
+    crate::core::runtime::util::validate_public_network(permission, ips)
+        .map_err(|e| anyhow!(e))
 }
 
 fn ensure_host_fs_mode_enabled(fs_mode: &RuntimeFsMode) -> Result<()> {

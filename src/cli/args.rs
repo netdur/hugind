@@ -24,11 +24,6 @@ pub enum Commands {
         command: ModelCommand,
     },
 
-    Chat {
-        #[command(subcommand)]
-        command: Option<ChatCommand>,
-    },
-
     Server {
         #[command(subcommand)]
         command: ServerCommand,
@@ -62,6 +57,10 @@ pub enum ConfigCommand {
     Defaults {
         #[arg(long)]
         hf_token: Option<String>,
+
+        /// Set a key=value pair (can be repeated)
+        #[arg(long = "set")]
+        set: Vec<String>,
     },
 }
 
@@ -95,33 +94,26 @@ pub enum AgentCommand {
 pub enum ModelCommand {
     List,
 
-    Add { repo: Option<String> },
+    Add {
+        repo: Option<String>,
+
+        /// Skip confirmation prompts
+        #[arg(short, long)]
+        yes: bool,
+    },
 
     Show { repo: String },
 
-    Remove { repo: Option<String> },
-}
+    Remove {
+        repo: Option<String>,
 
-#[derive(Subcommand, Debug)]
-pub enum ChatCommand {
-    Start {
-        #[arg(default_value = "")]
-        config: String,
+        /// Skip confirmation prompts
+        #[arg(short, long)]
+        yes: bool,
     },
 
-    Resume {
-        #[arg(default_value = "")]
-        id: String,
-    },
-
-    List,
-
-    Delete {
-        id: Option<String>,
-    },
-
-    #[command(external_subcommand)]
-    Default(Vec<String>),
+    /// Migrate models from old layout (~/.hugind/{user}/{repo}) to new (~/.hugind/models/{user}/{repo})
+    Migrate,
 }
 
 #[derive(Subcommand, Debug)]

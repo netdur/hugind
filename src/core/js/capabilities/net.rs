@@ -3,7 +3,7 @@ use reqwest::Url;
 use rquickjs::{AsyncContext, Class, Result};
 
 use crate::core::config::agent::{AgentConfig, NetPermissions};
-use crate::core::runtime::util::{is_private_ip, parse_duration_string, parse_memory_string};
+use crate::core::runtime::util::{parse_duration_string, parse_memory_string};
 use crate::shared::logging::RunLogger;
 
 #[derive(rquickjs::JsLifetime)]
@@ -145,53 +145,18 @@ impl Net {
 }
 
 fn ensure_http_scheme(url: &Url) -> std::result::Result<(), String> {
-    match url.scheme() {
-        "http" | "https" => Ok(()),
-        other => Err(format!("URL scheme '{}' is not allowed.", other)),
-    }
+    crate::core::runtime::util::validate_http_scheme(url.scheme())
 }
 
 fn ensure_host_allowed(host: &str, permission: &NetPermissions) -> std::result::Result<(), String> {
-    if permission.allowed_domains.is_empty() && permission.allowed_ips.is_empty() {
-        return Ok(());
-    }
-
-    let domain_allowed = permission
-        .allowed_domains
-        .iter()
-        .any(|d| host == d || host.ends_with(&format!(".{}", d)));
-    if domain_allowed {
-        return Ok(());
-    }
-
-    if let Ok(_ip) = host.parse::<std::net::IpAddr>() {
-        let ip_allowed = permission
-            .allowed_ips
-            .iter()
-            .any(|allowed_ip| allowed_ip == host);
-        if ip_allowed {
-            return Ok(());
-        }
-    }
-
-    Err(format!("Domain/IP '{}' is not in the allowed list.", host))
+    crate::core::runtime::util::validate_host_allowed(host, permission)
 }
 
 fn ensure_public_network_access(
     permission: &NetPermissions,
     ips: &[std::net::IpAddr],
 ) -> std::result::Result<(), String> {
-    if !permission.block_private_networks {
-        return Ok(());
-    }
-
-    for ip in ips {
-        if is_private_ip(ip) {
-            return Err(format!("Access to private network blocked (IP: {})", ip));
-        }
-    }
-
-    Ok(())
+    crate::core::runtime::util::validate_public_network(permission, ips)
 }
 
 pub async fn install(

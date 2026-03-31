@@ -14,10 +14,22 @@ pub fn ensure_user_home() -> Result<()> {
         .with_context(|| format!("Failed to create {}", data_home.display()))?;
 
     ensure_dir(paths::configs_dir())?;
-    ensure_dir(paths::presets_dir())?;
     ensure_dir(paths::agents_dir())?;
     ensure_dir(paths::sessions_dir())?;
-    ensure_dir(data_home.join("chat"))?;
+
+    let models_dir = paths::models_dir();
+    let models_is_new = !models_dir.exists();
+    ensure_dir(models_dir)?;
+
+    // Auto-migrate models from old layout (~/.hugind/{user}/{repo}/)
+    // to new layout (~/.hugind/models/{user}/{repo}/) on first run.
+    if models_is_new {
+        if let Ok(n) = crate::core::model::migrate::migrate_models_to_models_dir() {
+            if n > 0 {
+                eprintln!("Migrated {} model repo(s) to ~/.hugind/models/", n);
+            }
+        }
+    }
 
     Ok(())
 }

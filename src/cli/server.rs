@@ -3,7 +3,7 @@ use parking_lot::RwLock;
 use serde_json::Value as JsonValue;
 use serde_yaml::Value;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -19,21 +19,19 @@ use crate::llm::{
     sampling::SamplingConfig,
 };
 use crate::server;
-use crate::shared::{configs, paths};
+use crate::core::config::helpers as config_helpers;
 
 pub async fn run_start(_config: String, _port: Option<u16>) -> Result<()> {
     runtime::init();
     runtime::logging::init_silent_logging();
 
-    let path = find_config_path(&_config)
+    let path = config_helpers::find_config_path(&_config)
         .ok_or_else(|| anyhow::anyhow!("Config \"{}\" not found.", _config))?;
 
     let mut cfg = crate::core::config::loader::ConfigLoader::load_server_config(&path)?;
     if let Some(port) = _port {
         cfg.port = port;
     }
-
-    runtime::init();
 
     println!("Loading model from {:?}", cfg.model_path);
 
@@ -55,10 +53,9 @@ pub async fn run_start(_config: String, _port: Option<u16>) -> Result<()> {
     mparams.no_host = cfg.model_params.no_host;
     mparams.no_alloc = cfg.model_params.no_alloc;
 
-    let model = Arc::new(Model::from_file(
-        cfg.model_path.to_str().unwrap(),
-        &mparams,
-    )?);
+    let model_path_str = cfg.model_path.to_str()
+        .ok_or_else(|| anyhow::anyhow!("Model path contains invalid UTF-8: {:?}", cfg.model_path))?;
+    let model = Arc::new(Model::from_file(model_path_str, &mparams)?);
     let model_name = cfg.model_name.clone().or_else(|| {
         cfg.model_path
             .file_name()
@@ -176,8 +173,8 @@ pub async fn run_start(_config: String, _port: Option<u16>) -> Result<()> {
         model_name,
         config_name,
         cfg.embeddings_enabled,
-        cfg.chat_params.enable_thinking_default,
-        cfg.chat_params.thinking_budget_tokens,
+        cfg.enable_thinking_default,
+        cfg.thinking_budget_tokens,
         sampling_defaults,
         system_prompt,
         cfg.host.clone(),
@@ -190,31 +187,18 @@ pub async fn run_start(_config: String, _port: Option<u16>) -> Result<()> {
 }
 
 pub async fn run_list() -> Result<()> {
-    let config_dir = paths::configs_dir();
-    if !config_dir.exists() {
-        println!(
-            "No configs found (directory does not exist: {:?}).",
-            config_dir
-        );
-        return Ok(());
-    }
-
-    let configs = list_config_files(&config_dir)?;
-    if configs.is_empty() {
+    let items = config_helpers::list_config_names()?;
+    if items.is_empty() {
         println!("No configs found.");
         return Ok(());
     }
 
     println!("Saved Configs:");
-    for path in configs {
-        let name = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unknown");
-        let (host, port) = read_host_port(&path).unwrap_or(("127.0.0.1".to_string(), 8080));
+    for (name, path) in &items {
+        let (host, port) = read_host_port(path).unwrap_or(("127.0.0.1".to_string(), 8080));
         let monitor_url = format!("http://{}:{}/v1/monitor", normalize_host(&host), port);
         let info = fetch_monitor_info(&monitor_url).await;
-        let status = format_status(info.as_ref(), name);
+        let status = format_status(info.as_ref(), &name);
         println!("- {} ({})", name, status);
     }
 
@@ -222,7 +206,7 @@ pub async fn run_list() -> Result<()> {
 }
 
 pub async fn run_stop(config: String) -> Result<()> {
-    let path = find_config_path(&config)
+    let path = config_helpers::find_config_path(&config)
         .ok_or_else(|| anyhow::anyhow!("Config \"{}\" not found.", config))?;
     let (host, port) = read_host_port(&path).unwrap_or(("127.0.0.1".to_string(), 8080));
     let monitor_url = format!("http://{}:{}/v1/monitor", normalize_host(&host), port);
@@ -253,40 +237,6 @@ pub async fn run_stop(config: String) -> Result<()> {
     }
 
     Ok(())
-}
-
-fn list_config_files(config_dir: &Path) -> Result<Vec<PathBuf>> {
-    let mut configs = Vec::new();
-    for entry in fs::read_dir(config_dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_file() {
-            if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
-                if ext == "yml" || ext == "yaml" {
-                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                        if configs::is_reserved_config_name(stem) {
-                            continue;
-                        }
-                    }
-                    configs.push(path);
-                }
-            }
-        }
-    }
-    Ok(configs)
-}
-
-fn find_config_path(config: &str) -> Option<PathBuf> {
-    let config_dir = paths::configs_dir();
-    let yml_path = config_dir.join(format!("{}.yml", config));
-    let yaml_path = config_dir.join(format!("{}.yaml", config));
-    if yml_path.exists() {
-        Some(yml_path)
-    } else if yaml_path.exists() {
-        Some(yaml_path)
-    } else {
-        None
-    }
 }
 
 fn read_host_port(path: &Path) -> Result<(String, u16)> {
@@ -378,6 +328,10 @@ fn map_sampling_config(value: &SamplerParams) -> SamplingConfig {
 fn kill_by_port(port: u16) -> Result<Vec<i32>> {
     use std::process::Command;
 
+    if port < 1024 {
+        anyhow::bail!("Refusing to kill processes on privileged port {}", port);
+    }
+
     let output = Command::new("lsof")
         .arg("-ti")
         .arg(format!("tcp:{}", port))
@@ -393,14 +347,34 @@ fn kill_by_port(port: u16) -> Result<Vec<i32>> {
     let pids: Vec<i32> = stdout
         .lines()
         .filter_map(|line| line.trim().parse::<i32>().ok())
-        .filter(|pid| *pid != self_pid)
+        .filter(|pid| *pid > 0 && *pid != self_pid)
         .collect();
 
     if pids.is_empty() {
         return Ok(Vec::new());
     }
 
+    // Send SIGTERM first, give processes a chance to shut down gracefully
     for pid in &pids {
+        let _ = Command::new("kill").arg("-15").arg(pid.to_string()).status();
+    }
+
+    // Wait briefly then check if they're gone
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    let mut remaining = Vec::new();
+    for pid in &pids {
+        // Check if process still exists
+        let status = Command::new("kill").arg("-0").arg(pid.to_string()).status();
+        if let Ok(s) = status {
+            if s.success() {
+                remaining.push(*pid);
+            }
+        }
+    }
+
+    // Force-kill any that didn't respond to SIGTERM
+    for pid in &remaining {
         let _ = Command::new("kill").arg("-9").arg(pid.to_string()).status();
     }
 

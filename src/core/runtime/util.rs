@@ -1,3 +1,4 @@
+use crate::core::config::agent::{NetPermissions, ShellPermission};
 use std::net::IpAddr;
 use std::time::Duration;
 
@@ -64,15 +65,95 @@ pub fn is_private_ip(ip: &IpAddr) -> bool {
                 return true;
             }
             let segments = addr.segments();
+            // Unique Local Address (fc00::/7)
             if (segments[0] & 0xfe00) == 0xfc00 {
                 return true;
             }
+            // Link-local (fe80::/10)
             if (segments[0] & 0xffc0) == 0xfe80 {
+                return true;
+            }
+            // Multicast (ff00::/8)
+            if (segments[0] & 0xff00) == 0xff00 {
                 return true;
             }
             false
         }
     }
+}
+
+/// Validate that a shell command is allowed by the permission config.
+pub fn validate_shell_allowed(perm: &ShellPermission) -> Result<(), String> {
+    if !perm.allow {
+        return Err("Shell execution is disabled.".to_string());
+    }
+    Ok(())
+}
+
+/// Validate that a specific program is allowed by whitelist/blacklist.
+pub fn validate_program_allowed(program: &str, perm: &ShellPermission) -> Result<(), String> {
+    validate_shell_allowed(perm)?;
+
+    if let Some(whitelist) = &perm.whitelist {
+        if !whitelist.iter().any(|cmd| cmd == program) {
+            return Err(format!("Command '{}' is not whitelisted.", program));
+        }
+    }
+
+    if let Some(blacklist) = &perm.blacklist {
+        if blacklist.iter().any(|cmd| cmd == program) {
+            return Err(format!("Command '{}' is blacklisted.", program));
+        }
+    }
+
+    Ok(())
+}
+
+/// Validate a network URL scheme is http or https.
+pub fn validate_http_scheme(scheme: &str) -> Result<(), String> {
+    match scheme {
+        "http" | "https" => Ok(()),
+        other => Err(format!("URL scheme '{}' is not allowed.", other)),
+    }
+}
+
+/// Validate a host is in the allowed domains/IPs list.
+pub fn validate_host_allowed(host: &str, perm: &NetPermissions) -> Result<(), String> {
+    if perm.allowed_domains.is_empty() && perm.allowed_ips.is_empty() {
+        return Ok(());
+    }
+
+    let domain_allowed = perm
+        .allowed_domains
+        .iter()
+        .any(|d| host == d || host.ends_with(&format!(".{}", d)));
+    if domain_allowed {
+        return Ok(());
+    }
+
+    if let Ok(_ip) = host.parse::<IpAddr>() {
+        let ip_allowed = perm.allowed_ips.iter().any(|allowed_ip| allowed_ip == host);
+        if ip_allowed {
+            return Ok(());
+        }
+    }
+
+    Err(format!("Domain/IP '{}' is not in the allowed list.", host))
+}
+
+/// Validate that none of the resolved IPs are private when blocking is enabled.
+pub fn validate_public_network(perm: &NetPermissions, ips: &[IpAddr]) -> Result<(), String> {
+    if !perm.block_private_networks {
+        return Ok(());
+    }
+
+    for ip in ips {
+        if is_private_ip(ip) {
+            return Err(format!("Access to private network blocked (IP: {})", ip));
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -146,6 +227,8 @@ mod tests {
             IpAddr::V6("fc00::1".parse().expect("valid")),
             IpAddr::V6("fd12:3456:789a::1".parse().expect("valid")),
             IpAddr::V6("fe80::1".parse().expect("valid")),
+            IpAddr::V6("ff02::1".parse().expect("valid")),   // multicast
+            IpAddr::V6("ff05::1:3".parse().expect("valid")), // site-local multicast
         ];
         for ip in private {
             assert!(is_private_ip(&ip), "expected private ip: {ip}");

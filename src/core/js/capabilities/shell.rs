@@ -21,7 +21,7 @@ async fn run_process(
         .map_err(|e| rquickjs::Error::new_loading_message("Shell Error", e))?;
 
     let mut command = if cfg!(target_os = "macos") {
-        let profile = "(version 1) (allow default)";
+        let profile = crate::core::runtime::sandbox::macos_sandbox_profile(&perm);
         let mut cmd = Command::new("sandbox-exec");
         cmd.arg("-p").arg(profile).arg(&program);
         cmd
@@ -104,33 +104,61 @@ fn ensure_program_allowed(
     program: &str,
     perm: &ShellPermission,
 ) -> std::result::Result<(), String> {
-    if !perm.allow {
-        return Err("Shell execution is disabled.".to_string());
-    }
-
-    if let Some(whitelist) = &perm.whitelist {
-        if !whitelist.iter().any(|cmd| cmd == program) {
-            return Err(format!("Command '{}' is not whitelisted.", program));
-        }
-    }
-
-    if let Some(blacklist) = &perm.blacklist {
-        if blacklist.iter().any(|cmd| cmd == program) {
-            return Err(format!("Command '{}' is blacklisted.", program));
-        }
-    }
-
-    Ok(())
+    crate::core::runtime::util::validate_program_allowed(program, perm)
 }
 
 fn split_command_parts(cmd_str: &str) -> std::result::Result<(String, Vec<String>), String> {
-    let parts: Vec<&str> = cmd_str.split_whitespace().collect();
+    let parts = shell_split(cmd_str)?;
     if parts.is_empty() {
         return Err("Empty command".to_string());
     }
-    let program = parts[0].to_string();
-    let args = parts[1..].iter().map(|s| s.to_string()).collect();
+    let program = parts[0].clone();
+    let args = parts[1..].to_vec();
     Ok((program, args))
+}
+
+/// Split a command string respecting single and double quotes.
+fn shell_split(input: &str) -> std::result::Result<Vec<String>, String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut chars = input.chars().peekable();
+    let mut in_single = false;
+    let mut in_double = false;
+
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' if !in_double => {
+                in_single = !in_single;
+            }
+            '"' if !in_single => {
+                in_double = !in_double;
+            }
+            '\\' if in_double => {
+                // Escape next char inside double quotes
+                if let Some(next) = chars.next() {
+                    current.push(next);
+                }
+            }
+            c if c.is_whitespace() && !in_single && !in_double => {
+                if !current.is_empty() {
+                    parts.push(std::mem::take(&mut current));
+                }
+            }
+            _ => {
+                current.push(c);
+            }
+        }
+    }
+
+    if in_single || in_double {
+        return Err("Unterminated quote in command".to_string());
+    }
+
+    if !current.is_empty() {
+        parts.push(current);
+    }
+
+    Ok(parts)
 }
 
 fn format_process_output(success: bool, stdout: &[u8], stderr: &[u8], max_len: usize) -> String {

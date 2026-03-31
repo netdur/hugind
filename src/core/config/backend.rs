@@ -3,7 +3,7 @@ use serde::Deserialize;
 use std::fs;
 
 use crate::core::config::agent::{AgentConfig, RuntimeSession, SessionMode};
-use crate::shared::paths;
+use crate::core::config::helpers;
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize, Default, Clone)]
@@ -120,18 +120,7 @@ fn resolve_base_url_from_config(config_name: &str) -> Option<String> {
         return None;
     }
 
-    let config_dir = paths::configs_dir();
-    let yml_path = config_dir.join(format!("{}.yml", config_name));
-    let yaml_path = config_dir.join(format!("{}.yaml", config_name));
-
-    let path = if yml_path.exists() {
-        yml_path
-    } else if yaml_path.exists() {
-        yaml_path
-    } else {
-        return None;
-    };
-
+    let path = helpers::find_config_path(config_name)?;
     let content = fs::read_to_string(&path).ok()?;
     let yaml: serde_yaml::Value = serde_yaml::from_str(&content).ok()?;
     let server = yaml.get("server")?;

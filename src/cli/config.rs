@@ -1,47 +1,25 @@
+use crate::core::config::helpers;
 use crate::core::config::settings::GlobalSettings;
 use crate::core::sys::SystemInspector;
-use crate::shared::{configs, paths};
+use crate::shared::paths;
 use anyhow::Result;
 use std::fs;
 use std::path::Path;
 
-pub fn list() -> Result<()> {
-    let config_dir = paths::configs_dir();
+const SENSITIVE_KEYS: &[&str] = &["hf_token"];
 
-    if !config_dir.exists() {
-        println!(
-            "No configs found (directory does not exist: {:?}).",
-            config_dir
-        );
+pub fn list() -> Result<()> {
+    let items = helpers::list_config_names()?;
+
+    if items.is_empty() {
+        println!("No configs found.");
         return Ok(());
     }
 
-    let mut found = false;
     println!("Saved Configs:");
-
-    for entry in fs::read_dir(&config_dir)? {
-        let entry = entry?;
-        let path = entry.path();
-
-        if path.is_file() {
-            if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
-                if ext == "yml" || ext == "yaml" {
-                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                        if configs::is_reserved_config_name(stem) {
-                            continue;
-                        }
-                        println!("- {}", stem);
-                        found = true;
-                    }
-                }
-            }
-        }
+    for (name, _path) in items {
+        println!("- {}", name);
     }
-
-    if !found {
-        println!("No configs found.");
-    }
-
     Ok(())
 }
 
@@ -58,7 +36,6 @@ pub fn validate(path: String) -> Result<()> {
         }
         Err(e) => {
             println!("Configuration Invalid: {:#}", e);
-
             Err(e)
         }
     }
@@ -95,23 +72,11 @@ pub fn info() -> Result<()> {
         }
     }
 
-    let preset = SystemInspector::recommend_preset(&info);
-    println!("\nRecommendation: {}", preset);
     Ok(())
 }
 
 pub fn remove(name: String) -> Result<()> {
-    let config_dir = paths::configs_dir();
-    let yml_path = config_dir.join(format!("{}.yml", name));
-    let yaml_path = config_dir.join(format!("{}.yaml", name));
-
-    let path_to_remove = if yml_path.exists() {
-        Some(yml_path)
-    } else if yaml_path.exists() {
-        Some(yaml_path)
-    } else {
-        None
-    };
+    let path_to_remove = helpers::find_config_path(&name);
 
     if let Some(p) = path_to_remove {
         if inquire::Confirm::new(&format!("Delete config \"{}\"?", name))
@@ -129,36 +94,57 @@ pub fn remove(name: String) -> Result<()> {
     Ok(())
 }
 
-pub fn defaults(hf_token: Option<String>) -> Result<()> {
+pub fn defaults(hf_token: Option<String>, set_pairs: Vec<String>) -> Result<()> {
     ensure_settings_file()?;
-    if hf_token.is_none() {
-        let settings = GlobalSettings::load()?;
-        println!(
-            "\nGlobal Settings ({:?}):",
-            paths::data_home().join("settings.yml")
-        );
-        println!("----------------------------------------");
-        if settings.0.is_empty() {
-            println!("No defaults set.");
-        } else {
-            for (k, v) in &settings.0 {
-                println!("{}: {}", k, v);
-            }
-        }
-        println!("----------------------------------------");
-        println!("\nUsage:");
-        println!("  hugind config defaults --hf-token hf_xxxxxx");
-        return Ok(());
-    }
 
     let mut settings = GlobalSettings::load()?;
+    let mut changed = false;
 
     if let Some(t) = hf_token {
         settings.set("hf_token", &t);
-        println!("✅ Global Hugging Face Token updated.");
+        println!("Global Hugging Face Token updated.");
+        changed = true;
     }
 
-    settings.save()?;
+    for pair in &set_pairs {
+        if let Some((key, value)) = pair.split_once('=') {
+            let key = key.trim();
+            let value = value.trim();
+            settings.set(key, value);
+            println!("Set {} = {}", key, if SENSITIVE_KEYS.contains(&key) { helpers::mask_sensitive_value(value) } else { value.to_string() });
+            changed = true;
+        } else {
+            anyhow::bail!("Invalid format '{}', expected key=value", pair);
+        }
+    }
+
+    if changed {
+        settings.save()?;
+        return Ok(());
+    }
+
+    // Display mode
+    println!(
+        "\nGlobal Settings ({:?}):",
+        paths::data_home().join("settings.yml")
+    );
+    println!("----------------------------------------");
+    if settings.0.is_empty() {
+        println!("No defaults set.");
+    } else {
+        for (k, v) in &settings.0 {
+            let display = if SENSITIVE_KEYS.contains(&k.as_str()) {
+                helpers::mask_sensitive_value(v)
+            } else {
+                v.clone()
+            };
+            println!("{}: {}", k, display);
+        }
+    }
+    println!("----------------------------------------");
+    println!("\nUsage:");
+    println!("  hugind config defaults --hf-token hf_xxxxxx");
+    println!("  hugind config defaults --set key=value");
     Ok(())
 }
 

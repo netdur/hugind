@@ -1,3 +1,16 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+  # api_key: ""
+  # max_slots: 4
+  system_prompt: "You are a helpful assistant."
+  # system_prompt_file: ""
+  # embeddings: false
+  # unified_memory_mode: false
+  # verbose: false
+  enable_thinking_default: false
+  # thinking_budget_tokens: null   # null = no cap; 0 = close <think> immediately
+
 model:
   path: "@PLACEHOLDER"
   mmproj_path: ""
@@ -113,10 +126,6 @@ sampling:
   # Constraints
   logit_bias: []                 # e.g. [{ token: 2, bias: -100.0 }]
   grammar: ""
-
-chat:
-  enable_thinking_default: false
-  thinking_budget_tokens: null   # null = no cap; 0 = close <think> immediately
 
 lora:
   adapters: []                   # e.g. ["/path/a.safetensors"]

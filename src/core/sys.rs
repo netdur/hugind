@@ -81,17 +81,4 @@ impl SystemInspector {
         }
     }
 
-    pub fn recommend_preset(info: &SystemInfo) -> &'static str {
-        if info
-            .gpus
-            .iter()
-            .any(|g| g.name.to_lowercase().contains("nvidia"))
-        {
-            return "cuda_dedicated";
-        }
-        if info.os.to_lowercase().contains("macos") || info.arch == "aarch64" {
-            return "metal_unified";
-        }
-        "cpu_only"
-    }
 }
