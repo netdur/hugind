@@ -60,6 +60,13 @@ declare function host_messaging_receive(): i64;
 @external("hugind", "tasks_spawn")
 declare function host_tasks_spawn(ptr: i32, len: i32): i64;
 
+// -- Skills --
+@external("hugind", "get_skill_catalog")
+declare function host_get_skill_catalog(): i64;
+
+@external("hugind", "activate_skill")
+declare function host_activate_skill(ptr: i32, len: i32): i64;
+
 // -- Agentic --
 @external("hugind", "register_tool")
 declare function host_register_tool(ptr: i32, len: i32): void;
@@ -402,6 +409,20 @@ export function messagingReceive(): string {
 export function tasksSpawn(specJson: string): string {
   const buf = String.UTF8.encode(specJson, false);
   return readStringFromHost(host_tasks_spawn(changetype<i32>(buf), buf.byteLength));
+}
+
+// ── Skills ──────────────────────────────────────────────────────────
+// Skills are globally installed instruction packages that any agent can activate.
+
+// Get the skill catalog (names + descriptions of all installed skills).
+export function getSkillCatalog(): string {
+  return readStringFromHost(host_get_skill_catalog());
+}
+
+// Activate a skill by name. Returns the full SKILL.md instructions.
+export function activateSkill(name: string): string {
+  const buf = String.UTF8.encode(name, false);
+  return readStringFromHost(host_activate_skill(changetype<i32>(buf), buf.byteLength));
 }
 
 // ── Agentic mode ────────────────────────────────────────────────────

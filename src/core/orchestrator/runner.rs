@@ -576,9 +576,26 @@ async fn run_agentic_loop_with_js(
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
 
-    // Build system prompt with tool descriptions embedded
+    // Load installed skills and build catalog
+    let installed_skills = crate::core::skill::load_all_skills().unwrap_or_default();
+    let skill_catalog = crate::core::skill::build_skill_catalog(&installed_skills);
+
+    // Build system prompt with skill catalog and tool descriptions embedded
     let mut system = registry.get_system_prompt().unwrap_or_default();
-    let tools_section = registry.tools_prompt();
+    if !skill_catalog.is_empty() {
+        system.push_str(&skill_catalog);
+    }
+    let mut tools_section = registry.tools_prompt();
+    if !installed_skills.is_empty() {
+        // Inject activate_skill as a built-in tool alongside agent-registered tools
+        if tools_section.is_empty() {
+            tools_section = String::from(
+                "\n\nYou have tools. To use one: <tool_call>{\"name\":\"tool_name\",\"args\":{...}}</tool_call>\n\
+                 When done, respond without tool_call tags.\n\n",
+            );
+        }
+        tools_section.push_str("- activate_skill(name): Load a skill's full instructions into context. Use this before starting work that matches a listed skill.\n");
+    }
     if !tools_section.is_empty() {
         system.push_str(&tools_section);
     }
@@ -650,11 +667,27 @@ async fn run_agentic_loop_with_js(
             }
 
             let tool_start = std::time::Instant::now();
-            let result = execute_js_tool(js, &tc.name, &args_str).await;
-            let result_str = match &result {
-                Ok(r) => r.clone(),
-                Err(e) => format!("Error: {}", e),
+
+            // Handle built-in activate_skill tool
+            let result_str = if tc.name == "activate_skill" {
+                let skill_name = tc.args.get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                match crate::core::skill::get_skill_instructions(skill_name) {
+                    Ok(instructions) => {
+                        if trace { eprintln!("[trace] turn {}: activated skill '{}' len={}", turn, skill_name, instructions.len()); }
+                        instructions
+                    }
+                    Err(e) => format!("Error: skill '{}' not found: {}", skill_name, e),
+                }
+            } else {
+                let result = execute_js_tool(js, &tc.name, &args_str).await;
+                match &result {
+                    Ok(r) => r.clone(),
+                    Err(e) => format!("Error: {}", e),
+                }
             };
+
             if trace { eprintln!("[trace] turn {}: {} done in {:.1}s len={}", turn, tc.name, tool_start.elapsed().as_secs_f64(), result_str.len()); }
 
             if let Some(l) = logger {

@@ -40,6 +40,7 @@ struct HostState {
     logger: Option<RunLogger>,
     team_ctx: Option<TeamContext>,
     tool_registry: Option<ToolRegistry>,
+    skill_catalog: String,
 }
 
 impl WasiView for HostState {
@@ -274,6 +275,10 @@ impl WasmRuntime {
                 logger: self.logger.clone(),
                 team_ctx: team_ctx.cloned(),
                 tool_registry: tool_registry.cloned(),
+                skill_catalog: {
+                    let skills = crate::core::skill::load_all_skills().unwrap_or_default();
+                    crate::core::skill::build_skill_catalog(&skills)
+                },
             },
         );
 
@@ -979,6 +984,7 @@ impl WasmRuntime {
         Self::link_fs_hostcalls(linker)?;
         Self::link_team_hostcalls(linker)?;
         Self::link_agentic_hostcalls(linker)?;
+        Self::link_skill_hostcalls(linker)?;
 
         Ok(())
     }
@@ -1230,6 +1236,44 @@ impl WasmRuntime {
                         .unwrap_or_else(|_| r#"{"ok":false}"#.into());
                     let (out_ptr, out_len) =
                         write_bytes_async(&mut caller, json.as_bytes()).await?;
+                    Ok(pack_ptr_len(out_ptr, out_len))
+                })
+            },
+        )?;
+
+        Ok(())
+    }
+
+    fn link_skill_hostcalls(linker: &mut Linker<HostState>) -> Result<()> {
+        // -- get_skill_catalog() -> string --
+        linker.func_wrap0_async(
+            "hugind",
+            "get_skill_catalog",
+            |mut caller: Caller<'_, HostState>| {
+                Box::new(async move {
+                    log_host(&caller, "host.skill.get_catalog");
+                    let catalog = caller.data().skill_catalog.clone();
+                    let (out_ptr, out_len) =
+                        write_bytes_async(&mut caller, catalog.as_bytes()).await?;
+                    Ok(pack_ptr_len(out_ptr, out_len))
+                })
+            },
+        )?;
+
+        // -- activate_skill(name) -> instructions string --
+        linker.func_wrap2_async(
+            "hugind",
+            "activate_skill",
+            |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| {
+                Box::new(async move {
+                    let name = read_string(&mut caller, ptr, len)?;
+                    log_host(&caller, format!("host.skill.activate name={}", name));
+                    let result = match crate::core::skill::get_skill_instructions(&name) {
+                        Ok(instructions) => instructions,
+                        Err(e) => format!("Error: skill '{}' not found: {}", name, e),
+                    };
+                    let (out_ptr, out_len) =
+                        write_bytes_async(&mut caller, result.as_bytes()).await?;
                     Ok(pack_ptr_len(out_ptr, out_len))
                 })
             },

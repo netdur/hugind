@@ -1,7 +1,7 @@
 use clap::Parser;
 use hugind::cli::{
-    agent,
-    args::{AgentCommand, Cli, Commands, ConfigCommand},
+    agent, skill,
+    args::{AgentCommand, Cli, Commands, ConfigCommand, SkillCommand},
 };
 
 #[tokio::main]
@@ -95,6 +95,18 @@ async fn main() {
                 hugind::cli::args::ServerCommand::Stop { config } => {
                     hugind::cli::server::run_stop(config).await
                 }
+            };
+
+            if let Err(e) = result {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Commands::Skill { command } => {
+            let result = match command {
+                SkillCommand::Install { path } => skill::install(path).await,
+                SkillCommand::List => skill::list(),
+                SkillCommand::Remove { name } => skill::remove(name),
             };
 
             if let Err(e) = result {

@@ -27,6 +27,16 @@ pub fn build_coordinator_prompt(agents: &[(String, String)]) -> String {
         }
     }
 
+    // Include available skills so the coordinator can mention them in task descriptions
+    let skills = crate::core::skill::load_all_skills().unwrap_or_default();
+    if !skills.is_empty() {
+        prompt.push_str("\nAvailable skills that agents can activate:\n");
+        for skill in &skills {
+            prompt.push_str(&format!("- {}: {}\n", skill.config.name, skill.config.description));
+        }
+        prompt.push_str("\nYou may mention relevant skills in task descriptions to guide agents.\n");
+    }
+
     prompt.push_str(
         "\nDecompose the following goal into a set of tasks. Each task should have:\n\
          - title (short, unique)\n\

@@ -6,5 +6,6 @@ pub mod mcp;
 pub mod model;
 pub mod orchestrator;
 pub mod runtime;
+pub mod skill;
 pub mod sys;
 pub mod wasm;

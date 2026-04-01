@@ -15,6 +15,7 @@ pub fn ensure_user_home() -> Result<()> {
 
     ensure_dir(paths::configs_dir())?;
     ensure_dir(paths::agents_dir())?;
+    ensure_dir(paths::skills_dir())?;
     ensure_dir(paths::sessions_dir())?;
 
     let models_dir = paths::models_dir();

@@ -46,3 +46,7 @@ pub fn logs_dir() -> PathBuf {
 pub fn models_dir() -> PathBuf {
     data_home().join("models")
 }
+
+pub fn skills_dir() -> PathBuf {
+    config_home().join("skills")
+}

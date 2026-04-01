@@ -29,6 +29,12 @@ pub enum Commands {
         command: ServerCommand,
     },
 
+    /// Manage skills (installable instruction packages for agents)
+    Skill {
+        #[command(subcommand)]
+        command: SkillCommand,
+    },
+
     Stdio,
 }
 
@@ -136,6 +142,23 @@ pub enum ModelCommand {
 
     /// Migrate models from old layout (~/.hugind/{user}/{repo}) to new (~/.hugind/models/{user}/{repo})
     Migrate,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SkillCommand {
+    /// Install a skill from a local path or URL
+    Install {
+        /// Path to skill directory, SKILL.md file, or URL
+        path: String,
+    },
+
+    /// List installed skills
+    List,
+
+    /// Remove an installed skill
+    Remove {
+        name: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]

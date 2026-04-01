@@ -5,3 +5,4 @@ pub mod config;
 pub mod config_init;
 pub mod model;
 pub mod server;
+pub mod skill;

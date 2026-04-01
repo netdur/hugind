@@ -205,8 +205,10 @@ Enable `HUGIND_TRACE=1` for detailed execution tracing.
 * [HTTP API](docs/http_api.md) -- endpoints, request/response shapes, sessions
 * [JavaScript Runtime](docs/js_runtime.md) -- execution model, globals, capabilities
 * [Server Config](docs/server_config.md) -- config sections, defaults, path resolution
+* [Skills](docs/skills.md) -- installable instruction packages for agents
 * [Stdio Bridge](docs/stdio_bridge.md) -- NDJSON + MCP protocol reference
 * [Testing Guide](docs/testing.md) -- local and CI test commands
+* [Tutorial: Building Agentic Agents](docs/tutorial_agentic.md) -- end-to-end guide
 * [WASM Runtime](docs/wasm_runtime.md) -- execution lifecycle, hostcalls, resource limits
 * [WASM SDK (AssemblyScript)](docs/wasm_sdk_assemblyscript.md) -- hostcall wrappers
 
