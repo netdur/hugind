@@ -2,32 +2,25 @@
 
 ## NAME
 
-`hugind` - command-line interface for agents, configs, models, chats, the server, and the stdio bridge.
+`hugind` - command-line interface for agents, configs, models, the server, and the stdio bridge.
 
 ## SYNOPSIS
 
 `hugind <command> [options]`
 
-Common chat shorthand:
-
-`hugind chat [start|resume|list|delete|<session-id-or-config>]`
-
 ## DESCRIPTION
 
 `hugind` provides a small set of top-level commands for managing agents,
-configurations, models, chat sessions, and a server. If a command fails,
+configurations, models, and a server. If a command fails,
 `hugind` prints an error and exits with code `1`.
 
 ## COMMANDS
 
-Top-level subcommands:
-
-- `hugind agent ...`
-- `hugind config ...`
-- `hugind model ...`
-- `hugind chat ...`
-- `hugind server ...`
-- `hugind stdio`
+- `hugind agent ...` -- run, install, list, remove, team
+- `hugind config ...` -- list, validate, init, defaults, info, remove
+- `hugind model ...` -- add, show, list, remove, migrate
+- `hugind server ...` -- start, list, stop
+- `hugind stdio` -- stdio bridge for desktop/app integration
 
 ### `hugind agent`
 
@@ -41,16 +34,6 @@ See `docs/cli_config.md`.
 
 See `docs/cli_model.md`.
 
-### `hugind chat`
-
-See `docs/cli_chat.md`.
-
-Behavior note:
-
-- Running `hugind chat` with no subcommand opens the interactive chat wizard.
-- Running `hugind chat <value>` treats `<value>` as a session id if it exists;
-  otherwise it starts a new chat using `<value>` as config/model target.
-
 ### `hugind server`
 
 See `docs/cli_server.md`.
@@ -58,6 +41,10 @@ See `docs/cli_server.md`.
 ### `hugind stdio`
 
 See `docs/stdio_bridge.md`.
+
+## ENVIRONMENT
+
+- `HUGIND_TRACE=1` -- enable trace output for agentic execution
 
 ## HELP
 

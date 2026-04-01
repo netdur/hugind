@@ -1,0 +1,13 @@
+name: ma-shell
+version: "1.0"
+entry_point: main.js
+mode: agentic
+max_turns: 10
+permissions:
+  filesystem:
+    allow: true
+    read: true
+  shell:
+    allow: true
+    timeout: "60s"
+    max_output: "1MB"

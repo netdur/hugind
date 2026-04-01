@@ -25,6 +25,12 @@ async fn main() {
                 AgentCommand::Install { path } => agent::install(path).await,
                 AgentCommand::Remove { name } => agent::remove(name),
                 AgentCommand::List => agent::list(),
+                AgentCommand::Team {
+                    goal,
+                    agents,
+                    backend,
+                    concurrency,
+                } => agent::team(goal, agents, backend, concurrency).await,
             };
 
             if let Err(e) = result {

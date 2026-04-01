@@ -121,12 +121,29 @@ pub struct WasmConfig {
     pub resources: Option<WasmResources>,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentMode {
+    Script,
+    Agentic,
+}
+
+impl Default for AgentMode {
+    fn default() -> Self {
+        Self::Script
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AgentConfig {
     pub name: String,
     pub version: String,
     pub hugind_version: Option<String>,
     pub entry_point: String,
+    #[serde(default)]
+    pub mode: AgentMode,
+    #[serde(default)]
+    pub max_turns: Option<u32>,
     #[serde(default)]
     pub wasm: Option<WasmConfig>,
 
@@ -159,6 +176,8 @@ impl Default for AgentConfig {
             version: "0.0.0".to_string(),
             hugind_version: None,
             entry_point: "main.js".to_string(),
+            mode: AgentMode::Script,
+            max_turns: None,
             wasm: None,
             backend: None,
             permissions: Some(Permissions::default()),

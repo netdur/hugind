@@ -1,0 +1,30 @@
+version: 2
+name: multi-model-build
+
+backends:
+  fast: gemma-4b
+  smart: qwen-32b
+
+tasks:
+  - title: Scaffold the project
+    agent: ma-coder
+    backend: fast
+    description: "Create a basic Node.js project structure with package.json, tsconfig.json, and an empty src/ directory."
+
+  - title: Implement business logic
+    agent: ma-developer
+    backend: smart
+    description: "Implement a URL shortener service in src/ with in-memory storage, POST /shorten and GET /:code endpoints."
+    depends_on: [Scaffold the project]
+
+  - title: Run tests
+    agent: ma-tester
+    backend: fast
+    description: "Start the server, test shortening a URL and resolving it. Report results."
+    depends_on: [Implement business logic]
+
+  - title: Security review
+    agent: ma-reviewer
+    backend: smart
+    description: "Review src/ for security issues: input validation, injection, error leaks."
+    depends_on: [Implement business logic]

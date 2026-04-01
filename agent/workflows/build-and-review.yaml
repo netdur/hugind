@@ -1,0 +1,22 @@
+version: 2
+name: build-and-review
+
+tasks:
+  - title: Design the API
+    agent: ma-architect
+    description: "Design a REST API for user management. Save spec to spec.md. Include endpoints, data shapes, and file structure."
+
+  - title: Implement the API
+    agent: ma-developer
+    description: "Read the spec from shared memory and implement the API in src/. Write all source files with proper error handling."
+    depends_on: [Design the API]
+
+  - title: Test the API
+    agent: ma-tester
+    description: "Start the server, test all endpoints with curl, report what passed and what failed. Kill the server when done."
+    depends_on: [Implement the API]
+
+  - title: Review the code
+    agent: ma-reviewer
+    description: "Review all files in src/ for correctness, security, and code quality."
+    depends_on: [Implement the API]

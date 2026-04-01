@@ -1,0 +1,13 @@
+name: ma-reviewer
+version: "1.0"
+entry_point: main.js
+mode: agentic
+max_turns: 6
+permissions:
+  filesystem:
+    allow: true
+    read: true
+    allow_outside_agent_root: true
+  shell:
+    allow: true
+    whitelist: ["grep", "find", "wc"]

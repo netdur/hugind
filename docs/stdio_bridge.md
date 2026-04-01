@@ -68,7 +68,7 @@ Event types currently emitted:
    params: `{ "hf_token"?: string }`
 6. `config.init`
    params:
-   `{ "name": string, "model_path": string, "preset"?: "metal_unified"|"cuda_dedicated"|"cpu_only", "ctx"?: number, "mmproj_path"?: string, "format"?: string, "overwrite"?: bool }`
+   `{ "name": string, "model_path": string, "ctx"?: number, "mmproj_path"?: string, "overwrite"?: bool, "n_slots"?: number, "enable_fit"?: bool, "fit_target_mib"?: number[] }`
 
 ### Model
 

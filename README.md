@@ -49,6 +49,16 @@ Other:
 * Auto-fit support (engine adjusts context to fit available memory)
 * Hardware-aware defaults (GPU layers, threads, flash attention, KV offload)
 
+## Multi-Agent Orchestration
+
+* Task queue with dependency DAG (parallel execution of independent tasks)
+* Shared memory for cross-agent knowledge sharing
+* Inter-agent messaging (point-to-point + broadcast)
+* Coordinator pattern (auto-decompose goals into task graphs)
+* Agentic mode (LLM-driven tool-use loops)
+* Multi-model workflows (different agents use different Hugind servers)
+* Streaming events for progress tracking
+
 ## Stdio bridge
 
 NDJSON + MCP protocol for desktop/app integration (`hugind stdio`).
@@ -140,11 +150,49 @@ Agent runs are logged:
 [2026-02-10T12:29:41.198Z] agent.run.complete status=ok
 ```
 
+## Multi-agent team
+
+```bash
+hugind agent team "Build a hello world python script" \
+  --agents agent/ma-architect,agent/ma-developer,agent/ma-tester,agent/ma-reviewer
+
+Team: ma-architect, ma-developer, ma-tester, ma-reviewer
+Goal: Build a hello world python script
+
+Decomposing goal into tasks...
+Coordinator created 3 tasks:
+  - Draft Hello World Script → ma-developer
+  - Review Hello World Script → ma-reviewer (after: Draft Hello World Script)
+  - Test Hello World Script → ma-tester (after: Draft Hello World Script)
+
+  [task-0] Starting: Draft Hello World Script (ma-developer)
+  [task-0] Completed: Draft Hello World Script
+  [task-1] Starting: Review Hello World Script (ma-reviewer)
+  [task-2] Starting: Test Hello World Script (ma-tester)
+  [task-1] Completed: Review Hello World Script
+  [task-2] Completed: Test Hello World Script
+
+All tasks completed. Synthesizing result...
+```
+
+## Agentic mode
+
+Agents with `mode: agentic` register tools and a system prompt. The runtime
+drives the LLM tool-use loop automatically:
+
+```bash
+hugind agent run agent/ma-reader --prompt "Check if Android Studio is installed"
+
+Based on my search, Android Studio is installed at /Applications/Android Studio.app.
+```
+
+Enable `HUGIND_TRACE=1` for detailed execution tracing.
+
 ## Docs
 
 * [Agent Manifest](docs/agent_manifest.md) -- `agent.yaml` format, permissions, dependencies
 * [CLI Overview](docs/cli.md) -- top-level commands
-* [CLI: agent](docs/cli_agent.md) -- run, install, list, remove
+* [CLI: agent](docs/cli_agent.md) -- run, install, list, remove, team
 * [CLI: config](docs/cli_config.md) -- list, validate, init, defaults, info
 * [CLI: model](docs/cli_model.md) -- add, show, remove, migrate
 * [CLI: server](docs/cli_server.md) -- start, list, stop

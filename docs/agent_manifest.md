@@ -7,12 +7,16 @@ runtime.
 
 ### Runtime fields (used by code)
 
-- `name` (string): agent identifier. Used for install/log naming, not as a
-  session id.
+- `name` (string): agent identifier. Used for install/log naming.
 - `version` (string): agent version.
-- `hugind_version` (string, optional): semver constraint checked at runtime
-  (example: `>=0.6.0`).
+- `hugind_version` (string, optional): semver constraint (example: `>=0.6.0`).
 - `entry_point` (string): entry module path (`.js` or `.wasm`).
+- `mode` (string, optional): `script` (default) or `agentic`.
+  - `script`: agent code drives execution, calls `llm.chat()` manually.
+  - `agentic`: agent registers tools and a system prompt; the runtime drives
+    an LLM tool-use loop automatically.
+- `max_turns` (u32, optional): maximum LLM round-trips in agentic mode (default: 10).
+  Can also be set at runtime via `set_max_turns(n)` in JS.
 - `wasm` (object, optional): WASM runtime config.
 - `backend` (object, optional): API base URL/model/session config.
 - `permissions` (object, optional): host capability controls.

@@ -88,6 +88,24 @@ pub enum AgentCommand {
     },
 
     List,
+
+    /// Run a multi-agent team with a coordinator that decomposes a goal into tasks
+    Team {
+        /// The goal to accomplish
+        goal: String,
+
+        /// Comma-separated list of agent paths (directories with agent.yaml)
+        #[arg(long)]
+        agents: String,
+
+        /// Backend config name for the coordinator LLM
+        #[arg(long)]
+        backend: Option<String>,
+
+        /// Maximum concurrent agents (default: 4)
+        #[arg(long)]
+        concurrency: Option<usize>,
+    },
 }
 
 #[derive(Subcommand, Debug)]

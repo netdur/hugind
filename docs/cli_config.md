@@ -14,56 +14,49 @@ The config subcommands manage configuration files and global defaults. You can
 list and validate configs, inspect system hardware, set defaults, and create a
 new config using an interactive wizard.
 
-In current runtime behavior:
-- config files are stored in `config_home()/configs`
-  (`$XDG_CONFIG_HOME/hugind/configs` or `~/.hugind/configs` on Unix-like systems)
-- global settings defaults are stored in `data_home()/settings.yml`
+Config files are stored in `~/.hugind/configs/`.
+Global settings are stored in `~/.hugind/settings.yml`.
 
 ## SUBCOMMANDS
 
 ### `hugind config list`
 
-Lists all saved configs in the configs directory. Only `.yml` and `.yaml` files
-are shown (reserved built-in names are hidden). If none exist, it prints
-`No configs found.`.
+Lists all saved configs. Only `.yml` and `.yaml` files are shown.
 
 ### `hugind config validate [path]`
 
-Validates a config file. If `path` is omitted, it defaults to `config.yaml` in
-the current working directory. On success it prints `Configuration is valid.`
-On failure it prints `Configuration Invalid: ...` and exits with an error.
+Validates a config file. Defaults to `config.yaml` in the current directory.
 
 ### `hugind config info`
 
-Prints system information (OS, CPU, memory, disk, GPU) and a recommended
-hardware preset for configuration.
+Prints system information: OS, CPU, memory, disk, GPU.
 
 ### `hugind config init <name> [--model <path>]`
 
-Interactive config generator. It:
+Interactive config generator:
 
-1. Probes system hardware and recommends a preset.
-2. Prompts for a hardware preset (`metal_unified`, `cuda_dedicated`, `cpu_only`).
-3. Prompts for a model:
-   - If you pass `--model`, that file path is used.
-   - Otherwise it scans local model repositories and prompts for a `.gguf`.
-   - If no repositories exist, it prompts for an absolute `.gguf` path.
-4. Auto-detects a vision projector file (e.g. `mmproj`) in the same folder.
-5. Prompts for context size.
-6. Writes the config to the configs directory as `<name>.yml`.
-
-If a config already exists, it prompts before overwriting.
+1. Probes system hardware (CPU, RAM, GPU).
+2. Prompts for a model:
+   - If `--model` is passed, that file path is used.
+   - Otherwise scans downloaded model repositories for `.gguf` files.
+3. Auto-detects vision projector files (mmproj) in the same folder.
+4. Asks whether to enable auto-fit or choose a context size manually.
+5. Auto-configures GPU layers, threads, flash attention, and KV offload
+   based on detected hardware.
+6. Writes the config to `~/.hugind/configs/<name>.yml`.
 
 ### `hugind config remove <name>`
 
-Deletes a config file from the configs directory after confirmation.
+Deletes a config file after confirmation.
 
-### `hugind config defaults [--hf-token <token>]`
+### `hugind config defaults [--hf-token <token>] [--set key=value]`
 
-Shows or updates global defaults. With no arguments, it prints the current
-defaults and usage help. With arguments, it updates:
+Shows or updates global defaults:
 
-- `--hf-token` sets the Hugging Face token (stored as `hf_token`).
+- `--hf-token <token>`: set Hugging Face API token
+- `--set key=value`: set an arbitrary key-value pair (can be repeated)
+
+Without arguments, prints current defaults (sensitive values are masked).
 
 ## HELP
 

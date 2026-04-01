@@ -19,6 +19,16 @@ impl JsRuntime {
         config: &crate::core::config::agent::AgentConfig,
         logger: Option<crate::shared::logging::RunLogger>,
     ) -> rquickjs::Result<Self> {
+        Self::new_with_team(module_root, fs_root, config, logger, None).await
+    }
+
+    pub async fn new_with_team(
+        module_root: PathBuf,
+        fs_root: PathBuf,
+        config: &crate::core::config::agent::AgentConfig,
+        logger: Option<crate::shared::logging::RunLogger>,
+        team_ctx: Option<&crate::core::orchestrator::context::TeamContext>,
+    ) -> rquickjs::Result<Self> {
         let runtime = AsyncRuntime::new()?;
         let context = AsyncContext::full(&runtime).await?;
 
@@ -31,7 +41,7 @@ impl JsRuntime {
             )
             .await;
 
-        install_globals(&context, config, &fs_root, logger.clone()).await?;
+        install_globals(&context, config, &fs_root, logger.clone(), team_ctx).await?;
 
         Ok(Self {
             _runtime: runtime,
@@ -39,6 +49,10 @@ impl JsRuntime {
             module_root,
             logger,
         })
+    }
+
+    pub fn context(&self) -> &AsyncContext {
+        &self.context
     }
 
     pub async fn run_module(

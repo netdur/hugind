@@ -163,6 +163,89 @@ Available methods:
 15. `fs.copy(src: string, dst: string) -> void`
 16. `fs.stat(path: string) -> string` (JSON stat object)
 
+## Agentic Mode Globals
+
+When `mode: agentic` is set in `agent.yaml`, these additional globals are available:
+
+### `register_tool(def)` / `registerTool(def)`
+
+Registers a tool for the agentic loop. The LLM can invoke registered tools
+via `<tool_call>` tags in its response.
+
+```js
+register_tool({
+  name: "read_file",
+  description: "Read a file's contents",
+  parameters: {
+    type: "object",
+    properties: { path: { type: "string" } },
+    required: ["path"]
+  },
+  execute: (args_json) => {
+    var args = JSON.parse(args_json);
+    return fs.read_text(args.path);
+  }
+});
+```
+
+The `execute` function receives a JSON string of arguments and should return
+a string result. Async functions (returning Promises) are supported — the
+runtime awaits them automatically.
+
+### `set_system_prompt(prompt)` / `setSystemPrompt(prompt)`
+
+Sets the system prompt for the agentic loop. Called during agent setup.
+
+### `set_max_turns(n)` / `setMaxTurns(n)`
+
+Overrides the maximum number of LLM round-trips (default: 10, or from YAML).
+
+## Team Context Globals
+
+When running in a team (workflow or `hugind agent team`), these globals are
+available for inter-agent communication:
+
+### `memory.set(key, value)`
+
+Write a value to shared memory under the agent's namespace.
+
+### `memory.get(key) -> string`
+
+Read a value by fully-qualified key (e.g. `"architect/spec"`). Returns JSON string or `"null"`.
+
+### `memory.list() -> string`
+
+Returns all shared memory entries as a JSON object.
+
+### `memory.summary() -> string`
+
+Returns a markdown summary grouped by agent.
+
+### `messaging.send(to, content)`
+
+Send a point-to-point message to another agent.
+
+### `messaging.broadcast(content)`
+
+Broadcast a message to all team members.
+
+### `messaging.receive() -> string`
+
+Returns unread messages as a JSON array of `{from, to, content}` objects.
+
+### `tasks.spawn(json) -> string`
+
+Dynamically spawn a new task (only available in workflow execution with task queue):
+
+```js
+tasks.spawn(JSON.stringify({
+  title: "Fix auth bug",
+  description: "Auth returns 500",
+  assignee: "developer",
+  depends_on: []
+}));
+```
+
 ## Error Handling
 
 If the JS runtime throws an exception, Hugind prints the exception and stack

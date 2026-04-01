@@ -1,0 +1,15 @@
+name: ma-writer
+version: "1.0"
+entry_point: main.js
+mode: agentic
+max_turns: 12
+permissions:
+  filesystem:
+    allow: true
+    read: true
+    write: true
+    create: true
+    allow_outside_agent_root: true
+  shell:
+    allow: true
+    whitelist: ["mkdir"]

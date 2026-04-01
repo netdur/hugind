@@ -10,6 +10,8 @@ use zip::read::ZipArchive;
 use crate::core::config::agent::{
     AgentConfig, FileSystemPermission, NetPermissions, Permissions, ShellPermission,
 };
+use crate::core::orchestrator::memory::SharedMemory;
+use crate::core::orchestrator::messaging::MessageBus;
 use crate::shared::paths;
 
 pub async fn run(
@@ -130,6 +132,519 @@ pub fn list() -> Result<()> {
         println!("{:<24} {}", name, path.display());
     }
     Ok(())
+}
+
+pub async fn team(
+    goal: String,
+    agents_csv: String,
+    backend: Option<String>,
+    _concurrency: Option<usize>,
+) -> Result<()> {
+    use crate::core::config::backend::prepare_backend;
+    use crate::core::orchestrator::coordinator;
+    use crate::core::orchestrator::events::{EventBus, EventKind};
+    use crate::core::orchestrator::memory::SharedMemory;
+    use crate::core::orchestrator::messaging::MessageBus;
+    use crate::core::orchestrator::task::{Task, TaskQueue, TaskStatus};
+
+    // Capture the user's current working directory — this is where agents should operate
+    let user_cwd = std::env::current_dir()
+        .map_err(|e| anyhow::anyhow!("Failed to get current directory: {}", e))?;
+
+    // Create a shared fresh session for the team — all agents reuse the same KV cache
+    let team_session_id = format!("team-{}", uuid::Uuid::new_v4());
+
+    let agent_paths: Vec<String> = agents_csv
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    if agent_paths.is_empty() {
+        anyhow::bail!("No agents specified. Use --agents agent1,agent2,...");
+    }
+
+    // Resolve agent directories and build roster
+    let mut roster: Vec<(String, String)> = Vec::new();
+    let mut agent_dirs: Vec<(String, PathBuf)> = Vec::new();
+
+    for agent_path in &agent_paths {
+        let resolved = resolve_agent_path(agent_path)?;
+        let dir = PathBuf::from(&resolved)
+            .canonicalize()
+            .with_context(|| format!("Agent path not found: {}", agent_path))?;
+        let config = AgentConfig::load_from_dir(&dir).unwrap_or_default();
+        let name = if config.name.trim().is_empty() || config.name == "default" {
+            dir.file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("agent")
+                .to_string()
+        } else {
+            config.name.clone()
+        };
+        // Use agent description if available, otherwise empty
+        let description = String::new();
+        roster.push((name.clone(), description));
+        agent_dirs.push((name, dir));
+    }
+
+    println!("Team: {}", roster.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>().join(", "));
+    println!("Goal: {}\n", goal);
+
+    // Step 1: Send goal to coordinator LLM for decomposition
+    println!("Decomposing goal into tasks...");
+
+    let coordinator_prompt = coordinator::build_coordinator_prompt(&roster);
+    let user_message = goal.clone();
+
+    // Build LLM request to the coordinator backend
+    let mut coord_config = AgentConfig::default();
+    if let Some(ref backend_name) = backend {
+        coord_config.backend = Some(serde_yaml::Value::Mapping({
+            let mut m = serde_yaml::Mapping::new();
+            m.insert(
+                serde_yaml::Value::String("config".to_string()),
+                serde_yaml::Value::String(backend_name.clone()),
+            );
+            m
+        }));
+    }
+    let coord_backend = prepare_backend(&mut coord_config)?;
+
+    let llm_url = format!(
+        "{}/chat/completions",
+        coord_backend.base_url.trim_end_matches('/')
+    );
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()?;
+
+    let body = serde_json::json!({
+        "model": coord_backend.model.as_deref().unwrap_or("default"),
+        "stream": false,
+        "messages": [
+            { "role": "system", "content": coordinator_prompt },
+            { "role": "user", "content": user_message }
+        ],
+        "response_format": { "type": "json_object" }
+    });
+
+    let resp = client.post(&llm_url).json(&body).send().await?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        anyhow::bail!("Coordinator LLM request failed: {} {}", status, text);
+    }
+
+    let resp_json: serde_json::Value = resp.json().await?;
+    let coordinator_output = resp_json
+        .get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("message"))
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Coordinator returned no content"))?;
+
+    let tasks = coordinator::parse_coordinator_tasks(coordinator_output)?;
+    println!("Coordinator created {} tasks:", tasks.len());
+    for task in &tasks {
+        let deps = if task.depends_on.is_empty() {
+            String::new()
+        } else {
+            format!(" (after: {})", task.depends_on.join(", "))
+        };
+        println!(
+            "  - {} → {}{}",
+            task.title,
+            task.assignee.as_deref().unwrap_or("?"),
+            deps
+        );
+    }
+    println!();
+
+    // Step 2: Build task queue and execute
+    let events = EventBus::new();
+    let memory = SharedMemory::new();
+    let messages = MessageBus::new();
+
+    events.emit(EventKind::WorkflowStart {
+        name: format!("team: {}", goal),
+    });
+
+    let mut queue = TaskQueue::new();
+    queue.load_tasks(tasks)?;
+
+    let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(
+        _concurrency.unwrap_or(4),
+    ));
+
+    // Map agent names to directories
+    let agent_dir_map: std::collections::HashMap<String, PathBuf> = agent_dirs.into_iter().collect();
+
+    loop {
+        if queue.is_done() {
+            break;
+        }
+
+        let ready: Vec<Task> = queue.next_ready().iter().map(|t| (*t).clone()).collect();
+        if ready.is_empty() {
+            if queue.has_in_progress() {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                continue;
+            }
+            break;
+        }
+
+        let mut handles = Vec::new();
+
+        for task in ready {
+            let task_id = task.id.clone();
+            queue.start(&task_id);
+
+            println!(
+                "  [{}] Starting: {} ({})",
+                task.id,
+                task.title,
+                task.assignee.as_deref().unwrap_or("?")
+            );
+
+            let memory = memory.clone();
+            let messages = messages.clone();
+            let sem = semaphore.clone();
+            let dir_map = agent_dir_map.clone();
+            let cwd = user_cwd.clone();
+            let session_id = team_session_id.clone();
+
+            let handle = std::thread::spawn(move || {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("tokio runtime");
+
+                rt.block_on(async move {
+                    let _permit = sem.acquire().await;
+
+                    let agent_name = task.assignee.as_deref().unwrap_or("default");
+                    let agent_dir = match dir_map.get(agent_name) {
+                        Some(d) => d.clone(),
+                        None => {
+                            return (
+                                task.id.clone(),
+                                task.title.clone(),
+                                agent_name.to_string(),
+                                Err(anyhow::anyhow!("Agent '{}' not found in team", agent_name)),
+                            );
+                        }
+                    };
+
+                    let mut config =
+                        AgentConfig::load_from_dir(&agent_dir).unwrap_or_default();
+                    let entry = agent_dir.join(&config.entry_point);
+
+                    // Set shared team session — fresh, deleted after team completes
+                    config.runtime_session = Some(crate::core::config::agent::RuntimeSession {
+                        mode: crate::core::config::agent::SessionMode::Fresh,
+                        id: Some(session_id.clone()),
+                    });
+
+                    // Override shell working_dir to user's cwd
+                    if let Some(perms) = config.permissions.as_mut() {
+                        if let Some(shell) = perms.shell.as_mut() {
+                            if shell.working_dir.is_none() {
+                                shell.working_dir = Some(cwd.to_string_lossy().into_owned());
+                            }
+                        }
+                    }
+
+                    let task_args = vec![
+                        "--task-id".to_string(), task.id.clone(),
+                        "--task-title".to_string(), task.title.clone(),
+                        "--task-description".to_string(), task.description.clone(),
+                    ];
+
+                    let team_ctx = crate::core::orchestrator::context::TeamContext::new(
+                        agent_name, memory.clone(), messages.clone(),
+                    );
+
+                    // Use user's cwd as the runtime working directory, not the agent's own dir
+                    let result = run_agent_with_team(
+                        &agent_dir, &entry, &cwd, &mut config,
+                        task_args, None, &memory, &messages, &team_ctx,
+                    ).await;
+
+                    (task.id.clone(), task.title.clone(), agent_name.to_string(), result)
+                })
+            });
+
+            handles.push((task_id, handle));
+        }
+
+        for (task_id, handle) in handles {
+            match handle.join() {
+                Ok((id, title, agent, Ok(result))) => {
+                    memory.set(&agent, &title, result.clone());
+                    queue.complete(&id, result);
+                    println!("  [{}] Completed: {}", id, title);
+                }
+                Ok((id, title, _, Err(e))) => {
+                    let error = format!("{}", e);
+                    queue.fail(&id, &error);
+                    eprintln!("  [{}] Failed: {} -- {}", id, title, error);
+                }
+                Err(_) => {
+                    queue.fail(&task_id, "Task thread panicked");
+                }
+            }
+        }
+    }
+
+    // Step 3: Synthesis
+    let failed: Vec<&crate::core::orchestrator::task::Task> = queue
+        .all_tasks()
+        .into_iter()
+        .filter(|t| t.status == TaskStatus::Failed)
+        .collect();
+    let success = failed.is_empty();
+
+    if success {
+        println!("\nAll tasks completed. Synthesizing result...");
+        let synthesis_prompt = coordinator::build_synthesis_prompt(&memory);
+        let synth_body = serde_json::json!({
+            "model": coord_backend.model.as_deref().unwrap_or("default"),
+            "stream": false,
+            "messages": [
+                { "role": "system", "content": "You are a project coordinator. Summarize the team's work." },
+                { "role": "user", "content": synthesis_prompt }
+            ]
+        });
+
+        if let Ok(resp) = client.post(&llm_url).json(&synth_body).send().await {
+            if let Ok(json) = resp.json::<serde_json::Value>().await {
+                if let Some(content) = json
+                    .get("choices")
+                    .and_then(|c| c.get(0))
+                    .and_then(|c| c.get("message"))
+                    .and_then(|m| m.get("content"))
+                    .and_then(|c| c.as_str())
+                {
+                    println!("\n{}", content);
+                }
+            }
+        }
+    } else {
+        eprintln!("\nTeam completed with failures:");
+        for task in &failed {
+            eprintln!(
+                "  - {}: {}",
+                task.title,
+                task.error.as_deref().unwrap_or("unknown")
+            );
+        }
+    }
+
+    events.emit(EventKind::WorkflowComplete { success });
+
+    // Clean up the shared team session
+    let mut cleanup_config = AgentConfig::default();
+    if let Some(ref backend_name) = backend {
+        cleanup_config.backend = Some(serde_yaml::Value::Mapping({
+            let mut m = serde_yaml::Mapping::new();
+            m.insert(
+                serde_yaml::Value::String("config".to_string()),
+                serde_yaml::Value::String(backend_name.clone()),
+            );
+            m
+        }));
+    }
+    cleanup_config.runtime_session = Some(crate::core::config::agent::RuntimeSession {
+        mode: crate::core::config::agent::SessionMode::Fresh,
+        id: Some(team_session_id.clone()),
+    });
+    if let Ok(backend) = prepare_backend(&mut cleanup_config) {
+        let url = format!("{}/state/{}", backend.base_url.trim_end_matches('/'), team_session_id);
+        let _ = reqwest::Client::new().delete(&url).send().await;
+    }
+
+    Ok(())
+}
+
+/// Run an agent with full team context (used by the team command).
+async fn run_agent_with_team(
+    agent_root: &Path,
+    entry_path: &Path,
+    runtime_cwd: &Path,
+    config: &mut AgentConfig,
+    args_vec: Vec<String>,
+    logger: Option<crate::shared::logging::RunLogger>,
+    memory: &SharedMemory,
+    messages: &MessageBus,
+    team_ctx: &crate::core::orchestrator::context::TeamContext,
+) -> Result<serde_json::Value> {
+    use crate::core::config::backend::prepare_backend;
+
+    if !entry_path.exists() {
+        anyhow::bail!("Entry point not found: {}", entry_path.display());
+    }
+
+    let backend = prepare_backend(config)?;
+
+    // Health check
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+    client
+        .get(&backend.health_url)
+        .send()
+        .await
+        .and_then(|r| r.error_for_status())
+        .map_err(|e| anyhow::anyhow!("Server not reachable at {}: {}", backend.health_url, e))?;
+
+    let msg_context = messages.format_for_prompt(&team_ctx.agent_name);
+    let mem_summary = memory.summary();
+
+    let initial_data = serde_json::json!({
+        "args": args_vec,
+        "meta": {
+            "session": config.runtime_session.clone(),
+        },
+        "team": {
+            "memory": memory.to_json(),
+            "memory_summary": mem_summary,
+            "messages": msg_context,
+        }
+    });
+
+    let js = crate::core::js::runtime::JsRuntime::new_with_team(
+        agent_root.to_path_buf(),
+        runtime_cwd.to_path_buf(),
+        config,
+        logger.clone(),
+        Some(team_ctx),
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("Runtime error: {}", e))?;
+
+    if config.mode == crate::core::config::agent::AgentMode::Agentic {
+        use crate::core::orchestrator::agentic::ToolRegistry;
+        use crate::core::js::capabilities::agentic as agentic_cap;
+        use crate::core::orchestrator::agentic::{parse_tool_calls, strip_tool_calls};
+        use crate::core::config::backend::prepare_backend as prep_backend;
+
+        let registry = ToolRegistry::new();
+        agentic_cap::install(js.context(), &registry, logger.clone())
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to install agentic globals: {}", e))?;
+
+        // Run entry point to register tools and system prompt
+        let _ = js.run_module(entry_path, initial_data).await
+            .map_err(|e| anyhow::anyhow!("Agent setup error: {}", e))?;
+        js.wait_idle().await;
+
+        // Build user prompt from task args
+        let mut user_prompt = String::new();
+        if !mem_summary.is_empty() {
+            user_prompt.push_str(&mem_summary);
+            user_prompt.push_str("\n\n");
+        }
+        if !msg_context.is_empty() {
+            user_prompt.push_str(&msg_context);
+            user_prompt.push_str("\n\n");
+        }
+        // Extract task description from args
+        let mut i = 0;
+        while i < args_vec.len() {
+            if (args_vec[i] == "--task-description" || args_vec[i] == "--prompt") && i + 1 < args_vec.len() {
+                user_prompt.push_str(&args_vec[i + 1]);
+                break;
+            }
+            i += 1;
+        }
+        if user_prompt.trim().is_empty() {
+            user_prompt = args_vec.join(" ");
+        }
+
+        // Build system prompt with tool descriptions
+        let mut system = registry.get_system_prompt().unwrap_or_default();
+        let tools_section = registry.tools_prompt();
+        if !tools_section.is_empty() {
+            system.push_str(&tools_section);
+        }
+
+        let backend2 = prep_backend(config)?;
+        let llm_url = format!("{}/chat/completions", backend2.base_url.trim_end_matches('/'));
+        let model = backend2.model.as_deref().unwrap_or("default").to_string();
+        let max_turns = config.max_turns.unwrap_or(10) as usize;
+        let http_client = reqwest::Client::new();
+
+        let mut messages: Vec<serde_json::Value> = Vec::new();
+        if !system.is_empty() {
+            messages.push(serde_json::json!({"role": "system", "content": system}));
+        }
+        messages.push(serde_json::json!({"role": "user", "content": user_prompt}));
+
+        let mut final_text = String::new();
+
+        for _turn in 0..max_turns {
+            let body = serde_json::json!({
+                "model": model,
+                "messages": messages,
+                "stream": false,
+            });
+
+            let mut request = http_client.post(&llm_url).json(&body);
+            if let Some(session) = config.runtime_session.as_ref().and_then(|s| s.id.as_deref()) {
+                request = request.header("X-Session-ID", session);
+            }
+
+            let resp = request.send().await
+                .map_err(|e| anyhow::anyhow!("LLM request failed: {}", e))?;
+            if !resp.status().is_success() {
+                let status = resp.status();
+                let text = resp.text().await.unwrap_or_default();
+                anyhow::bail!("LLM error: {} {}", status, text);
+            }
+
+            let resp_json: serde_json::Value = resp.json().await?;
+            let content = resp_json.get("choices").and_then(|c| c.get(0))
+                .and_then(|c| c.get("message")).and_then(|m| m.get("content"))
+                .and_then(|c| c.as_str()).unwrap_or("");
+
+            messages.push(serde_json::json!({"role": "assistant", "content": content}));
+
+            let tool_calls = parse_tool_calls(content);
+            if tool_calls.is_empty() {
+                final_text = strip_tool_calls(content);
+                break;
+            }
+
+            // Execute tool calls locally
+            let mut results = Vec::new();
+            for tc in &tool_calls {
+                let args_str = serde_json::to_string(&tc.args).unwrap_or_default();
+                let result = crate::core::orchestrator::runner::execute_js_tool_pub(
+                    &js, &tc.name, &args_str,
+                ).await;
+                let result_str = result.unwrap_or_else(|e| format!("Error: {}", e));
+                results.push(format!("[{}] {}", tc.name, result_str));
+            }
+
+            messages.push(serde_json::json!({
+                "role": "user",
+                "content": format!("Tool results:\n\n{}", results.join("\n\n")),
+            }));
+        }
+
+        Ok(serde_json::Value::String(final_text))
+    } else {
+        let result = js
+            .run_module(entry_path, initial_data)
+            .await
+            .map_err(|e| anyhow::anyhow!("Execution error: {}", e));
+        js.wait_idle().await;
+        result
+    }
 }
 
 fn is_url(input: &str) -> bool {

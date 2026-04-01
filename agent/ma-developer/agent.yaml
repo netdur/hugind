@@ -1,0 +1,16 @@
+name: ma-developer
+version: "1.0"
+entry_point: main.js
+mode: agentic
+max_turns: 15
+permissions:
+  filesystem:
+    allow: true
+    read: true
+    write: true
+    create: true
+    allow_outside_agent_root: true
+  shell:
+    allow: true
+    timeout: "60s"
+    max_output: "1MB"
