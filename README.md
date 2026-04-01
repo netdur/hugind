@@ -181,9 +181,15 @@ Agents with `mode: agentic` register tools and a system prompt. The runtime
 drives the LLM tool-use loop automatically:
 
 ```bash
-hugind agent run agent/ma-reader --prompt "Check if Android Studio is installed"
+cd examples/hello-python
+hugind agent run agent/ma-developer --prompt "Build a hello world python script"
 
-Based on my search, Android Studio is installed at /Applications/Android Studio.app.
+# The agent writes the file in the current directory:
+ls
+hello_world.py
+
+cat hello_world.py
+print('Hello, World!')
 ```
 
 Enable `HUGIND_TRACE=1` for detailed execution tracing.
