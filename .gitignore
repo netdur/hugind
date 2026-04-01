@@ -26,5 +26,4 @@ ubuntu/
 !ubuntu/snap/**
 
 node_modules
-package-lock.json
 *.wasm
