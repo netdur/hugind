@@ -2,6 +2,9 @@ use crate::core::config::agent::{AgentConfig, NetPermissions, RuntimeFsMode, She
 use crate::core::config::backend::resolve_backend;
 use crate::core::fs::FsAccess;
 use crate::core::mcp::McpManager;
+use crate::core::orchestrator::agentic::{AgentTool, ToolRegistry};
+use crate::core::orchestrator::context::TeamContext;
+use crate::core::orchestrator::task::Task;
 use crate::core::runtime::util::{parse_duration_string, parse_memory_string};
 use crate::shared::logging::RunLogger;
 use anyhow::{Context, Result, anyhow, bail};
@@ -35,6 +38,8 @@ struct HostState {
     adapter: WasiPreview1Adapter,
     limits: wasmtime::StoreLimits,
     logger: Option<RunLogger>,
+    team_ctx: Option<TeamContext>,
+    tool_registry: Option<ToolRegistry>,
 }
 
 impl WasiView for HostState {
@@ -97,6 +102,26 @@ impl WasmRuntime {
         &self,
         entry: &Path,
         args_val: serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        self.run_module_inner(entry, args_val, None, None).await
+    }
+
+    pub async fn run_module_with_team(
+        &self,
+        entry: &Path,
+        args_val: serde_json::Value,
+        team_ctx: Option<&TeamContext>,
+        tool_registry: Option<&ToolRegistry>,
+    ) -> Result<serde_json::Value> {
+        self.run_module_inner(entry, args_val, team_ctx, tool_registry).await
+    }
+
+    async fn run_module_inner(
+        &self,
+        entry: &Path,
+        args_val: serde_json::Value,
+        team_ctx: Option<&TeamContext>,
+        tool_registry: Option<&ToolRegistry>,
     ) -> Result<serde_json::Value> {
         let entry = entry
             .canonicalize()
@@ -247,6 +272,8 @@ impl WasmRuntime {
                 adapter,
                 limits,
                 logger: self.logger.clone(),
+                team_ctx: team_ctx.cloned(),
+                tool_registry: tool_registry.cloned(),
             },
         );
 
@@ -950,6 +977,339 @@ impl WasmRuntime {
         )?;
 
         Self::link_fs_hostcalls(linker)?;
+        Self::link_team_hostcalls(linker)?;
+        Self::link_agentic_hostcalls(linker)?;
+
+        Ok(())
+    }
+
+    fn link_team_hostcalls(linker: &mut Linker<HostState>) -> Result<()> {
+        // -- memory.set(key, value) --
+        linker.func_wrap(
+            "hugind",
+            "memory_set",
+            |mut caller: Caller<'_, HostState>,
+             key_ptr: i32,
+             key_len: i32,
+             val_ptr: i32,
+             val_len: i32|
+             -> Result<()> {
+                let key = read_string(&mut caller, key_ptr, key_len)?;
+                let val_str = read_string(&mut caller, val_ptr, val_len)?;
+                let team = caller
+                    .data()
+                    .team_ctx
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("memory.set requires team context"))?;
+                let agent_name = team.agent_name.clone();
+                let value: serde_json::Value = serde_json::from_str(&val_str)
+                    .unwrap_or(serde_json::Value::String(val_str));
+                log_host(&caller, format!("host.memory.set key={}", key));
+                caller
+                    .data()
+                    .team_ctx
+                    .as_ref()
+                    .unwrap()
+                    .memory
+                    .set(&agent_name, &key, value);
+                Ok(())
+            },
+        )?;
+
+        // -- memory.get(key) -> json string --
+        linker.func_wrap2_async(
+            "hugind",
+            "memory_get",
+            |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| {
+                Box::new(async move {
+                    let key = read_string(&mut caller, ptr, len)?;
+                    log_host(&caller, format!("host.memory.get key={}", key));
+                    let team = caller
+                        .data()
+                        .team_ctx
+                        .as_ref()
+                        .ok_or_else(|| anyhow!("memory.get requires team context"))?;
+                    let val = team.memory.get(&key);
+                    let json = match val {
+                        Some(v) => serde_json::to_string(&v).unwrap_or_else(|_| "null".into()),
+                        None => "null".into(),
+                    };
+                    let (out_ptr, out_len) =
+                        write_bytes_async(&mut caller, json.as_bytes()).await?;
+                    Ok(pack_ptr_len(out_ptr, out_len))
+                })
+            },
+        )?;
+
+        // -- memory.list() -> json object --
+        linker.func_wrap0_async(
+            "hugind",
+            "memory_list",
+            |mut caller: Caller<'_, HostState>| {
+                Box::new(async move {
+                    log_host(&caller, "host.memory.list");
+                    let team = caller
+                        .data()
+                        .team_ctx
+                        .as_ref()
+                        .ok_or_else(|| anyhow!("memory.list requires team context"))?;
+                    let json_val = team.memory.to_json();
+                    let json = serde_json::to_string(&json_val)
+                        .unwrap_or_else(|_| "{}".into());
+                    let (out_ptr, out_len) =
+                        write_bytes_async(&mut caller, json.as_bytes()).await?;
+                    Ok(pack_ptr_len(out_ptr, out_len))
+                })
+            },
+        )?;
+
+        // -- memory.summary() -> markdown string --
+        linker.func_wrap0_async(
+            "hugind",
+            "memory_summary",
+            |mut caller: Caller<'_, HostState>| {
+                Box::new(async move {
+                    log_host(&caller, "host.memory.summary");
+                    let team = caller
+                        .data()
+                        .team_ctx
+                        .as_ref()
+                        .ok_or_else(|| anyhow!("memory.summary requires team context"))?;
+                    let summary = team.memory.summary();
+                    let (out_ptr, out_len) =
+                        write_bytes_async(&mut caller, summary.as_bytes()).await?;
+                    Ok(pack_ptr_len(out_ptr, out_len))
+                })
+            },
+        )?;
+
+        // -- messaging.send(to, content) --
+        linker.func_wrap(
+            "hugind",
+            "messaging_send",
+            |mut caller: Caller<'_, HostState>,
+             to_ptr: i32,
+             to_len: i32,
+             content_ptr: i32,
+             content_len: i32|
+             -> Result<()> {
+                let to = read_string(&mut caller, to_ptr, to_len)?;
+                let content = read_string(&mut caller, content_ptr, content_len)?;
+                let team = caller
+                    .data()
+                    .team_ctx
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("messaging.send requires team context"))?;
+                let from = team.agent_name.clone();
+                log_host(
+                    &caller,
+                    format!("host.messaging.send from={} to={}", from, to),
+                );
+                caller
+                    .data()
+                    .team_ctx
+                    .as_ref()
+                    .unwrap()
+                    .messages
+                    .send(&from, &to, &content);
+                Ok(())
+            },
+        )?;
+
+        // -- messaging.broadcast(content) --
+        linker.func_wrap(
+            "hugind",
+            "messaging_broadcast",
+            |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| -> Result<()> {
+                let content = read_string(&mut caller, ptr, len)?;
+                let team = caller
+                    .data()
+                    .team_ctx
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("messaging.broadcast requires team context"))?;
+                let from = team.agent_name.clone();
+                log_host(
+                    &caller,
+                    format!("host.messaging.broadcast from={}", from),
+                );
+                caller
+                    .data()
+                    .team_ctx
+                    .as_ref()
+                    .unwrap()
+                    .messages
+                    .broadcast(&from, &content);
+                Ok(())
+            },
+        )?;
+
+        // -- messaging.receive() -> json array --
+        linker.func_wrap0_async(
+            "hugind",
+            "messaging_receive",
+            |mut caller: Caller<'_, HostState>| {
+                Box::new(async move {
+                    log_host(&caller, "host.messaging.receive");
+                    let team = caller
+                        .data()
+                        .team_ctx
+                        .as_ref()
+                        .ok_or_else(|| anyhow!("messaging.receive requires team context"))?;
+                    let agent_name = team.agent_name.clone();
+                    let msgs = team.messages.receive(&agent_name);
+                    let arr: Vec<serde_json::Value> = msgs
+                        .iter()
+                        .map(|m| {
+                            serde_json::json!({
+                                "from": m.from,
+                                "to": m.to,
+                                "content": m.content,
+                            })
+                        })
+                        .collect();
+                    let json = serde_json::to_string(&arr)
+                        .unwrap_or_else(|_| "[]".into());
+                    let (out_ptr, out_len) =
+                        write_bytes_async(&mut caller, json.as_bytes()).await?;
+                    Ok(pack_ptr_len(out_ptr, out_len))
+                })
+            },
+        )?;
+
+        // -- tasks.spawn(json) -> json result --
+        linker.func_wrap2_async(
+            "hugind",
+            "tasks_spawn",
+            |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| {
+                Box::new(async move {
+                    let spec_json = read_string(&mut caller, ptr, len)?;
+                    log_host(&caller, "host.tasks.spawn");
+                    let team = caller
+                        .data()
+                        .team_ctx
+                        .as_ref()
+                        .ok_or_else(|| anyhow!("tasks.spawn requires team context"))?;
+                    let queue = team
+                        .task_queue
+                        .as_ref()
+                        .ok_or_else(|| anyhow!("No task queue available"))?;
+
+                    let spec: serde_json::Value = serde_json::from_str(&spec_json)
+                        .map_err(|e| anyhow!("tasks.spawn expects JSON: {}", e))?;
+
+                    let title = spec["title"]
+                        .as_str()
+                        .unwrap_or("untitled")
+                        .to_string();
+                    let description = spec["description"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string();
+                    let id = format!("dyn-{}", uuid::Uuid::new_v4());
+
+                    let mut task = Task::new(&id, &title, &description);
+                    if let Some(assignee) = spec["assignee"].as_str() {
+                        task.assignee = Some(assignee.to_string());
+                    }
+                    if let Some(deps) = spec["depends_on"].as_array() {
+                        task.depends_on = deps
+                            .iter()
+                            .filter_map(|d| d.as_str().map(String::from))
+                            .collect();
+                    }
+
+                    let result = {
+                        let mut q = queue.lock();
+                        match q.add(task) {
+                            Ok(()) => serde_json::json!({"ok": true, "id": id}),
+                            Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
+                        }
+                    };
+
+                    let json = serde_json::to_string(&result)
+                        .unwrap_or_else(|_| r#"{"ok":false}"#.into());
+                    let (out_ptr, out_len) =
+                        write_bytes_async(&mut caller, json.as_bytes()).await?;
+                    Ok(pack_ptr_len(out_ptr, out_len))
+                })
+            },
+        )?;
+
+        Ok(())
+    }
+
+    fn link_agentic_hostcalls(linker: &mut Linker<HostState>) -> Result<()> {
+        // -- register_tool(json) --
+        linker.func_wrap(
+            "hugind",
+            "register_tool",
+            |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| -> Result<()> {
+                let json_str = read_string(&mut caller, ptr, len)?;
+                let def: serde_json::Value = serde_json::from_str(&json_str)
+                    .map_err(|e| anyhow!("register_tool expects JSON: {}", e))?;
+                let name = def["name"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("register_tool: missing 'name'"))?
+                    .to_string();
+                let description = def["description"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string();
+                let parameters = def
+                    .get("parameters")
+                    .cloned()
+                    .unwrap_or(serde_json::json!({}));
+
+                log_host(&caller, format!("host.agentic.register_tool name={}", name));
+                let registry = caller
+                    .data()
+                    .tool_registry
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("register_tool requires agentic mode"))?;
+                registry.register(AgentTool {
+                    name,
+                    description,
+                    parameters,
+                });
+                Ok(())
+            },
+        )?;
+
+        // -- set_system_prompt(prompt) --
+        linker.func_wrap(
+            "hugind",
+            "set_system_prompt",
+            |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| -> Result<()> {
+                let prompt = read_string(&mut caller, ptr, len)?;
+                log_host(
+                    &caller,
+                    format!("host.agentic.set_system_prompt len={}", prompt.len()),
+                );
+                let registry = caller
+                    .data()
+                    .tool_registry
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("set_system_prompt requires agentic mode"))?;
+                registry.set_system_prompt(prompt);
+                Ok(())
+            },
+        )?;
+
+        // -- set_max_turns(n) --
+        linker.func_wrap(
+            "hugind",
+            "set_max_turns",
+            |caller: Caller<'_, HostState>, n: i32| -> Result<()> {
+                log_host(&caller, format!("host.agentic.set_max_turns n={}", n));
+                let registry = caller
+                    .data()
+                    .tool_registry
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("set_max_turns requires agentic mode"))?;
+                registry.set_max_turns(n as u32);
+                Ok(())
+            },
+        )?;
 
         Ok(())
     }

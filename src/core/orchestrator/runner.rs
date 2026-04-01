@@ -465,7 +465,7 @@ async fn run_agent(
             logger.clone(),
         )
         .map_err(|e| anyhow::anyhow!("Runtime error: {}", e))?;
-        wasm.run_module(entry_path, initial_data)
+        wasm.run_module_with_team(entry_path, initial_data, Some(&team_ctx), None)
             .await
             .map_err(|e| anyhow::anyhow!("Execution error: {}", e))
     } else if config.mode == crate::core::config::agent::AgentMode::Agentic {

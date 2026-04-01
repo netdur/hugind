@@ -73,10 +73,6 @@ pub struct LlmEngine<'a> {
     last_flow_pull_start: Option<(usize, usize, usize)>,
     last_flow_post_schedule: Option<(usize, usize, usize)>,
     last_flow_batch_built: Option<(i32, usize)>,
-    eval_diag_request_logs: u32,
-    eval_diag_encode_logs: u32,
-    eval_diag_decode_logs: u32,
-    eval_diag_decode_unexpected_logs: u32,
     think_tag_markers: ThinkTagMarkers,
 }
 
@@ -173,67 +169,6 @@ impl<'a> LlmEngine<'a> {
         }
     }
 
-    fn log_decode_unexpected(
-        &mut self,
-        slot_batch_idx: &HashMap<i32, i32>,
-        batch_embedding_mode: Option<bool>,
-        batch_has_embedding: bool,
-    ) {
-        if self.eval_diag_decode_unexpected_logs >= 32 {
-            return;
-        }
-
-        let model_has_encoder = self._model.has_encoder();
-        let model_has_decoder = self._model.has_decoder();
-
-        let mut seq_items: Vec<(i32, i32)> = slot_batch_idx
-            .iter()
-            .map(|(&seq_id, &batch_idx)| (seq_id, batch_idx))
-            .collect();
-        seq_items.sort_by_key(|(seq_id, _)| *seq_id);
-
-        let mut seq_summaries = Vec::new();
-        for (seq_id, batch_idx) in seq_items.into_iter().take(8) {
-            if let Some(slot) = self.slots.get(&seq_id) {
-                if let Some(req) = self.requests.get(&slot.request_id) {
-                    let req_short = req.params.id.chars().take(8).collect::<String>();
-                    seq_summaries.push(format!(
-                        "seq={} batch_idx={} req={} state={:?} emb={} prompt_processed={}/{} generated={}",
-                        seq_id,
-                        batch_idx,
-                        req_short,
-                        req.state,
-                        req.params.embedding,
-                        slot.n_prompt_processed,
-                        req.prompt_tokens.len(),
-                        req.generated_tokens.len()
-                    ));
-                }
-            }
-        }
-        let seq_summary = if seq_summaries.is_empty() {
-            "none".to_string()
-        } else {
-            seq_summaries.join(" | ")
-        };
-
-        eprintln!(
-            "[EvalDiag] decode-unexpected cfg_embeddings={} model_has_encoder={} model_has_decoder={} batch_mode={:?} batch_has_embedding={} n_tokens={} tracked_logits_seqs={} active={}",
-            self.embeddings_mode,
-            model_has_encoder,
-            model_has_decoder,
-            batch_embedding_mode,
-            batch_has_embedding,
-            self.batch.handle.n_tokens,
-            slot_batch_idx.len(),
-            seq_summary
-        );
-
-        self.eval_diag_decode_unexpected_logs += 1;
-        if self.eval_diag_decode_unexpected_logs == 32 {
-            eprintln!("[EvalDiag] decode-unexpected further logs suppressed");
-        }
-    }
 
     fn tokenize_tag(tokenizer: &Tokenizer<'_>, tag: &str) -> Vec<Token> {
         for parse_special in [true, false] {
@@ -399,10 +334,6 @@ impl<'a> LlmEngine<'a> {
             last_flow_pull_start: None,
             last_flow_post_schedule: None,
             last_flow_batch_built: None,
-            eval_diag_request_logs: 0,
-            eval_diag_encode_logs: 0,
-            eval_diag_decode_logs: 0,
-            eval_diag_decode_unexpected_logs: 0,
             think_tag_markers,
         })
     }
@@ -416,26 +347,6 @@ impl<'a> LlmEngine<'a> {
 
         let mut req = request;
         req.params.id = id.clone();
-        if req.params.embedding != self.embeddings_mode && self.eval_diag_request_logs < 32 {
-            eprintln!(
-                "[EvalDiag] request-mode-mismatch request={} req_embedding={} cfg_embeddings={} state={:?} prompt_override_tokens={} prompt_chars={} images={}",
-                id,
-                req.params.embedding,
-                self.embeddings_mode,
-                req.state,
-                req.params
-                    .prompt_tokens_override
-                    .as_ref()
-                    .map(|tokens| tokens.len())
-                    .unwrap_or(0),
-                req.params.prompt.chars().count(),
-                req.params.images.len()
-            );
-            self.eval_diag_request_logs += 1;
-            if self.eval_diag_request_logs == 32 {
-                eprintln!("[EvalDiag] request-mode-mismatch further logs suppressed");
-            }
-        }
         self.flow_log(format!(
             "push request={} session_id={:?} parent_id={:?} prompt_chars={} images={}",
             id,
@@ -897,85 +808,16 @@ impl<'a> LlmEngine<'a> {
 
         if self.batch.handle.n_tokens == 0 {
         } else if should_use_encode {
-            if self.eval_diag_encode_logs < 16 {
-                let (embedding_reqs, generation_reqs) =
-                    self.requests
-                        .values()
-                        .fold((0usize, 0usize), |(e, g), req| {
-                            if req.params.embedding {
-                                (e + 1, g)
-                            } else {
-                                (e, g + 1)
-                            }
-                        });
-                eprintln!(
-                    "[EvalDiag] branch=encode n_tokens={} slot_batch_idx={} batch_mode={:?} cfg_embeddings={} has_encoder={} has_decoder={} req_embedding={} req_generation={}",
-                    self.batch.handle.n_tokens,
-                    slot_batch_idx.len(),
-                    batch_embedding_mode,
-                    self.embeddings_mode,
-                    model_has_encoder,
-                    model_has_decoder,
-                    embedding_reqs,
-                    generation_reqs
-                );
-                self.eval_diag_encode_logs += 1;
-                if self.eval_diag_encode_logs == 16 {
-                    eprintln!("[EvalDiag] branch=encode further logs suppressed");
-                }
-            }
             if let Err(e) = self.ctx.encode(&mut self.batch) {
                 let can_retry_decode =
                     batch_has_embedding && !model_has_encoder && model_has_decoder;
                 if can_retry_decode {
-                    eprintln!(
-                        "[EvalDiag] encode failed on embedding batch; retrying decode (model_has_encoder={}, model_has_decoder={})",
-                        model_has_encoder, model_has_decoder
-                    );
                     self.ctx.decode(&mut self.batch)?;
                 } else {
                     return Err(e);
                 }
             }
         } else {
-            let decode_unexpected = self.embeddings_mode
-                || batch_has_embedding
-                || (model_has_encoder && !model_has_decoder);
-            if decode_unexpected {
-                self.log_decode_unexpected(
-                    &slot_batch_idx,
-                    batch_embedding_mode,
-                    batch_has_embedding,
-                );
-            }
-            if self.eval_diag_decode_logs < 64 {
-                let (embedding_reqs, generation_reqs) =
-                    self.requests
-                        .values()
-                        .fold((0usize, 0usize), |(e, g), req| {
-                            if req.params.embedding {
-                                (e + 1, g)
-                            } else {
-                                (e, g + 1)
-                            }
-                        });
-                eprintln!(
-                    "[EvalDiag] branch=decode n_tokens={} slot_batch_idx={} batch_mode={:?} batch_has_embedding={} cfg_embeddings={} has_encoder={} has_decoder={} req_embedding={} req_generation={}",
-                    self.batch.handle.n_tokens,
-                    slot_batch_idx.len(),
-                    batch_embedding_mode,
-                    batch_has_embedding,
-                    self.embeddings_mode,
-                    model_has_encoder,
-                    model_has_decoder,
-                    embedding_reqs,
-                    generation_reqs
-                );
-                self.eval_diag_decode_logs += 1;
-                if self.eval_diag_decode_logs == 64 {
-                    eprintln!("[EvalDiag] branch=decode further logs suppressed");
-                }
-            }
             self.flow_log(format!(
                 "decode start n_tokens={}",
                 self.batch.handle.n_tokens

@@ -88,6 +88,15 @@ impl TaskQueue {
 
         self.insertion_order.push(task.id.clone());
         self.tasks.insert(task.id.clone(), task);
+
+        // Run full cycle detection after insertion
+        if let Err(e) = self.check_cycles() {
+            // Roll back: remove the task we just added
+            let id = self.insertion_order.pop().unwrap();
+            self.tasks.remove(&id);
+            return Err(e);
+        }
+
         Ok(())
     }
 

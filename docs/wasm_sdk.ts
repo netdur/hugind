@@ -33,6 +33,43 @@ declare function host_get_args(): i64;
 @external("hugind", "set_result")
 declare function host_set_result(ptr: i32, len: i32): void;
 
+// -- Team: memory --
+@external("hugind", "memory_set")
+declare function host_memory_set(key_ptr: i32, key_len: i32, val_ptr: i32, val_len: i32): void;
+
+@external("hugind", "memory_get")
+declare function host_memory_get(ptr: i32, len: i32): i64;
+
+@external("hugind", "memory_list")
+declare function host_memory_list(): i64;
+
+@external("hugind", "memory_summary")
+declare function host_memory_summary(): i64;
+
+// -- Team: messaging --
+@external("hugind", "messaging_send")
+declare function host_messaging_send(to_ptr: i32, to_len: i32, content_ptr: i32, content_len: i32): void;
+
+@external("hugind", "messaging_broadcast")
+declare function host_messaging_broadcast(ptr: i32, len: i32): void;
+
+@external("hugind", "messaging_receive")
+declare function host_messaging_receive(): i64;
+
+// -- Team: tasks --
+@external("hugind", "tasks_spawn")
+declare function host_tasks_spawn(ptr: i32, len: i32): i64;
+
+// -- Agentic --
+@external("hugind", "register_tool")
+declare function host_register_tool(ptr: i32, len: i32): void;
+
+@external("hugind", "set_system_prompt")
+declare function host_set_system_prompt(ptr: i32, len: i32): void;
+
+@external("hugind", "set_max_turns")
+declare function host_set_max_turns(n: i32): void;
+
 @external("hugind_fs", "fs_cwd")
 declare function host_fs_cwd(): i64;
 
@@ -297,4 +334,93 @@ export function fsCopy(src: string, dst: string): void {
 export function fsStat(path: string): string {
   const buf = String.UTF8.encode(path, false);
   return readStringFromHost(host_fs_stat(changetype<i32>(buf), buf.byteLength));
+}
+
+// ── Team: shared memory ─────────────────────────────────────────────
+// Available when running inside `hugind agent team`.
+
+// Store a value in shared memory (namespaced by agent).
+// `value` is a JSON string.
+export function memorySet(key: string, value: string): void {
+  const keyBuf = String.UTF8.encode(key, false);
+  const valBuf = String.UTF8.encode(value, false);
+  host_memory_set(
+    changetype<i32>(keyBuf),
+    keyBuf.byteLength,
+    changetype<i32>(valBuf),
+    valBuf.byteLength,
+  );
+}
+
+// Read a value from shared memory. Use the full key "agent/key".
+// Returns JSON string or "null".
+export function memoryGet(key: string): string {
+  const buf = String.UTF8.encode(key, false);
+  return readStringFromHost(host_memory_get(changetype<i32>(buf), buf.byteLength));
+}
+
+// List all shared memory entries. Returns JSON object string.
+export function memoryList(): string {
+  return readStringFromHost(host_memory_list());
+}
+
+// Returns a markdown summary of shared memory grouped by agent.
+export function memorySummary(): string {
+  return readStringFromHost(host_memory_summary());
+}
+
+// ── Team: messaging ─────────────────────────────────────────────────
+
+// Send a point-to-point message to another agent.
+export function messagingSend(to: string, content: string): void {
+  const toBuf = String.UTF8.encode(to, false);
+  const contentBuf = String.UTF8.encode(content, false);
+  host_messaging_send(
+    changetype<i32>(toBuf),
+    toBuf.byteLength,
+    changetype<i32>(contentBuf),
+    contentBuf.byteLength,
+  );
+}
+
+// Broadcast a message to all agents in the team.
+export function messagingBroadcast(content: string): void {
+  const buf = String.UTF8.encode(content, false);
+  host_messaging_broadcast(changetype<i32>(buf), buf.byteLength);
+}
+
+// Receive unread messages. Returns JSON array of {from, to, content}.
+export function messagingReceive(): string {
+  return readStringFromHost(host_messaging_receive());
+}
+
+// ── Team: tasks ─────────────────────────────────────────────────────
+
+// Spawn a dynamic task. `specJson` shape:
+//   {"title":"...","description":"...","assignee":"agent-name","depends_on":["task-id"]}
+// Returns JSON: {"ok":true,"id":"dyn-..."} or {"ok":false,"error":"..."}
+export function tasksSpawn(specJson: string): string {
+  const buf = String.UTF8.encode(specJson, false);
+  return readStringFromHost(host_tasks_spawn(changetype<i32>(buf), buf.byteLength));
+}
+
+// ── Agentic mode ────────────────────────────────────────────────────
+// Available when agent.yaml has `mode: agentic`.
+
+// Register a tool the LLM can invoke. `defJson` shape:
+//   {"name":"tool_name","description":"...","parameters":{"type":"object","properties":{...}}}
+export function registerTool(defJson: string): void {
+  const buf = String.UTF8.encode(defJson, false);
+  host_register_tool(changetype<i32>(buf), buf.byteLength);
+}
+
+// Set the system prompt for the agentic loop.
+export function setSystemPrompt(prompt: string): void {
+  const buf = String.UTF8.encode(prompt, false);
+  host_set_system_prompt(changetype<i32>(buf), buf.byteLength);
+}
+
+// Limit the number of LLM conversation turns.
+export function setMaxTurns(n: i32): void {
+  host_set_max_turns(n);
 }

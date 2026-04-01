@@ -91,8 +91,12 @@ pub enum AgentCommand {
 
     /// Run a multi-agent team with a coordinator that decomposes a goal into tasks
     Team {
-        /// The goal to accomplish
-        goal: String,
+        /// The goal to accomplish (inline)
+        goal: Option<String>,
+
+        /// Read the goal from a file instead of inline
+        #[arg(long)]
+        goal_file: Option<std::path::PathBuf>,
 
         /// Comma-separated list of agent paths (directories with agent.yaml)
         #[arg(long)]

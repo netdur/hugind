@@ -27,10 +27,23 @@ async fn main() {
                 AgentCommand::List => agent::list(),
                 AgentCommand::Team {
                     goal,
+                    goal_file,
                     agents,
                     backend,
                     concurrency,
-                } => agent::team(goal, agents, backend, concurrency).await,
+                } => {
+                    let goal = match (goal, goal_file) {
+                        (Some(g), None) => Ok(g),
+                        (None, Some(path)) => std::fs::read_to_string(&path)
+                            .map_err(|e| anyhow::anyhow!("Failed to read goal file '{}': {}", path.display(), e)),
+                        (Some(_), Some(_)) => Err(anyhow::anyhow!("Provide either a goal or --goal-file, not both")),
+                        (None, None) => Err(anyhow::anyhow!("Provide a goal as an argument or use --goal-file")),
+                    };
+                    match goal {
+                        Ok(g) => agent::team(g, agents, backend, concurrency).await,
+                        Err(e) => Err(e),
+                    }
+                },
             };
 
             if let Err(e) = result {
