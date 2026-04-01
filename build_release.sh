@@ -12,7 +12,7 @@ else
   VERSION=$(grep -E '^version[[:space:]]*=' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/' | head -n1)
 fi
 echo "Detected version: $VERSION"
-cargo build --release
+cargo build --release --features metal
 cp target/release/hugind dist/hugind
 
 # 3. Copy Configuration files

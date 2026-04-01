@@ -32,7 +32,7 @@ axum = "0.7.7"
 tempfile = "3.24.0"
 zip = "2.2.0"
 semver = "1.0"
-llama-cpp = { git = "https://github.com/netdur/llama_cpp_rust", package = "llama-cpp", features = ["metal", "mtmd"] }
+llama-cpp = { git = "https://github.com/netdur/llama_cpp_rust", package = "llama-cpp", features = ["mtmd"] }
 tower = { version = "0.4", features = ["util", "timeout", "limit"] }
 tower-http = { version = "0.5", features = ["trace", "cors"] }
 tracing = "0.1"
@@ -42,6 +42,10 @@ thiserror = "2.0.18"
 async-stream = "0.3"
 futures = "0.3"
 sha2 = "0.10"
+
+[features]
+default = []
+metal = ["llama-cpp/metal"]
 
 [dev-dependencies]
 tempfile = "3.24.0"
