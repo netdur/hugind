@@ -54,6 +54,7 @@ pub fn apply_template(
     let options = ChatTemplateOptions {
         add_generation_prompt: true,
         enable_thinking: Some(enable_thinking.unwrap_or(enable_thinking_default)),
+        enable_thinking_default,
         chat_template_kwargs: Map::new(),
     };
 

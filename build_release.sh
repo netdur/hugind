@@ -12,6 +12,7 @@ else
   VERSION=$(grep -E '^version[[:space:]]*=' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/' | head -n1)
 fi
 echo "Detected version: $VERSION"
+cargo update -p llama-cpp 2>/dev/null || true
 cargo build --release --features metal
 cp target/release/hugind dist/hugind
 

@@ -1329,15 +1329,33 @@ impl<'a> LlmEngine<'a> {
                             }
                         };
 
-                        if !prompt_tokens.is_empty()
+                        let bos_removed = if !prompt_tokens.is_empty()
                             && prompt_tokens[0].0 == self._model.token_bos()
                         {
                             prompt_tokens.remove(0);
-                        }
+                            true
+                        } else {
+                            false
+                        };
 
                         if let Some(req_mut) = self.requests.get_mut(&req_id) {
                             req_mut.prompt_tokens = prompt_tokens.clone();
                             req_mut.pos_offset = session_len;
+
+                            // When BOS is removed, all token indices shift by 1.
+                            // Adjust multimodal chunk keys and metadata to match.
+                            if bos_removed && !req_mut.multimodal_chunks.is_empty() {
+                                let old_chunks: HashMap<usize, Chunk> =
+                                    std::mem::take(&mut req_mut.multimodal_chunks);
+                                for (idx, chunk) in old_chunks {
+                                    req_mut
+                                        .multimodal_chunks
+                                        .insert(idx.saturating_sub(1), chunk);
+                                }
+                                for meta in &mut req_mut.multimodal_meta {
+                                    meta.start = meta.start.saturating_sub(1);
+                                }
+                            }
                         }
                     }
                 }

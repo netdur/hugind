@@ -55,7 +55,16 @@ pub async fn run_start(_config: String, _port: Option<u16>) -> Result<()> {
 
     let model_path_str = cfg.model_path.to_str()
         .ok_or_else(|| anyhow::anyhow!("Model path contains invalid UTF-8: {:?}", cfg.model_path))?;
-    let model = Arc::new(Model::from_file(model_path_str, &mparams)?);
+    let model = Arc::new(Model::from_file(model_path_str, &mparams).map_err(|e| {
+        let logs = runtime::logging::drain_log_buffer();
+        let log_output: String = logs.into_iter().collect();
+        let log_section = if log_output.trim().is_empty() {
+            String::new()
+        } else {
+            format!("\n\nBackend logs:\n{}", log_output.trim())
+        };
+        anyhow::anyhow!("{}{}", e, log_section)
+    })?);
     let model_name = cfg.model_name.clone().or_else(|| {
         cfg.model_path
             .file_name()

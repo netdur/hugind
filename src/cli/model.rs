@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use futures_util::stream::{self, StreamExt};
 use inquire::{Confirm, MultiSelect, Select, Text};
 
 use crate::core::model::downloader::Downloader;
@@ -122,16 +121,12 @@ pub async fn add(repo_arg: Option<String>, yes: bool) -> Result<()> {
 
     println!("\nDownloading {} file(s)...", to_download.len());
 
-    // Download up to 2 files concurrently
-    let results: Vec<Result<std::path::PathBuf>> = stream::iter(to_download.iter().map(|f| {
-        let repo = repo.clone();
-        let filename = f.filename.clone();
-        let sha = f.sha256.clone();
-        async move { Downloader::download_file(&repo, &filename, sha.as_deref()).await }
-    }))
-    .buffer_unordered(2)
-    .collect()
-    .await;
+    // Download files sequentially to avoid HuggingFace rate limiting
+    let mut results: Vec<Result<std::path::PathBuf>> = Vec::new();
+    for f in &to_download {
+        let result = Downloader::download_file(&repo, &f.filename, f.sha256.as_deref()).await;
+        results.push(result);
+    }
 
     let mut had_error = false;
     for result in results {

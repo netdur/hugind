@@ -11,5 +11,6 @@ else
 fi
 echo "Detected version: $VERSION"
 
-cargo build --release
+cargo update -p llama-cpp 2>/dev/null || true
+cargo build --release --features metal
 echo "Build successful! Binary is at target/release/hugind"
