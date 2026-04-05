@@ -55,13 +55,18 @@ Other:
 * Shared memory for cross-agent knowledge sharing
 * Inter-agent messaging (point-to-point + broadcast)
 * Coordinator pattern (auto-decompose goals into task graphs)
-* Agentic mode (LLM-driven tool-use loops)
+* Agentic mode (LLM-driven tool-use loops with multi-format tool call parsing)
+* Thinking tag stripping (`<think>` blocks removed from output automatically)
 * Multi-model workflows (different agents use different Hugind servers)
-* Streaming events for progress tracking
+* Streaming events for real-time progress tracking (stdio + MCP)
 
 ## Stdio bridge
 
 NDJSON + MCP protocol for desktop/app integration (`hugind stdio`).
+
+* Real-time agent events: tool calls, results, progress, turn tracking
+* Structured `agent_event` stream for building UIs over agentic agents
+* MCP JSON-RPC 2.0 with notifications for all event types
 
 ## Quick start
 
