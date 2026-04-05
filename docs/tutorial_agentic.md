@@ -144,6 +144,8 @@ The `execute` function:
 
 ### 2.2 Shell tool with permission gating
 
+`run_command` is async, so use `async function` and `await`:
+
 ```js
 register_tool({
   name: "run",
@@ -154,9 +156,9 @@ register_tool({
       command: { type: "string", description: "Shell command to execute" }
     }
   },
-  execute: (args) => {
+  execute: async function(args) {
     const parsed = JSON.parse(args);
-    return run_command(parsed.command);
+    return await run_command(parsed.command);
   }
 });
 ```
@@ -202,10 +204,10 @@ register_tool({
       path: { type: "string", description: "Directory to search in" }
     }
   },
-  execute: (args) => {
+  execute: async function(args) {
     const parsed = JSON.parse(args);
     const dir = parsed.path || ".";
-    return run_command(`grep -rn "${parsed.pattern}" "${dir}" || true`);
+    return await run_command(`grep -rn "${parsed.pattern}" "${dir}" || true`);
   }
 });
 ```
@@ -943,10 +945,40 @@ HUGIND_TRACE=1 hugind agent run my-agent --prompt "do something"
 ```
 
 Output includes:
-- Tool registrations
-- Each LLM request/response
-- Tool calls and results
-- Memory and messaging operations
+- Tool count after setup
+- Full system prompt and user prompt
+- Each LLM request/response with timing
+- Tool calls (name, args) and results (length, duration)
+- Content preview for each turn
+
+### Agent progress with `eprint()`
+
+Use `eprint()` in your agent JS to emit progress lines:
+
+```js
+function think(msg) {
+  eprint("  → " + msg);
+}
+```
+
+- **CLI mode**: prints to stderr (visible alongside agent output)
+- **Stdio/MCP mode**: emitted as `agent_event` with `type: "agent.progress"`,
+  so a UI can display real-time progress
+
+### Stdio event stream
+
+When running agents via the stdio bridge, structured events are emitted
+during the agentic loop. See [Stdio Bridge: Agent Events](stdio_bridge.md)
+for the full event reference. Key event types:
+
+| Event type | When |
+|---|---|
+| `agent.setup` | Tools registered, loop starting |
+| `agent.turn` | Each LLM round-trip begins |
+| `agent.tool_call` | Before a tool executes |
+| `agent.tool_result` | After a tool finishes |
+| `agent.progress` | Agent `eprint()` output |
+| `agent.complete` | Final answer produced |
 
 ### Session logs
 
@@ -974,6 +1006,9 @@ hugind agent run my-agent --log-file ./debug.log --prompt "test"
 | Agent loops without progress | Lower `max_turns`; make system prompt more directive |
 | "No backend configured" | Add `backend:` section to agent.yaml or start a server |
 | Tool returns error to LLM | Check the `execute` function; errors are shown to the LLM as tool results |
+| 0 tools registered, empty system prompt | Module JS is throwing silently. Wrap top-level code in try/catch. Run with `HUGIND_TRACE=1` to verify tool count |
+| `run_command` returns Promise, not string | `run_command` is async. Use `async function` + `await` in tool execute callbacks. Cannot call at module top level |
+| `<think>` tags in output | Thinking tags are stripped automatically. If you see them, update hugind |
 
 ---
 
@@ -985,6 +1020,7 @@ hugind agent run my-agent --log-file ./debug.log --prompt "test"
 set_system_prompt(prompt)          // set the system prompt
 register_tool({ name, description, parameters, execute })
 set_max_turns(n)                   // override max turns
+eprint(message)                    // progress output (stderr in CLI, event in stdio)
 ```
 
 ### Team globals (JS)

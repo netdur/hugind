@@ -561,7 +561,8 @@ async fn run_agentic_loop_with_js(
     logger: Option<&RunLogger>,
     trace: bool,
 ) -> anyhow::Result<String> {
-    use crate::core::orchestrator::agentic::{parse_tool_calls, strip_tool_calls};
+    use crate::core::orchestrator::agentic::{parse_tool_calls, strip_tool_calls, strip_thinking};
+    use crate::shared::events::{self, AgentEvent};
 
     let url = format!("{}/chat/completions", backend_url.trim_end_matches('/'));
     let model = backend_model.to_string();
@@ -608,9 +609,16 @@ async fn run_agentic_loop_with_js(
 
     let mut final_text = String::new();
 
-    if trace { eprintln!("[trace] loop: url={} model={} max_turns={}", url, model, max_turns); }
+    events::emit(AgentEvent::Setup { tool_count: registry.tools().len() });
+
+    if trace {
+        eprintln!("[trace] loop: url={} model={} max_turns={}", url, model, max_turns);
+        eprintln!("[trace] === SYSTEM PROMPT ===\n{}\n[trace] === END SYSTEM PROMPT ===", system);
+        eprintln!("[trace] === USER PROMPT ===\n{}\n[trace] === END USER PROMPT ===", user_prompt);
+    }
 
     for turn in 0..max_turns {
+        events::emit(AgentEvent::Turn { turn, max_turns, message_count: messages.len() });
         if trace { eprintln!("[trace] turn {}/{}: sending {} messages", turn, max_turns, messages.len()); }
         if let Some(l) = logger {
             l.log_line(format!("agentic.turn turn={} messages={}", turn, messages.len()));
@@ -642,16 +650,19 @@ async fn run_agentic_loop_with_js(
             .ok_or_else(|| anyhow::anyhow!("No choices in LLM response"))?;
         let message = choice.get("message")
             .ok_or_else(|| anyhow::anyhow!("No message in choice"))?;
-        let content = message.get("content").and_then(|c| c.as_str()).unwrap_or("");
+        let raw_content = message.get("content").and_then(|c| c.as_str()).unwrap_or("");
+        // Strip thinking tags for tool parsing and output, but keep raw in message history
+        let content = strip_thinking(raw_content);
         if trace { eprintln!("[trace] turn {}: content_len={} first_150={}", turn, content.len(), &content[..content.len().min(150)]); }
 
-        messages.push(serde_json::json!({"role": "assistant", "content": content}));
+        messages.push(serde_json::json!({"role": "assistant", "content": raw_content}));
 
-        let tool_calls = parse_tool_calls(content);
+        let tool_calls = parse_tool_calls(&content);
         if trace { eprintln!("[trace] turn {}: {} tool calls", turn, tool_calls.len()); }
 
         if tool_calls.is_empty() {
-            final_text = strip_tool_calls(content);
+            final_text = strip_tool_calls(&content);
+            events::emit(AgentEvent::Complete { turns: turn + 1, final_len: final_text.len() });
             if let Some(l) = logger {
                 l.log_line(format!("agentic.complete turns={} final_len={}", turn + 1, final_text.len()));
             }
@@ -661,6 +672,7 @@ async fn run_agentic_loop_with_js(
         let mut results = Vec::new();
         for tc in &tool_calls {
             let args_str = serde_json::to_string(&tc.args).unwrap_or_default();
+            events::emit(AgentEvent::ToolCall { name: tc.name.clone(), args: tc.args.clone() });
             if trace { eprintln!("[trace] turn {}: exec {} args={}", turn, tc.name, &args_str[..args_str.len().min(80)]); }
             if let Some(l) = logger {
                 l.log_line(format!("agentic.tool_call name={} args_len={}", tc.name, args_str.len()));
@@ -687,6 +699,18 @@ async fn run_agentic_loop_with_js(
                     Err(e) => format!("Error: {}", e),
                 }
             };
+
+            let duration_ms = tool_start.elapsed().as_millis() as u64;
+            let result_for_event = if result_str.len() > 2048 {
+                format!("{}...[truncated, {} bytes total]", &result_str[..2048], result_str.len())
+            } else {
+                result_str.clone()
+            };
+            events::emit(AgentEvent::ToolResult {
+                name: tc.name.clone(),
+                result: result_for_event,
+                duration_ms,
+            });
 
             if trace { eprintln!("[trace] turn {}: {} done in {:.1}s len={}", turn, tc.name, tool_start.elapsed().as_secs_f64(), result_str.len()); }
 
@@ -735,7 +759,8 @@ async fn run_agentic_loop_with_js(
                     .and_then(|m| m.get("content"))
                     .and_then(|c| c.as_str())
                 {
-                    final_text = crate::core::orchestrator::agentic::strip_tool_calls(content);
+                    let cleaned = strip_thinking(content);
+                    final_text = strip_tool_calls(&cleaned);
                 }
             }
         }

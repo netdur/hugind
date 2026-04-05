@@ -1,0 +1,16 @@
+name: ma-researcher
+version: "1.0"
+entry_point: main.js
+mode: agentic
+max_turns: 10
+enable_thinking: true
+thinking_budget_tokens: 512
+permissions:
+  filesystem:
+    allow: true
+    read: true
+    allow_outside_agent_root: true
+  shell:
+    allow: true
+    timeout: "30s"
+    max_output: "512KB"

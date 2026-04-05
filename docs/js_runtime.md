@@ -67,6 +67,15 @@ Writes to stdout.
 
 Writes to stdout without appending a newline.
 
+### `eprint(message: string)`
+
+Writes to stderr (CLI mode) or emits an `agent.progress` event (stdio mode).
+Use this for agent progress/diagnostic output that should not appear in the
+agent's final result.
+
+In stdio/MCP mode, `eprint` messages are delivered as `agent_event` events
+with `type: "agent.progress"` so the UI can display real-time progress.
+
 ### `hugind_version() -> string`
 
 Returns the current Hugind runtime version.
@@ -105,9 +114,27 @@ If the input is an object, you may provide `on_token` (or `onToken`) callback
 function. It will be called for each streamed delta, letting the agent decide
 whether to print.
 
-### `run_command(cmd: string) -> Promise<string>`
+### `run_command(cmd: string) -> Promise<string>` (async)
 
-Executes a shell command using `permissions.shell`:
+Executes a shell command using `permissions.shell`.
+
+**Important:** This function is async. It returns a Promise, not a string.
+At module top level, you cannot call `run_command()` and use the result
+directly (top-level await is not supported). Inside tool `execute` callbacks,
+use `async function` and `await`:
+
+```js
+// Correct — inside a tool execute callback
+execute: async function(args_json) {
+  var result = await run_command("ls");
+  return result;
+}
+
+// Wrong — at module top level
+var result = run_command("ls");  // result is a Promise, not a string
+```
+
+Shell permissions enforced:
 
 - `allow` must be `true`.
 - `whitelist` is enforced if present.

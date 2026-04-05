@@ -385,6 +385,22 @@ impl WasmRuntime {
             },
         )?;
 
+        linker.func_wrap(
+            "hugind",
+            "eprint",
+            |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| {
+                let msg = read_string(&mut caller, ptr, len)?;
+                if crate::shared::events::has_sink() {
+                    crate::shared::events::emit(
+                        crate::shared::events::AgentEvent::Progress { message: msg },
+                    );
+                } else {
+                    eprintln!("{}", msg);
+                }
+                Ok(())
+            },
+        )?;
+
         linker.func_wrap2_async(
             "hugind",
             "input",

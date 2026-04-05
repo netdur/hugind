@@ -6,6 +6,9 @@ declare function host_print(ptr: i32, len: i32): void;
 @external("hugind", "print_raw")
 declare function host_print_raw(ptr: i32, len: i32): void;
 
+@external("hugind", "eprint")
+declare function host_eprint(ptr: i32, len: i32): void;
+
 @external("hugind", "input")
 declare function host_input(ptr: i32, len: i32): i64;
 
@@ -115,6 +118,13 @@ export function print(msg: string): void {
 export function printRaw(msg: string): void {
   const buf = String.UTF8.encode(msg, false);
   host_print_raw(changetype<i32>(buf), buf.byteLength);
+}
+
+// Write to stderr (CLI mode) or emit an agent.progress event (stdio/MCP mode).
+// Use for progress/diagnostic output that should not appear in the agent's result.
+export function eprint(msg: string): void {
+  const buf = String.UTF8.encode(msg, false);
+  host_eprint(changetype<i32>(buf), buf.byteLength);
 }
 
 export function input(prompt: string): string {

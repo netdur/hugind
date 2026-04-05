@@ -40,6 +40,17 @@ pub async fn install(ctx: &AsyncContext, logger: Option<RunLogger>) -> Result<()
             })?;
             ctx.globals().set("print_raw", print_raw_func)?;
 
+            let eprint_func = Function::new(ctx.clone(), move |msg: String| {
+                if crate::shared::events::has_sink() {
+                    crate::shared::events::emit(
+                        crate::shared::events::AgentEvent::Progress { message: msg },
+                    );
+                } else {
+                    eprintln!("{}", msg);
+                }
+            })?;
+            ctx.globals().set("eprint", eprint_func)?;
+
             let logger_input = logger.clone();
             let input_func = Function::new(
                 ctx.clone(),

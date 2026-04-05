@@ -58,6 +58,15 @@ Prints a message to stdout.
 
 Prints a message to stdout without appending a newline.
 
+### `hugind.eprint(message)`
+
+Writes to stderr (CLI mode) or emits an `agent.progress` event (stdio/MCP mode).
+Use for progress or diagnostic output that should not appear in the agent's
+final result.
+
+In stdio/MCP mode, `eprint` messages are delivered as `agent_event` events with
+`type: "agent.progress"`, allowing a UI to display real-time agent activity.
+
 ### `hugind.input(prompt) -> string`
 
 Writes a prompt and reads a line from stdin.

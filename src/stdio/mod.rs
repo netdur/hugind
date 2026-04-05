@@ -11,6 +11,7 @@ use crate::core::model::downloader::{Downloader, ProgressSink};
 use crate::core::model::registry::RepoManager;
 use crate::core::model::remote::RemoteClient;
 use crate::core::sys::SystemInspector;
+use crate::shared::events::{AgentEvent, EventSink};
 use crate::shared::stdio::PrintSink;
 use crate::shared::{configs, paths};
 
@@ -650,6 +651,30 @@ impl PrintSink for McpEmitter {
     }
 }
 
+impl EventSink for StdioEmitter {
+    fn emit(&self, event: AgentEvent) {
+        let evt = Event {
+            event: "agent_event".to_string(),
+            id: self.id.clone(),
+            data: event,
+            schema_version: SCHEMA_VERSION,
+        };
+        self.outbox.send(evt);
+    }
+}
+
+impl EventSink for McpEmitter {
+    fn emit(&self, event: AgentEvent) {
+        self.notify(
+            "notifications/hugind.agent_event",
+            json!({
+                "id": self.id,
+                "event": serde_json::to_value(&event).unwrap_or(JsonValue::Null),
+            }),
+        );
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct StatusEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -777,11 +802,13 @@ async fn run_agent_with_emitter<E>(
     emitter: std::sync::Arc<E>,
 ) -> Result<AgentRunResult>
 where
-    E: PrintSink + StatusEmitter + Send + Sync + 'static,
+    E: PrintSink + StatusEmitter + EventSink + Send + Sync + 'static,
 {
     let _guard = agent_run_lock().lock().await;
     let sink: std::sync::Arc<dyn PrintSink> = emitter.clone();
     let _sink_guard = PrintSinkGuard::new(sink);
+    let event_sink: std::sync::Arc<dyn EventSink> = emitter.clone();
+    let _event_guard = EventSinkGuard::new(event_sink);
 
     emitter.status("agent.run.start");
     let result =
@@ -812,6 +839,21 @@ impl PrintSinkGuard {
 impl Drop for PrintSinkGuard {
     fn drop(&mut self) {
         crate::shared::stdio::set_print_sink(None);
+    }
+}
+
+struct EventSinkGuard;
+
+impl EventSinkGuard {
+    fn new(sink: std::sync::Arc<dyn EventSink>) -> Self {
+        crate::shared::events::set_event_sink(Some(sink));
+        Self
+    }
+}
+
+impl Drop for EventSinkGuard {
+    fn drop(&mut self) {
+        crate::shared::events::set_event_sink(None);
     }
 }
 

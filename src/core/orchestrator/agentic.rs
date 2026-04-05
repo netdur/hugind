@@ -96,15 +96,28 @@ impl ToolRegistry {
 
 /// Parse tool calls from LLM response text.
 /// Looks for `<tool_call>{...}</tool_call>` blocks.
+/// Also handles variant tag formats from models like Gemma (e.g. `<|tool_call>...<tool_call|>`).
 /// Tolerates non-strict JSON (unquoted keys) which small LLMs often produce.
 pub fn parse_tool_calls(text: &str) -> Vec<ParsedToolCall> {
+    // Try standard format first
+    let mut calls = parse_tool_calls_with_tags(text, "<tool_call>", "</tool_call>");
+
+    // Fallback: Gemma-style <|tool_call>...<tool_call|> or <|tool_call|>...<|/tool_call|>
+    if calls.is_empty() {
+        calls = parse_tool_calls_with_tags(text, "<|tool_call>", "<tool_call|>");
+    }
+    if calls.is_empty() {
+        calls = parse_tool_calls_with_tags(text, "<|tool_call|>", "<|/tool_call|>");
+    }
+
+    calls
+}
+
+fn parse_tool_calls_with_tags(text: &str, start_tag: &str, end_tag: &str) -> Vec<ParsedToolCall> {
     let mut calls = Vec::new();
     let mut search_from = 0;
 
     loop {
-        let start_tag = "<tool_call>";
-        let end_tag = "</tool_call>";
-
         let start = match text[search_from..].find(start_tag) {
             Some(pos) => search_from + pos + start_tag.len(),
             None => break,
@@ -115,35 +128,61 @@ pub fn parse_tool_calls(text: &str) -> Vec<ParsedToolCall> {
             None => break,
         };
 
-        let json_str = text[start..end].trim();
+        let inner = text[start..end].trim();
 
-        // Try strict JSON first, then try fixing unquoted keys
-        let parsed = serde_json::from_str::<JsonValue>(json_str)
-            .or_else(|_| {
-                let fixed = fix_unquoted_keys(json_str);
-                serde_json::from_str::<JsonValue>(&fixed)
-            });
-
-        if let Ok(parsed) = parsed {
-            let name = parsed
-                .get("name")
-                .and_then(|n| n.as_str())
-                .unwrap_or("")
-                .to_string();
-            let args = parsed
-                .get("args")
-                .cloned()
-                .unwrap_or(JsonValue::Object(Default::default()));
-
-            if !name.is_empty() {
-                calls.push(ParsedToolCall { name, args });
-            }
+        // Try standard JSON format: {"name":"tool","args":{...}}
+        if let Some(call) = try_parse_json_tool_call(inner) {
+            calls.push(call);
+        }
+        // Try call:name{...} format (Gemma-style): call:run{command: "ls"}
+        else if let Some(call) = try_parse_call_colon_format(inner) {
+            calls.push(call);
         }
 
         search_from = end + end_tag.len();
     }
 
     calls
+}
+
+/// Parse standard `{"name":"tool","args":{...}}` format.
+fn try_parse_json_tool_call(json_str: &str) -> Option<ParsedToolCall> {
+    let parsed = serde_json::from_str::<JsonValue>(json_str)
+        .or_else(|_| {
+            let fixed = fix_unquoted_keys(json_str);
+            serde_json::from_str::<JsonValue>(&fixed)
+        })
+        .ok()?;
+
+    let name = parsed.get("name").and_then(|n| n.as_str())?.to_string();
+    let args = parsed.get("args").cloned()
+        .unwrap_or(JsonValue::Object(Default::default()));
+
+    if name.is_empty() { return None; }
+    Some(ParsedToolCall { name, args })
+}
+
+/// Parse `call:tool_name{...}` format produced by some models (e.g. Gemma).
+/// Example: `call:run{command: "ls /Applications"}`
+fn try_parse_call_colon_format(inner: &str) -> Option<ParsedToolCall> {
+    let rest = inner.strip_prefix("call:")?;
+
+    // Find the opening brace
+    let brace_pos = rest.find('{')?;
+    let name = rest[..brace_pos].trim().to_string();
+    if name.is_empty() { return None; }
+
+    let json_str = rest[brace_pos..].trim();
+
+    // The content inside braces is the args object directly (not wrapped in {"args":...})
+    let args = serde_json::from_str::<JsonValue>(json_str)
+        .or_else(|_| {
+            let fixed = fix_unquoted_keys(json_str);
+            serde_json::from_str::<JsonValue>(&fixed)
+        })
+        .unwrap_or(JsonValue::Object(Default::default()));
+
+    Some(ParsedToolCall { name, args })
 }
 
 /// Fix common JSON issues from LLMs: unquoted keys, trailing commas.
@@ -225,6 +264,29 @@ fn fix_unquoted_keys(input: &str) -> String {
     }
 
     result
+}
+
+/// Strip `<think>...</think>` blocks from LLM responses (used by thinking-enabled models).
+/// Also handles unclosed `<think>` tags (strip from `<think>` to end of text).
+pub fn strip_thinking(text: &str) -> String {
+    let mut result = text.to_string();
+    loop {
+        if let Some(start) = result.find("<think>") {
+            if let Some(end_offset) = result[start..].find("</think>") {
+                result = format!(
+                    "{}{}",
+                    &result[..start],
+                    &result[start + end_offset + "</think>".len()..]
+                );
+                continue;
+            } else {
+                // Unclosed <think> — strip from tag to end
+                result = result[..start].to_string();
+            }
+        }
+        break;
+    }
+    result.trim().to_string()
 }
 
 /// Extract the non-tool-call text from a response (the "thinking" or final answer).
@@ -310,5 +372,68 @@ Done."#;
         let prompt = reg.tools_prompt();
         assert!(prompt.contains("read_file(path)"));
         assert!(prompt.contains("<tool_call>"));
+    }
+
+    #[test]
+    fn parse_gemma_pipe_tags() {
+        let text = r#"<|tool_call>call:run{command: "ls /Applications"}<tool_call|>"#;
+        let calls = parse_tool_calls(text);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "run");
+        assert_eq!(calls[0].args["command"], "ls /Applications");
+    }
+
+    #[test]
+    fn parse_gemma_call_colon_quoted() {
+        let text = r#"<|tool_call>call:run{"command": "ls -la"}<tool_call|>"#;
+        let calls = parse_tool_calls(text);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "run");
+        assert_eq!(calls[0].args["command"], "ls -la");
+    }
+
+    #[test]
+    fn parse_gemma_pipe_tags_v2() {
+        let text = r#"<|tool_call|>call:read_file{"path": "/tmp/x"}<|/tool_call|>"#;
+        let calls = parse_tool_calls(text);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "read_file");
+        assert_eq!(calls[0].args["path"], "/tmp/x");
+    }
+
+    #[test]
+    fn parse_standard_preferred_over_gemma() {
+        // If standard tags exist, they should be found
+        let text = r#"<tool_call>{"name":"run","args":{"command":"echo hi"}}</tool_call>"#;
+        let calls = parse_tool_calls(text);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "run");
+    }
+
+    #[test]
+    fn strip_thinking_closed() {
+        let text = "<think>Let me think about this...</think>Here is the answer.";
+        assert_eq!(strip_thinking(text), "Here is the answer.");
+    }
+
+    #[test]
+    fn strip_thinking_unclosed() {
+        let text = "Some text\n<think>I'm still thinking...";
+        assert_eq!(strip_thinking(text), "Some text");
+    }
+
+    #[test]
+    fn strip_thinking_with_tool_call() {
+        let text = r#"<think>I should check the file.</think>
+<tool_call>{"name":"run","args":{"command":"ls"}}</tool_call>"#;
+        let cleaned = strip_thinking(text);
+        let calls = parse_tool_calls(&cleaned);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "run");
+    }
+
+    #[test]
+    fn strip_thinking_empty() {
+        assert_eq!(strip_thinking("No thinking here."), "No thinking here.");
     }
 }

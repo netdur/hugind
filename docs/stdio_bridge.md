@@ -42,6 +42,7 @@ Event types currently emitted:
 1. `status`
 2. `progress`
 3. `log`
+4. `agent_event` (agentic loop events — see below)
 
 ## Supported Methods
 
@@ -50,7 +51,7 @@ Event types currently emitted:
 1. `agent.list` (no params)
 2. `agent.run`
    params: `{ "path": string, "args"?: string[] }`
-   events: `status` (`agent.run.start`/`agent.run.finish`), `log`
+   events: `status` (`agent.run.start`/`agent.run.finish`), `log`, `agent_event`
 3. `agent.install`
    params: `{ "path": string, "approve_permissions": bool, "overwrite": bool }`
 4. `agent.remove`
@@ -102,6 +103,56 @@ Event types currently emitted:
 Other methods return operation-specific objects (for example `removed`, `valid`,
 `deleted_files`, `status`).
 
+## Agent Events
+
+When running an agentic agent via `agent.run`, the stdio bridge emits structured
+`agent_event` events during the agentic loop. These allow a UI to show real-time
+progress.
+
+### Event envelope
+
+```json
+{"event":"agent_event","id":"req-1","data":{"type":"agent.turn",...},"schema_version":"1"}
+```
+
+The `data.type` field identifies the event kind.
+
+### Event types
+
+| type | data fields | description |
+|---|---|---|
+| `agent.setup` | `tool_count` | Emitted after tools are registered and the loop begins |
+| `agent.turn` | `turn`, `max_turns`, `message_count` | Emitted at the start of each LLM turn |
+| `agent.tool_call` | `name`, `args` | Emitted before a tool is executed |
+| `agent.tool_result` | `name`, `result`, `duration_ms` | Emitted after a tool finishes (result truncated to 2KB) |
+| `agent.progress` | `message` | Agent progress/thinking lines (from `eprint()` in JS) |
+| `agent.complete` | `turns`, `final_len` | Emitted when the agent produces a final answer |
+
+### Example event stream
+
+```
+← {"event":"status","id":"req-1","data":{"message":"agent.run.start"},...}
+← {"event":"agent_event","id":"req-1","data":{"type":"agent.progress","message":"  → Scanning project structure..."},...}
+← {"event":"agent_event","id":"req-1","data":{"type":"agent.setup","tool_count":5},...}
+← {"event":"agent_event","id":"req-1","data":{"type":"agent.turn","turn":0,"max_turns":10,"message_count":2},...}
+← {"event":"agent_event","id":"req-1","data":{"type":"agent.tool_call","name":"run","args":{"command":"ls /Applications"}},...}
+← {"event":"agent_event","id":"req-1","data":{"type":"agent.progress","message":"  → Running: ls /Applications"},...}
+← {"event":"agent_event","id":"req-1","data":{"type":"agent.tool_result","name":"run","result":"Android Studio.app\n...","duration_ms":18},...}
+← {"event":"agent_event","id":"req-1","data":{"type":"agent.turn","turn":1,"max_turns":10,"message_count":4},...}
+← {"event":"agent_event","id":"req-1","data":{"type":"agent.complete","turns":2,"final_len":307},...}
+← {"event":"status","id":"req-1","data":{"message":"agent.run.finish"},...}
+← {"id":"req-1","ok":true,"result":{"status":"ok","result":"## Answer\n..."},...}
+```
+
+### Notes
+
+- `agent.progress` events carry the `eprint()` output from agent JS code (the
+  `→` progress lines). In CLI mode, these go to stderr instead.
+- `agent.tool_result.result` is truncated to 2KB to avoid flooding the transport.
+  The full result is available in the agent log file.
+- Events are only emitted for agentic agents (`mode: agentic`). Script mode
+  agents only produce `status` and `log` events.
+
 ## MCP Compatibility
 
 Messages with `"jsonrpc":"2.0"` are handled as MCP JSON-RPC.
@@ -126,5 +177,7 @@ The tool result is returned as MCP `content` with stringified JSON payload.
 1. `notifications/hugind.status`
 2. `notifications/hugind.progress`
 3. `notifications/hugind.log`
+4. `notifications/hugind.agent_event` — agentic loop events (same `data.type`
+   values as the NDJSON `agent_event` above)
 
 Each includes the request id in `params.id`.
