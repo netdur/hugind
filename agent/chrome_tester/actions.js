@@ -1,4 +1,4 @@
-import { clampText } from "./runtime.js";
+
 
 const KNOWN_CHROME_TOOLS = {
   take_snapshot: true,
@@ -18,7 +18,7 @@ const KNOWN_CHROME_TOOLS = {
   evaluate: true,
 };
 
-const OVERLAY_DETECTION_SCRIPT = `(() => {
+const OVERLAY_DETECTION_SCRIPT = `() => {
   const adRe = /(ad|ads|doubleclick|googlesyndication|taboola|outbrain|adnxs|amazon-adsystem|criteo|pubmatic)/i;
   const vw = Math.max(1, window.innerWidth || 0);
   const vh = Math.max(1, window.innerHeight || 0);
@@ -80,9 +80,9 @@ const OVERLAY_DETECTION_SCRIPT = `(() => {
       hasAdSignal: top.hasAdSignal
     } : null
   };
-})();`;
+}`;
 
-const OVERLAY_DISMISS_SCRIPT = `(() => {
+const OVERLAY_DISMISS_SCRIPT = `() => {
   const adRe = /(ad|ads|doubleclick|googlesyndication|taboola|outbrain|adnxs|amazon-adsystem|criteo|pubmatic)/i;
   const closeRe = /(close|dismiss|skip|not now|x)/i;
   const vw = Math.max(1, window.innerWidth || 0);
@@ -146,9 +146,9 @@ const OVERLAY_DISMISS_SCRIPT = `(() => {
     hidden,
     candidateCount: candidates.length
   };
-})();`;
+}`;
 
-const PHONE_EXTRACTION_SCRIPT = `(() => {
+const PHONE_EXTRACTION_SCRIPT = `() => {
   const out = [];
   const seen = new Set();
   const phoneRe = /(?:\\+?\\d[\\d\\s().-]{6,}\\d)/g;
@@ -190,7 +190,7 @@ const PHONE_EXTRACTION_SCRIPT = `(() => {
     count: out.length,
     numbers: out.slice(0, 8)
   };
-})();`;
+}`;
 
 function safeJsonParse(raw) {
   try {
@@ -270,23 +270,23 @@ function buildFallbackCallNames(candidates) {
   return out;
 }
 
-function summarizeToolResult(value, maxChars) {
-  if (typeof value === "string") return clampText(value, maxChars);
+function summarizeToolResult(value) {
+  if (typeof value === "string") return value;
 
   if (value && typeof value === "object") {
     if (Array.isArray(value.content)) {
       const textParts = value.content
         .filter((x) => x && typeof x === "object" && x.type === "text" && typeof x.text === "string")
         .map((x) => x.text);
-      if (textParts.length) return clampText(textParts.join("\n"), maxChars);
+      if (textParts.length) return textParts.join("\n");
     }
 
     for (const k of ["snapshot", "text", "message", "result", "value"]) {
-      if (typeof value[k] === "string" && value[k]) return clampText(value[k], maxChars);
+      if (typeof value[k] === "string" && value[k]) return value[k];
     }
   }
 
-  return clampText(JSON.stringify(value, null, 2), maxChars);
+  return JSON.stringify(value, null, 2);
 }
 
 function hashText(s) {
@@ -304,10 +304,16 @@ function extractJsonFromText(text) {
   if (!s) return null;
   const direct = safeJsonParse(s);
   if (direct && typeof direct === "object") return direct;
-  const m = s.match(/\{[\s\S]*\}/);
-  if (m) {
-    const parsed = safeJsonParse(m[0]);
+  // Try to extract JSON object {...} or array [...]
+  const mObj = s.match(/\{[\s\S]*\}/);
+  if (mObj) {
+    const parsed = safeJsonParse(mObj[0]);
     if (parsed && typeof parsed === "object") return parsed;
+  }
+  const mArr = s.match(/\[[\s\S]*\]/);
+  if (mArr) {
+    const parsed = safeJsonParse(mArr[0]);
+    if (Array.isArray(parsed)) return parsed;
   }
   return null;
 }
@@ -350,8 +356,168 @@ function extractAnyObject(value) {
   return value;
 }
 
+// --- Structured snapshot processing (OpenClaw-style) ---
+
+const INTERACTIVE_ROLES = new Set([
+  "link", "button", "searchbox", "textbox", "input", "combobox",
+  "checkbox", "radio", "menuitem", "menuitemcheckbox", "menuitemradio",
+  "tab", "switch", "slider", "spinbutton", "option", "treeitem",
+]);
+
+const CONTENT_ROLES = new Set([
+  "heading", "image", "img", "paragraph", "blockquote", "caption",
+  "cell", "columnheader", "rowheader", "status", "alert",
+]);
+
+const LANDMARK_ROLES = new Set([
+  "banner", "navigation", "main", "contentinfo", "complementary",
+  "form", "region", "search",
+]);
+
+function escapeQuoted(v) {
+  return String(v || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+// Extract structured snapshot tree from MCP response value
+function extractSnapshotTree(value) {
+  if (!value) return null;
+  // Direct tree object with role/children
+  if (value.role && (value.children || value.id)) return value;
+  // Wrapped in snapshot key
+  if (value.snapshot && typeof value.snapshot === "object") return value.snapshot;
+  // In content array (structured content format)
+  if (Array.isArray(value.content)) {
+    for (const item of value.content) {
+      if (!item) continue;
+      // Structured content item with data
+      if (item.type === "resource" && item.resource && item.resource.text) {
+        const parsed = safeJsonParse(item.resource.text);
+        if (parsed) { const t = extractSnapshotTree(parsed); if (t) return t; }
+      }
+      if (item.type === "text" && typeof item.text === "string") {
+        const parsed = safeJsonParse(item.text);
+        if (parsed) { const t = extractSnapshotTree(parsed); if (t) return t; }
+      }
+      if (typeof item === "object" && item.role) return item;
+    }
+  }
+  // In data/value/result/structuredContent wrappers
+  for (const k of ["structuredContent", "data", "value", "result"]) {
+    if (value[k] && typeof value[k] === "object") {
+      const t = extractSnapshotTree(value[k]);
+      if (t) return t;
+    }
+  }
+  return null;
+}
+
+// Build full indented text from structured tree (with all nodes)
+function buildFullText(tree) {
+  const lines = [];
+  function visit(node, depth) {
+    if (!node) return;
+    const role = String(node.role || "generic").toLowerCase().trim();
+    const name = node.name ? String(node.name).trim() : "";
+    const uid = node.id ? String(node.id).trim() : "";
+    const value = node.value != null ? String(node.value) : "";
+    const desc = node.description ? String(node.description).trim() : "";
+
+    const indent = "  ".repeat(depth);
+    let line = indent;
+    if (uid) line += `uid=${uid} `;
+    line += role;
+    if (name) line += ` "${escapeQuoted(name)}"`;
+    if (value) line += ` value="${escapeQuoted(value)}"`;
+    if (desc) line += ` description="${escapeQuoted(desc)}"`;
+
+    lines.push(line);
+    if (Array.isArray(node.children)) {
+      for (const child of node.children) visit(child, depth + 1);
+    }
+  }
+  visit(tree, 0);
+  return lines.join("\n");
+}
+
+// Build compact summary: only interactive + content + landmark roles
+function buildCompactSummary(tree) {
+  const lines = [];
+  let totalNodes = 0;
+  let interactiveCount = 0;
+
+  function visit(node, depth) {
+    if (!node) return;
+    totalNodes++;
+    const role = String(node.role || "generic").toLowerCase().trim();
+    const name = node.name ? String(node.name).trim() : "";
+    const uid = node.id ? String(node.id).trim() : "";
+    const value = node.value != null ? String(node.value) : "";
+    const desc = node.description ? String(node.description).trim() : "";
+
+    const isInteractive = INTERACTIVE_ROLES.has(role);
+    const isContent = CONTENT_ROLES.has(role);
+    const isLandmark = LANDMARK_ROLES.has(role);
+    const isRoot = role === "rootwebarea" || role === "webarea";
+    const isIframe = role === "iframe";
+
+    if (isInteractive) interactiveCount++;
+
+    // Include: interactive, content with name, landmarks, root, iframes
+    if (isInteractive || (isContent && name) || isLandmark || isRoot || isIframe) {
+      const indent = "  ".repeat(depth);
+      let line = indent;
+      if (uid) line += `uid=${uid} `;
+      line += role;
+      if (name) line += ` "${escapeQuoted(name)}"`;
+      if (value) line += ` value="${escapeQuoted(value)}"`;
+      if (desc) line += ` description="${escapeQuoted(desc)}"`;
+      lines.push(line);
+    }
+
+    if (Array.isArray(node.children)) {
+      for (const child of node.children) visit(child, depth + 1);
+    }
+  }
+  visit(tree, 0);
+
+  const header = `PAGE_SUMMARY (${interactiveCount} interactive, ${totalNodes} total nodes):`;
+  return header + "\n" + lines.join("\n");
+}
+
+const ICON_HINTS_SCRIPT = [
+  "() => {",
+  "  var hints = [];",
+  "  var els = document.querySelectorAll('a, button, [role=button]');",
+  "  for (var i = 0; i < els.length; i++) {",
+  "    var el = els[i];",
+  "    var text = (el.textContent || '').trim();",
+  "    if (text.length > 2) continue;",
+  "    var cls = el.getAttribute('class') || '';",
+  "    var children = el.querySelectorAll('*');",
+  "    for (var j = 0; j < children.length; j++) {",
+  "      var cc = children[j].getAttribute('class') || '';",
+  "      if (cc) cls = cls + ' ' + cc;",
+  "    }",
+  "    cls = cls.trim();",
+  "    if (!cls) continue;",
+  "    var words = cls.replace(/[^a-zA-Z]+/g, ' ').trim();",
+  "    if (!words) continue;",
+  "    hints.push({",
+  "      tag: el.tagName.toLowerCase(),",
+  "      href: el.getAttribute('href') || '',",
+  "      aria: el.getAttribute('aria-label') || '',",
+  "      cls: words,",
+  "      text: text",
+  "    });",
+  "  }",
+  "  return hints.slice(0, 20);",
+  "}",
+].join("\n");
+
 export function createActions(config) {
   let capabilities = null;
+  let lastFullSnapshot = "";  // text form, stored for filter_snapshot
+  let lastSnapshotTree = null; // structured tree if available
 
   async function callTool(toolName, args) {
     const raw = await tools.call(toolName, args || {});
@@ -360,7 +526,7 @@ export function createActions(config) {
     return {
       raw,
       value,
-      summary: summarizeToolResult(value, config.MAX_STATE_CHARS),
+      summary: summarizeToolResult(value),
     };
   }
 
@@ -418,7 +584,8 @@ export function createActions(config) {
 
     const fromDiscovery = list.length > 0;
     const caps = fromDiscovery ? {
-      navigate: resolveCapability(chromeTools, ["navigate_page", "navigate", "new_page"]),
+      navigate: resolveCapability(chromeTools, ["navigate_page", "navigate"]),
+      newPage: resolveCapability(chromeTools, ["new_page"]),
       snapshot: resolveCapability(chromeTools, ["take_snapshot", "snapshot"]),
       click: resolveCapability(chromeTools, ["click"]),
       fill: resolveCapability(chromeTools, ["fill", "fill_form"]),
@@ -431,7 +598,8 @@ export function createActions(config) {
       screenshot: resolveCapability(chromeTools, ["take_screenshot", "screenshot"]),
       allChromeTools: chromeTools,
     } : {
-      navigate: { callNames: buildFallbackCallNames(["navigate_page", "navigate", "new_page"]) },
+      navigate: { callNames: buildFallbackCallNames(["navigate_page", "navigate"]) },
+      newPage: { callNames: buildFallbackCallNames(["new_page"]) },
       snapshot: { callNames: buildFallbackCallNames(["take_snapshot", "snapshot"]) },
       click: { callNames: buildFallbackCallNames(["click"]) },
       fill: { callNames: buildFallbackCallNames(["fill", "fill_form"]) },
@@ -446,7 +614,7 @@ export function createActions(config) {
     };
 
     const required = [];
-    if (!caps.navigate) required.push("navigate_page|navigate|new_page");
+    if (!caps.navigate) required.push("navigate_page|navigate");
     if (!caps.snapshot) required.push("take_snapshot");
     if (!caps.click) required.push("click");
     if (!caps.waitFor) required.push("wait_for");
@@ -473,21 +641,39 @@ export function createActions(config) {
 
   async function snapshot() {
     if (!capabilities || !capabilities.snapshot) return { success: false, message: "snapshot capability unavailable" };
-    return callWithVariants(capabilities.snapshot, [{}]);
+    const result = await callWithVariants(capabilities.snapshot, [{}]);
+    if (result.success) {
+      // Try to extract structured tree from the response
+      const tree = extractSnapshotTree(result.data);
+      if (tree) {
+        lastSnapshotTree = tree;
+        const fullText = buildFullText(tree);
+        lastFullSnapshot = fullText;
+        result.summary = fullText;
+      } else {
+        lastSnapshotTree = null;
+        lastFullSnapshot = result.summary || "";
+      }
+    }
+    return result;
   }
 
   async function click(uid) {
     if (!capabilities || !capabilities.click) return { success: false, message: "click capability unavailable" };
-    return callWithVariants(capabilities.click, [{ uid }, { elementId: uid }, { nodeId: uid }]);
+    return callWithVariants(capabilities.click, [
+      { uid, includeSnapshot: true },
+      { elementId: uid, includeSnapshot: true },
+      { nodeId: uid, includeSnapshot: true },
+    ]);
   }
 
   async function fill(uid, text) {
     if (!capabilities) return { success: false, message: "capabilities unavailable" };
     if (capabilities.fill) {
       return callWithVariants(capabilities.fill, [
-        { uid, value: text },
-        { uid, text },
-        { elementId: uid, value: text },
+        { uid, value: text, includeSnapshot: true },
+        { uid, text, includeSnapshot: true },
+        { elementId: uid, value: text, includeSnapshot: true },
       ]);
     }
     if (capabilities.typeText) {
@@ -500,12 +686,18 @@ export function createActions(config) {
 
   async function typeText(text) {
     if (!capabilities || !capabilities.typeText) return { success: false, message: "type_text capability unavailable" };
-    return callWithVariants(capabilities.typeText, [{ text }, { value: text }]);
+    return callWithVariants(capabilities.typeText, [
+      { text, includeSnapshot: true },
+      { value: text, includeSnapshot: true },
+    ]);
   }
 
   async function pressKey(key) {
     if (!capabilities || !capabilities.pressKey) return { success: false, message: "press_key capability unavailable" };
-    return callWithVariants(capabilities.pressKey, [{ key }, { keyCode: key }]);
+    return callWithVariants(capabilities.pressKey, [
+      { key, includeSnapshot: true },
+      { keyCode: key, includeSnapshot: true },
+    ]);
   }
 
   async function waitForText(text, timeoutMs) {
@@ -531,7 +723,7 @@ export function createActions(config) {
 
   async function evaluate(script) {
     if (!capabilities || !capabilities.evaluate) return { success: false, message: "evaluate capability unavailable" };
-    return callWithVariants(capabilities.evaluate, [{ script }, { expression: script }]);
+    return callWithVariants(capabilities.evaluate, [{ function: script }, { script }, { expression: script }]);
   }
 
   async function screenshot(path) {
@@ -558,14 +750,13 @@ export function createActions(config) {
       };
     }
 
-    const summary = clampText(JSON.stringify(structured, null, 2), config.MAX_STATE_CHARS);
     return {
       success: true,
       message: structured.blocked
         ? `Blocking overlay detected (candidates: ${structured.candidateCount || 0})`
         : "No blocking overlay detected",
       data: structured,
-      summary,
+      summary: JSON.stringify(structured, null, 2),
     };
   }
 
@@ -588,10 +779,10 @@ export function createActions(config) {
         dismiss: parsed,
         after: after.success ? after.data : null,
       },
-      summary: clampText(JSON.stringify({
+      summary: JSON.stringify({
         dismiss: parsed,
         after: after.success ? after.data : null,
-      }, null, 2), config.MAX_STATE_CHARS),
+      }, null, 2),
     };
   }
 
@@ -625,11 +816,122 @@ export function createActions(config) {
         count: Array.isArray(parsed.numbers) ? parsed.numbers.length : 0,
         numbers: parsed.numbers || [],
       },
-      summary: clampText(JSON.stringify({
+      summary: JSON.stringify({
         count: Array.isArray(parsed.numbers) ? parsed.numbers.length : 0,
         numbers: parsed.numbers || [],
-      }, null, 2), config.MAX_STATE_CHARS),
+      }, null, 2),
     };
+  }
+
+  async function scroll(direction) {
+    if (!capabilities || !capabilities.evaluate) {
+      return { success: false, message: "evaluate capability unavailable for scroll" };
+    }
+    const dir = String(direction || "down").toLowerCase();
+    let script;
+    if (dir === "up")          script = "() => { window.scrollBy(0, -800); }";
+    else if (dir === "top")    script = "() => { window.scrollTo(0, 0); }";
+    else if (dir === "bottom") script = "() => { window.scrollTo(0, document.body.scrollHeight); }";
+    else                       script = "() => { window.scrollBy(0, 800); }";
+
+    const res = await evaluate(script);
+    if (!res.success) return res;
+    return snapshot();
+  }
+
+  async function openFreshTab() {
+    if (!capabilities) return { success: false, message: "capabilities not initialized" };
+    // Open a fresh tab to avoid touching user's existing tabs
+    const newPageCap = capabilities.newPage;
+    if (newPageCap) {
+      try {
+        await callWithVariants(newPageCap, [{ url: "about:blank" }]);
+      } catch (_e) {}
+    } else if (capabilities.navigate) {
+      // Fallback: just navigate to about:blank
+      await navigate("about:blank");
+    }
+    // Bring the newest tab to front
+    if (capabilities.listPages && capabilities.selectPage) {
+      const pages = await listPages();
+      if (pages.success && pages.summary) {
+        const lines = String(pages.summary).split("\n");
+        let lastId = null;
+        for (const line of lines) {
+          const m = line.match(/^\s*(\d+):/);
+          if (m) lastId = parseInt(m[1], 10);
+        }
+        if (lastId != null) {
+          await callWithVariants(capabilities.selectPage, [
+            { pageId: lastId, bringToFront: true },
+            { index: lastId, bringToFront: true },
+          ]);
+        }
+      }
+    }
+    return { success: true, message: "Opened fresh working tab" };
+  }
+
+  // Regex-based fallback when no structured tree is available
+  function buildPageSummaryFromText(snapshotText) {
+    const lines = String(snapshotText || "").split("\n");
+    const out = [];
+    let totalElements = 0;
+    let interactiveCount = 0;
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      if (/\b(heading |RootWebArea |banner|navigation|main |contentinfo|Iframe )/.test(trimmed)) {
+        out.push(line);
+        totalElements++;
+      } else if (/\b(link |button |searchbox |textbox |input |combobox |checkbox |radio )/.test(trimmed)) {
+        out.push(line);
+        interactiveCount++;
+        totalElements++;
+      }
+    }
+
+    const header = `PAGE_SUMMARY (${totalElements} elements, ${interactiveCount} interactive, ${lines.length} total lines):`;
+    return header + "\n" + out.join("\n");
+  }
+
+  function filterSnapshot(pattern) {
+    if (!lastFullSnapshot) return { success: false, message: "No snapshot available. Use snapshot first." };
+    const lines = lastFullSnapshot.split("\n");
+    const re = new RegExp(pattern, "i");
+    const matched = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (re.test(lines[i])) {
+        // Include 1 line before for parent context
+        if (i > 0 && matched[matched.length - 1] !== lines[i - 1]) {
+          matched.push(lines[i - 1]);
+        }
+        matched.push(lines[i]);
+        // Include 1 line after for child context
+        if (i + 1 < lines.length) {
+          matched.push(lines[i + 1]);
+          i++; // skip the next line since we already added it
+        }
+      }
+    }
+    if (!matched.length) {
+      return {
+        success: true,
+        message: `No lines matched pattern "${pattern}"`,
+        summary: `No matches for "${pattern}" in ${lines.length} lines.`,
+      };
+    }
+    return {
+      success: true,
+      message: `Found ${matched.length} lines matching "${pattern}"`,
+      summary: matched.join("\n"),
+    };
+  }
+
+  function getFullSnapshot() {
+    if (!lastFullSnapshot) return { success: false, message: "No snapshot available." };
+    return { success: true, message: "Full snapshot", summary: lastFullSnapshot };
   }
 
   async function captureState() {
@@ -643,7 +945,10 @@ export function createActions(config) {
     }
 
     const lines = [];
-    lines.push(`SNAPSHOT_STATE:\n${snap.summary}`);
+
+    // Send compact summary (interactive + content + landmarks only) to reduce token usage
+    const compactView = lastSnapshotTree ? buildCompactSummary(lastSnapshotTree) : snap.summary;
+    lines.push(`BROWSER_STATE:\n${compactView}`);
 
     if (capabilities.listPages) {
       const pages = await listPages();
@@ -653,23 +958,13 @@ export function createActions(config) {
     }
 
     if (capabilities.evaluate) {
-      const docState = await evaluate("({title: document.title, url: location.href})");
+      const docState = await evaluate("() => ({title: document.title, url: location.href})");
       if (docState.success) {
         lines.push(`DOCUMENT:\n${docState.summary}`);
       }
-
-      const overlayState = await detectBlockingOverlay();
-      if (overlayState.success) {
-        lines.push(`OVERLAY_CHECK:\n${overlayState.summary}`);
-      }
-
-      const phoneState = await extractPhoneNumbers();
-      if (phoneState.success) {
-        lines.push(`PHONE_CANDIDATES:\n${phoneState.summary}`);
-      }
     }
 
-    const summary = clampText(lines.join("\n\n"), config.MAX_STATE_CHARS);
+    const summary = lines.join("\n\n");
     return {
       success: true,
       hash: hashText(summary),
@@ -706,9 +1001,13 @@ export function createActions(config) {
     selectPage,
     evaluate,
     screenshot,
+    scroll,
     detectBlockingOverlay,
     dismissBlockingOverlay,
     extractPhoneNumbers,
     captureState,
+    openFreshTab,
+    filterSnapshot,
+    getFullSnapshot,
   };
 }

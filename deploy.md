@@ -88,7 +88,7 @@ Commit and push:
 
 ```bash
 git add hugind.rb
-git commit -m "Update hugind to v0.11.1"
+git commit -m "Updated hugind"
 git push origin main
 ```
 

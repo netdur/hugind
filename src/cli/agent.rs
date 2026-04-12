@@ -576,7 +576,15 @@ async fn run_agent_with_team(
         let llm_url = format!("{}/chat/completions", backend2.base_url.trim_end_matches('/'));
         let model = backend2.model.as_deref().unwrap_or("default").to_string();
         let max_turns = config.max_turns.unwrap_or(10) as usize;
-        let http_client = reqwest::Client::new();
+        // NOTE: long request timeout so slow LLM generations don't stall,
+        // but finite so a hung server eventually errors out.
+        let http_client = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(300))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
+        let trace = std::env::var("HUGIND_TRACE").map(|v| v == "1" || v == "true").unwrap_or(false);
 
         let mut messages: Vec<serde_json::Value> = Vec::new();
         if !system.is_empty() {
@@ -584,9 +592,19 @@ async fn run_agent_with_team(
         }
         messages.push(serde_json::json!({"role": "user", "content": user_prompt}));
 
+        if trace {
+            eprintln!("[team-trace] loop: url={} model={} max_turns={}", llm_url, model, max_turns);
+            eprintln!("[team-trace] === SYSTEM PROMPT (len={}) ===\n{}\n[team-trace] === END SYSTEM ===", system.len(), system);
+            eprintln!("[team-trace] === USER PROMPT (len={}) ===\n{}\n[team-trace] === END USER ===", user_prompt.len(), user_prompt);
+        }
+
         let mut final_text = String::new();
 
-        for _turn in 0..max_turns {
+        for turn in 0..max_turns {
+            if trace {
+                eprintln!("[team-trace] turn {}/{}: sending {} messages", turn, max_turns, messages.len());
+            }
+
             let body = serde_json::json!({
                 "model": model,
                 "messages": messages,
@@ -598,8 +616,12 @@ async fn run_agent_with_team(
                 request = request.header("X-Session-ID", session);
             }
 
+            let llm_start = std::time::Instant::now();
             let resp = request.send().await
                 .map_err(|e| anyhow::anyhow!("LLM request failed: {}", e))?;
+            if trace {
+                eprintln!("[team-trace] turn {}: response {} in {:.1}s", turn, resp.status(), llm_start.elapsed().as_secs_f64());
+            }
             if !resp.status().is_success() {
                 let status = resp.status();
                 let text = resp.text().await.unwrap_or_default();
@@ -610,10 +632,16 @@ async fn run_agent_with_team(
             let content = resp_json.get("choices").and_then(|c| c.get(0))
                 .and_then(|c| c.get("message")).and_then(|m| m.get("content"))
                 .and_then(|c| c.as_str()).unwrap_or("");
+            if trace {
+                eprintln!("[team-trace] turn {}: content_len={} preview={}", turn, content.len(), &content[..content.len().min(150)]);
+            }
 
             messages.push(serde_json::json!({"role": "assistant", "content": content}));
 
             let tool_calls = parse_tool_calls(content);
+            if trace {
+                eprintln!("[team-trace] turn {}: {} tool calls parsed", turn, tool_calls.len());
+            }
             if tool_calls.is_empty() {
                 final_text = strip_tool_calls(content);
                 break;
@@ -623,10 +651,17 @@ async fn run_agent_with_team(
             let mut results = Vec::new();
             for tc in &tool_calls {
                 let args_str = serde_json::to_string(&tc.args).unwrap_or_default();
+                if trace {
+                    eprintln!("[team-trace] turn {}: exec {} args={}", turn, tc.name, &args_str[..args_str.len().min(80)]);
+                }
+                let tool_start = std::time::Instant::now();
                 let result = crate::core::orchestrator::runner::execute_js_tool_pub(
                     &js, &tc.name, &args_str,
                 ).await;
                 let result_str = result.unwrap_or_else(|e| format!("Error: {}", e));
+                if trace {
+                    eprintln!("[team-trace] turn {}: {} done in {:.1}s len={}", turn, tc.name, tool_start.elapsed().as_secs_f64(), result_str.len());
+                }
                 results.push(format!("[{}] {}", tc.name, result_str));
             }
 

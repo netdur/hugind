@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash -n /Users/adel/Workspace/hugind/scripts/test_completion_json_test.sh)",
+      "Bash(curl -s http://localhost:8080/v1/monitor)",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8080/v1/state/814f6198-5cbf-479b-b5f3-9ac7312abaec)",
+      "Bash(curl -s http://localhost:8080/v1/state/814f6198-5cbf-479b-b5f3-9ac7312abaec)",
+      "Bash(curl -s -w \"\\\\nHTTP %{http_code}\" http://localhost:8080/v1/state/7867ce1d-7e01-459a-9436-10ac30e75530)",
+      "Bash(curl -s http://localhost:8080/v1/state/7867ce1d-7e01-459a-9436-10ac30e75530)"
+    ]
+  }
+}

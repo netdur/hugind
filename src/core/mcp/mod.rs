@@ -159,6 +159,10 @@ impl McpClient {
         cmd.stdin(Stdio::piped());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::inherit());
+        // Ensure the MCP server child process is killed when this McpClient
+        // is dropped (agent run finished). Without this, tokio::Child detaches
+        // on drop and leaves zombie processes across runs.
+        cmd.kill_on_drop(true);
 
         let mut child = cmd
             .spawn()
@@ -203,9 +207,10 @@ impl McpClient {
         let mut tools = Vec::new();
         let mut cursor: Option<String> = None;
         loop {
-            let params = json!({
-                "cursor": cursor,
-            });
+            let params = match &cursor {
+                Some(c) => json!({ "cursor": c }),
+                None => json!({}),
+            };
             let result = self.request("tools/list", params).await?;
             if let Some(items) = result.get("tools").and_then(|v| v.as_array()) {
                 for item in items {

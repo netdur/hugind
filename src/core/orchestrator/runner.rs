@@ -457,80 +457,91 @@ async fn run_agent(
 
     let team_ctx = TeamContext::new(&agent_name, memory.clone(), messages.clone());
 
-    let run_result = if entry_path.extension().and_then(|s| s.to_str()) == Some("wasm") {
-        let wasm = WasmRuntime::new(
-            agent_root.to_path_buf(),
-            runtime_cwd.to_path_buf(),
-            config,
-            logger.clone(),
-        )
-        .map_err(|e| anyhow::anyhow!("Runtime error: {}", e))?;
-        wasm.run_module_with_team(entry_path, initial_data, Some(&team_ctx), None)
+    // Run the agent, but also handle Ctrl+C so we can clean up the session
+    let run_future = async {
+        if entry_path.extension().and_then(|s| s.to_str()) == Some("wasm") {
+            let wasm = WasmRuntime::new(
+                agent_root.to_path_buf(),
+                runtime_cwd.to_path_buf(),
+                config,
+                logger.clone(),
+            )
+            .map_err(|e| anyhow::anyhow!("Runtime error: {}", e))?;
+            wasm.run_module_with_team(entry_path, initial_data, Some(&team_ctx), None)
+                .await
+                .map_err(|e| anyhow::anyhow!("Execution error: {}", e))
+        } else if config.mode == crate::core::config::agent::AgentMode::Agentic {
+            use crate::core::orchestrator::agentic::ToolRegistry;
+            use crate::core::js::capabilities::agentic as agentic_cap;
+
+            let trace = std::env::var("HUGIND_TRACE").map(|v| v == "1" || v == "true").unwrap_or(false);
+
+            let registry = ToolRegistry::new();
+
+            if trace { eprintln!("[trace] creating JS runtime"); }
+            let js = JsRuntime::new_with_team(
+                agent_root.to_path_buf(),
+                runtime_cwd.to_path_buf(),
+                config,
+                logger.clone(),
+                Some(&team_ctx),
+            )
             .await
-            .map_err(|e| anyhow::anyhow!("Execution error: {}", e))
-    } else if config.mode == crate::core::config::agent::AgentMode::Agentic {
-        use crate::core::orchestrator::agentic::ToolRegistry;
-        use crate::core::js::capabilities::agentic as agentic_cap;
+            .map_err(|e| anyhow::anyhow!("Runtime error: {}", e))?;
 
-        let trace = std::env::var("HUGIND_TRACE").map(|v| v == "1" || v == "true").unwrap_or(false);
+            if trace { eprintln!("[trace] installing agentic globals"); }
+            agentic_cap::install(&js.context(), &registry, logger.clone())
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to install agentic globals: {}", e))?;
 
-        let registry = ToolRegistry::new();
+            if trace { eprintln!("[trace] running entry point"); }
+            let _ = js
+                .run_module(entry_path, initial_data)
+                .await
+                .map_err(|e| anyhow::anyhow!("Agent setup error: {}", e))?;
+            js.wait_idle().await;
 
-        if trace { eprintln!("[trace] creating JS runtime"); }
-        let js = JsRuntime::new_with_team(
-            agent_root.to_path_buf(),
-            runtime_cwd.to_path_buf(),
-            config,
-            logger.clone(),
-            Some(&team_ctx),
-        )
-        .await
-        .map_err(|e| anyhow::anyhow!("Runtime error: {}", e))?;
+            let user_prompt = build_agentic_prompt(&args_vec, &msg_context, &mem_summary);
+            if trace { eprintln!("[trace] entry done, {} tools, prompt_len={}", registry.tools().len(), user_prompt.len()); }
 
-        if trace { eprintln!("[trace] installing agentic globals"); }
-        agentic_cap::install(&js.context(), &registry, logger.clone())
+            let output = run_agentic_loop_with_js(
+                config,
+                &backend.base_url,
+                backend.model.as_deref().unwrap_or("default"),
+                &user_prompt,
+                &registry,
+                &js,
+                logger.as_ref(),
+                trace,
+            )
+            .await?;
+
+            Ok(serde_json::Value::String(output))
+        } else {
+            let js = JsRuntime::new_with_team(
+                agent_root.to_path_buf(),
+                runtime_cwd.to_path_buf(),
+                config,
+                logger.clone(),
+                Some(&team_ctx),
+            )
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to install agentic globals: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Runtime error: {}", e))?;
+            let res = js
+                .run_module(entry_path, initial_data)
+                .await
+                .map_err(|e| anyhow::anyhow!("Execution error: {}", e));
+            js.wait_idle().await;
+            res
+        }
+    };
 
-        if trace { eprintln!("[trace] running entry point"); }
-        let _ = js
-            .run_module(entry_path, initial_data)
-            .await
-            .map_err(|e| anyhow::anyhow!("Agent setup error: {}", e))?;
-        js.wait_idle().await;
-
-        let user_prompt = build_agentic_prompt(&args_vec, &msg_context, &mem_summary);
-        if trace { eprintln!("[trace] entry done, {} tools, prompt_len={}", registry.tools().len(), user_prompt.len()); }
-
-        let output = run_agentic_loop_with_js(
-            config,
-            &backend.base_url,
-            backend.model.as_deref().unwrap_or("default"),
-            &user_prompt,
-            &registry,
-            &js,
-            logger.as_ref(),
-            trace,
-        )
-        .await?;
-
-        Ok(serde_json::Value::String(output))
-    } else {
-        let js = JsRuntime::new_with_team(
-            agent_root.to_path_buf(),
-            runtime_cwd.to_path_buf(),
-            config,
-            logger.clone(),
-            Some(&team_ctx),
-        )
-        .await
-        .map_err(|e| anyhow::anyhow!("Runtime error: {}", e))?;
-        let res = js
-            .run_module(entry_path, initial_data)
-            .await
-            .map_err(|e| anyhow::anyhow!("Execution error: {}", e));
-        js.wait_idle().await;
-        res
+    let run_result = tokio::select! {
+        result = run_future => result,
+        _ = tokio::signal::ctrl_c() => {
+            eprintln!("\nInterrupted, cleaning up session...");
+            Err(anyhow::anyhow!("Agent interrupted by Ctrl+C"))
+        }
     };
 
     if let Some(l) = &logger {
@@ -896,16 +907,37 @@ fn build_agentic_prompt(args: &[String], msg_context: &str, mem_summary: &str) -
         prompt.push_str("\n\n");
     }
 
-    // Add args as the main prompt
-    // Look for --task-description or --prompt, otherwise join all args
+    // Resolve the task description from args. Priority:
+    //   1. --prompt <text> or --task-description <text>  → inline
+    //   2. --goal-file <path>                            → read file contents
+    //   3. fallback: join all non-flag args
+    let mut description: Option<String> = None;
     let mut i = 0;
-    let mut description = None;
     while i < args.len() {
         if (args[i] == "--task-description" || args[i] == "--prompt") && i + 1 < args.len() {
             description = Some(args[i + 1].clone());
             break;
         }
         i += 1;
+    }
+
+    if description.is_none() {
+        let mut j = 0;
+        while j < args.len() {
+            if args[j] == "--goal-file" && j + 1 < args.len() {
+                let path = &args[j + 1];
+                match std::fs::read_to_string(path) {
+                    Ok(contents) => {
+                        description = Some(contents);
+                    }
+                    Err(e) => {
+                        eprintln!("Warning: could not read --goal-file '{}': {}", path, e);
+                    }
+                }
+                break;
+            }
+            j += 1;
+        }
     }
 
     if let Some(desc) = description {
