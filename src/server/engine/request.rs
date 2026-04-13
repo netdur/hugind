@@ -39,6 +39,37 @@ impl ThinkTagMarkers {
     }
 }
 
+/// String-level thinking markers for grammar generation and output stripping.
+#[derive(Debug, Clone)]
+pub struct ThinkingMarkers {
+    pub open: String,
+    pub close: String,
+}
+
+impl Default for ThinkingMarkers {
+    fn default() -> Self {
+        Self {
+            open: "<think>".to_string(),
+            close: "</think>".to_string(),
+        }
+    }
+}
+
+impl ThinkingMarkers {
+    /// Select thinking markers based on model architecture metadata.
+    pub fn for_model_arch(arch: &str) -> Self {
+        let arch_lower = arch.to_ascii_lowercase();
+        if arch_lower.starts_with("gemma") {
+            Self {
+                open: "<|channel>thought".to_string(),
+                close: "<channel|>".to_string(),
+            }
+        } else {
+            Self::default()
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThinkingBudgetEvent {
     EnteredThinking { budget: u32 },

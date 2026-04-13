@@ -7,9 +7,9 @@ import urllib.request
 
 # Configure everything here.
 SERVER_URL = "http://localhost:8080/v1/chat/completions"
-MODEL = "Qwen3.5-9B-GGUF"
+MODEL = "gemma-4-26B-A4B-it-GGUF"
 PROMPT = "Write a short poem about coding"
-ENABLE_THINKING = True  # True | False
+ENABLE_THINKING = False  # True | False
 # THINKING_BUDGET = None  # None = no budget override, or set int like 512
 THINKING_BUDGET = 256
 RESPONSE_FORMAT_JSON = False  # True => {"response_format": {"type": "json_object"}}

@@ -1,4 +1,4 @@
-use crate::engine::request::Request;
+use crate::engine::request::{Request, ThinkingMarkers};
 use axum::{
     Router,
     extract::DefaultBodyLimit,
@@ -56,6 +56,7 @@ pub async fn run_server(
     host: String,
     port: u16,
     api_key: Option<String>,
+    thinking_markers: ThinkingMarkers,
 ) {
     let state = Arc::new(state::AppState {
         engine_tx,
@@ -70,6 +71,7 @@ pub async fn run_server(
         thinking_budget_tokens_default,
         sampling_defaults,
         system_prompt,
+        thinking_markers,
     });
 
     let app = build_app(state);
@@ -139,6 +141,7 @@ mod tests {
     use crate::engine::kv_cache::KvCacheManager;
     use crate::llm::model::Model;
     use crate::llm::sampling::SamplingConfig;
+    use crate::engine::request::ThinkingMarkers;
     use crate::server::state::AppState;
     use axum::body::{Body, to_bytes};
     use axum::http::{HeaderMap, HeaderValue, Request, StatusCode, header::AUTHORIZATION};
@@ -161,6 +164,7 @@ mod tests {
             thinking_budget_tokens_default: None,
             sampling_defaults: SamplingConfig::default(),
             system_prompt: None,
+            thinking_markers: ThinkingMarkers::default(),
         })
     }
 

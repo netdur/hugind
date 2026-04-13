@@ -173,6 +173,15 @@ pub async fn run_start(_config: String, _port: Option<u16>) -> Result<()> {
         }
     });
 
+    let thinking_markers = {
+        let arch = model
+            .get_metadata("general.architecture")
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        crate::engine::request::ThinkingMarkers::for_model_arch(&arch)
+    };
+
     println!("Starting Server on {}:{}", cfg.host, cfg.port);
     server::run_server(
         engine_tx,
@@ -189,6 +198,7 @@ pub async fn run_start(_config: String, _port: Option<u16>) -> Result<()> {
         cfg.host.clone(),
         cfg.port,
         cfg.api_key.clone(),
+        thinking_markers,
     )
     .await;
 

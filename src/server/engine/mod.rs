@@ -10,7 +10,7 @@ use crate::llm::model::Model;
 use crate::llm::multimodal::{Chunk, Image, MultimodalContext};
 use crate::llm::sampling::Sampler;
 use crate::llm::tokenizer::{Token, Tokenizer};
-use request::{ChunkMeta, Request, RequestState, ThinkTagMarkers};
+use request::{ChunkMeta, Request, RequestState, ThinkTagMarkers, ThinkingMarkers};
 use types::{Event, EventKind, RequestHandle, StopReason};
 
 use parking_lot::RwLock;
@@ -181,10 +181,25 @@ impl<'a> LlmEngine<'a> {
         Vec::new()
     }
 
-    fn detect_think_tag_markers(tokenizer: &Tokenizer<'_>) -> ThinkTagMarkers {
-        let open = Self::tokenize_tag(tokenizer, "<think>");
-        let close = Self::tokenize_tag(tokenizer, "</think>");
+    fn detect_think_tag_markers(tokenizer: &Tokenizer<'_>, markers: &ThinkingMarkers) -> ThinkTagMarkers {
+        let open = Self::tokenize_tag(tokenizer, &markers.open);
+        let close = Self::tokenize_tag(tokenizer, &markers.close);
         ThinkTagMarkers { open, close }
+    }
+
+    /// Detect model architecture from GGUF metadata and return appropriate thinking markers.
+    fn detect_thinking_markers(model: &Model) -> ThinkingMarkers {
+        let arch = model
+            .get_metadata("general.architecture")
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let markers = ThinkingMarkers::for_model_arch(&arch);
+        eprintln!(
+            "[ThinkingMarkers] arch={:?} open={:?} close={:?}",
+            arch, markers.open, markers.close
+        );
+        markers
     }
 
     pub fn new(
@@ -198,7 +213,8 @@ impl<'a> LlmEngine<'a> {
         let ctx = Context::new(model, ctx_params)?;
         let tokenizer = model.tokenizer();
         let batch = Batch::new(ctx_params.n_batch as i32, 0, ctx_params.n_seq_max as i32);
-        let think_tag_markers = Self::detect_think_tag_markers(&tokenizer);
+        let thinking_markers = Self::detect_thinking_markers(model);
+        let think_tag_markers = Self::detect_think_tag_markers(&tokenizer, &thinking_markers);
 
         let mmproj = if let Some(path) = mmproj_path {
             Some(Arc::new(MultimodalContext::from_file(path, model)?))

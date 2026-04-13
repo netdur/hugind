@@ -266,25 +266,34 @@ fn fix_unquoted_keys(input: &str) -> String {
     result
 }
 
-/// Strip `<think>...</think>` blocks from LLM responses (used by thinking-enabled models).
-/// Also handles unclosed `<think>` tags (strip from `<think>` to end of text).
+/// Known thinking marker pairs across model families.
+const THINKING_MARKER_PAIRS: &[(&str, &str)] = &[
+    ("<think>", "</think>"),              // Qwen-style
+    ("<|channel>thought", "<channel|>"),  // Gemma-style
+];
+
+/// Strip thinking blocks from LLM responses (used by thinking-enabled models).
+/// Handles both Qwen-style `<think>...</think>` and Gemma-style `<|channel>thought...<channel|>`.
+/// Also handles unclosed open tags (strip from open tag to end of text).
 pub fn strip_thinking(text: &str) -> String {
     let mut result = text.to_string();
-    loop {
-        if let Some(start) = result.find("<think>") {
-            if let Some(end_offset) = result[start..].find("</think>") {
-                result = format!(
-                    "{}{}",
-                    &result[..start],
-                    &result[start + end_offset + "</think>".len()..]
-                );
-                continue;
-            } else {
-                // Unclosed <think> — strip from tag to end
-                result = result[..start].to_string();
+    for &(open, close) in THINKING_MARKER_PAIRS {
+        loop {
+            if let Some(start) = result.find(open) {
+                if let Some(end_offset) = result[start..].find(close) {
+                    result = format!(
+                        "{}{}",
+                        &result[..start],
+                        &result[start + end_offset + close.len()..]
+                    );
+                    continue;
+                } else {
+                    // Unclosed open tag — strip from tag to end
+                    result = result[..start].to_string();
+                }
             }
+            break;
         }
-        break;
     }
     result.trim().to_string()
 }
@@ -435,5 +444,27 @@ Done."#;
     #[test]
     fn strip_thinking_empty() {
         assert_eq!(strip_thinking("No thinking here."), "No thinking here.");
+    }
+
+    #[test]
+    fn strip_thinking_gemma_closed() {
+        let text = "<|channel>thought Let me reason about this <channel|>Here is the answer.";
+        assert_eq!(strip_thinking(text), "Here is the answer.");
+    }
+
+    #[test]
+    fn strip_thinking_gemma_unclosed() {
+        let text = "Prefix <|channel>thought still reasoning...";
+        assert_eq!(strip_thinking(text), "Prefix");
+    }
+
+    #[test]
+    fn strip_thinking_gemma_with_tool_call() {
+        let text = r#"<|channel>thought I should check the file.<channel|>
+<tool_call>{"name":"run","args":{"command":"ls"}}</tool_call>"#;
+        let cleaned = strip_thinking(text);
+        let calls = parse_tool_calls(&cleaned);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "run");
     }
 }

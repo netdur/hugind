@@ -52,19 +52,59 @@ number ::= ("-"? ([0-9] | [1-9] [0-9]{0,15})) ("." [0-9]+)? ([eE] [-+]? [0-9] [1
 ws ::= | " " | "\n" [ \t]{0,20}
 "#;
 
-const JSON_THINKING_GRAMMAR: &str = r#"
-root ::= thinking-content "</think>" ws object
+/// Build a GBNF rule that matches any text until `literal` appears.
+/// Generates a character-exclusion ladder (state machine unrolling).
+/// E.g. for `</think>` produces:
+///   `( [^<] | "<" [^/] | "</" [^t] | ... | "</think" [^>] )*`
+fn build_gbnf_not_containing(literal: &str) -> String {
+    let chars: Vec<char> = literal.chars().collect();
+    if chars.is_empty() {
+        return "thinking-content ::= [^\\x00]*".to_string();
+    }
+    let mut alts = Vec::new();
+    // prefix length 0: any char except the first char of the literal
+    alts.push(format!("[^{}]", gbnf_escape_char(chars[0])));
+    // prefix lengths 1..N-1
+    for i in 1..chars.len() {
+        let prefix: String = chars[..i].iter().map(|c| gbnf_escape_char(*c)).collect();
+        let next_excluded = gbnf_escape_char(chars[i]);
+        alts.push(format!("\"{}\" [^{}]", prefix, next_excluded));
+    }
+    format!("thinking-content ::= ( {} )*", alts.join(" | "))
+}
 
-# Matches any characters up to </think> by just accepting wide ranges
-thinking-content ::= ( [^<] | "<" [^/] | "</" [^t] | "</t" [^h] | "</th" [^i] | "</thi" [^n] | "</thin" [^k] | "</think" [^>] )*
+/// Escape a character for use in GBNF character classes or string literals.
+fn gbnf_escape_char(c: char) -> String {
+    match c {
+        '"' => "\\\"".to_string(),
+        '\\' => "\\\\".to_string(),
+        '\n' => "\\n".to_string(),
+        '\t' => "\\t".to_string(),
+        _ => c.to_string(),
+    }
+}
+
+/// Escape a string for use in a GBNF quoted literal.
+fn gbnf_escape_str(s: &str) -> String {
+    s.chars().map(|c| gbnf_escape_char(c)).collect()
+}
+
+fn build_json_thinking_grammar(close_tag: &str) -> String {
+    let thinking_content = build_gbnf_not_containing(close_tag);
+    let escaped_close = gbnf_escape_str(close_tag);
+    format!(
+        r#"
+root ::= thinking-content "{escaped_close}" ws object
+
+{thinking_content}
 
 value  ::= object | array | string | number | ("true" | "false" | "null") ws
 
 object ::=
-  "{" ws (
+  "{{" ws (
             string ":" ws value
     ("," ws string ":" ws value)*
-  )? "}" ws
+  )? "}}" ws
 
 array  ::=
   "[" ws (
@@ -75,27 +115,34 @@ array  ::=
 string ::=
   "\"" (
     [^"\\\x7F\x00-\x1F] |
-    "\\" (["\\bfnrt] | "u" [0-9a-fA-F]{4}) # escapes
+    "\\" (["\\/bfnrt] | "u" [0-9a-fA-F]{{4}}) # escapes
   )* "\"" ws
 
-number ::= ("-"? ([0-9] | [1-9] [0-9]{0,15})) ("." [0-9]+)? ([eE] [-+]? [0-9] [1-9]{0,15})? ws
+number ::= ("-"? ([0-9] | [1-9] [0-9]{{0,15}})) ("." [0-9]+)? ([eE] [-+]? [0-9] [1-9]{{0,15}})? ws
 
 # Optional space: by convention, applied in this grammar after literal chars when allowed
-ws ::= | " " | "\n" [ \t]{0,20}
-"#;
+ws ::= | " " | "\n" [ \t]{{0,20}}
+"#
+    )
+}
 
-const PLAIN_THINKING_GRAMMAR: &str = r#"
-root ::= thinking-content "</think>" ws plain-text
+fn build_plain_thinking_grammar(close_tag: &str) -> String {
+    let thinking_content = build_gbnf_not_containing(close_tag);
+    let escaped_close = gbnf_escape_str(close_tag);
+    format!(
+        r#"
+root ::= thinking-content "{escaped_close}" ws plain-text
 
-# Matches any characters up to </think> by just accepting wide ranges
-thinking-content ::= ( [^<] | "<" [^/] | "</" [^t] | "</t" [^h] | "</th" [^i] | "</thi" [^n] | "</thin" [^k] | "</think" [^>] )*
+{thinking_content}
 
-# Allow any non-NUL bytes after </think> as plain assistant output.
+# Allow any non-NUL bytes after close tag as plain assistant output.
 plain-text ::= [^\x00]*
 
 # Optional space
-ws ::= | " " | "\n" [ \t]{0,20}
-"#;
+ws ::= | " " | "\n" [ \t]{{0,20}}
+"#
+    )
+}
 
 const MTMD_MEDIA_MARKER: &str = "<__media__>";
 
@@ -376,17 +423,12 @@ pub async fn chat_completions(
         params.sampling.penalty_repeat = 1.0 + fp.max(0.0);
     }
 
+    let close_tag = &state.thinking_markers.close;
+
     if let Some(fmt) = &payload.response_format {
         if fmt.format_type == "json_object" {
             if effective_enable_thinking {
-                let mut grammar_str = JSON_THINKING_GRAMMAR.to_string();
-                if let Some(budget) = thinking_budget_tokens {
-                    // Inject the prefix into the root rule
-                    grammar_str = grammar_str.replace(
-                        "root ::= thinking-content \"</think>\" ws object",
-                        &format!("root ::= \"(max thinking budget {} tokens)\\n\" thinking-content \"</think>\" ws object", budget)
-                    );
-                }
+                let grammar_str = build_json_thinking_grammar(close_tag);
                 params.sampling.grammar = Some(GrammarParams {
                     grammar: grammar_str,
                     root: "root".to_string(),
@@ -399,17 +441,7 @@ pub async fn chat_completions(
             }
         }
     } else if effective_enable_thinking {
-        // Plain-text mode with thinking enabled: enforce an eventual </think>.
-        let mut grammar_str = PLAIN_THINKING_GRAMMAR.to_string();
-        if let Some(budget) = thinking_budget_tokens {
-            grammar_str = grammar_str.replace(
-                "root ::= thinking-content \"</think>\" ws plain-text",
-                &format!(
-                    "root ::= \"(max thinking budget {} tokens)\\n\" thinking-content \"</think>\" ws plain-text",
-                    budget
-                ),
-            );
-        }
+        let grammar_str = build_plain_thinking_grammar(close_tag);
         params.sampling.grammar = Some(GrammarParams {
             grammar: grammar_str,
             root: "root".to_string(),
@@ -1014,6 +1046,7 @@ mod tests {
             thinking_budget_tokens_default: None,
             sampling_defaults: SamplingConfig::default(),
             system_prompt: None,
+            thinking_markers: crate::engine::request::ThinkingMarkers::default(),
         })
     }
 
@@ -1034,6 +1067,7 @@ mod tests {
                 thinking_budget_tokens_default: None,
                 sampling_defaults: SamplingConfig::default(),
                 system_prompt: None,
+                thinking_markers: crate::engine::request::ThinkingMarkers::default(),
             }),
             engine_rx,
         )
@@ -1054,6 +1088,7 @@ mod tests {
             thinking_budget_tokens_default: None,
             sampling_defaults: SamplingConfig::default(),
             system_prompt: None,
+            thinking_markers: crate::engine::request::ThinkingMarkers::default(),
         })
     }
 
@@ -1074,6 +1109,7 @@ mod tests {
                 thinking_budget_tokens_default: None,
                 sampling_defaults: SamplingConfig::default(),
                 system_prompt: None,
+                thinking_markers: crate::engine::request::ThinkingMarkers::default(),
             }),
             engine_rx,
         )
@@ -1405,7 +1441,8 @@ mod tests {
             .as_ref()
             .expect("grammar should be set");
         assert_eq!(grammar.root, "root");
-        assert!(grammar.grammar.contains("(max thinking budget 77 tokens)"));
+        assert!(grammar.grammar.contains("thinking-content"));
+        assert!(grammar.grammar.contains("object"));
 
         let response_tx = engine_req.response_tx.take().expect("response channel");
         let handle =
@@ -1687,7 +1724,7 @@ mod tests {
             .expect("grammar should be set");
         assert_eq!(grammar.root, "root");
         assert!(grammar.grammar.contains("plain-text"));
-        assert!(grammar.grammar.contains("(max thinking budget 9 tokens)"));
+        assert!(grammar.grammar.contains("thinking-content"));
 
         let response_tx = engine_req.response_tx.take().expect("response channel");
         let handle =
@@ -2112,5 +2149,70 @@ mod tests {
         let body = response_body_text(resp).await;
         let json: serde_json::Value = serde_json::from_str(&body).expect("json body");
         assert_eq!(json["usage"]["prompt_tokens"], 3);
+    }
+
+    #[test]
+    fn gbnf_not_containing_think_close() {
+        let rule = build_gbnf_not_containing("</think>");
+        assert!(rule.contains("[^<]"));
+        assert!(rule.contains("\"<\" [^/]"));
+        assert!(rule.contains("\"</think\" [^>]"));
+    }
+
+    #[test]
+    fn gbnf_not_containing_gemma_close() {
+        let rule = build_gbnf_not_containing("<channel|>");
+        assert!(rule.contains("[^<]"));
+        assert!(rule.contains("\"<channel|\" [^>]"));
+    }
+
+    #[test]
+    fn json_thinking_grammar_uses_close_tag() {
+        let grammar = build_json_thinking_grammar("</think>");
+        assert!(grammar.contains("\"</think>\""));
+        assert!(grammar.contains("thinking-content"));
+        assert!(grammar.contains("object"));
+    }
+
+    #[test]
+    fn json_thinking_grammar_gemma_close_tag() {
+        let grammar = build_json_thinking_grammar("<channel|>");
+        assert!(grammar.contains("\"<channel|>\""));
+        assert!(grammar.contains("thinking-content"));
+    }
+
+    #[test]
+    fn plain_thinking_grammar_default() {
+        let grammar = build_plain_thinking_grammar("</think>");
+        assert!(grammar.contains("\"</think>\""));
+        assert!(grammar.contains("plain-text"));
+        assert!(grammar.contains("thinking-content"));
+    }
+
+    #[test]
+    fn plain_thinking_grammar_gemma() {
+        let grammar = build_plain_thinking_grammar("<channel|>");
+        assert!(grammar.contains("\"<channel|>\""));
+        assert!(grammar.contains("thinking-content"));
+    }
+
+    #[test]
+    fn thinking_markers_default_is_qwen() {
+        let m = crate::engine::request::ThinkingMarkers::default();
+        assert_eq!(m.open, "<think>");
+        assert_eq!(m.close, "</think>");
+    }
+
+    #[test]
+    fn thinking_markers_gemma_detection() {
+        let m = crate::engine::request::ThinkingMarkers::for_model_arch("gemma4");
+        assert_eq!(m.open, "<|channel>thought");
+        assert_eq!(m.close, "<channel|>");
+
+        let m2 = crate::engine::request::ThinkingMarkers::for_model_arch("gemma3");
+        assert_eq!(m2.close, "<channel|>");
+
+        let m3 = crate::engine::request::ThinkingMarkers::for_model_arch("qwen2");
+        assert_eq!(m3.close, "</think>");
     }
 }

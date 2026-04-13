@@ -1877,7 +1877,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 [[package]]
 name = "llama-cpp"
 version = "0.1.0"
-source = "git+https://github.com/netdur/llama_cpp_rust#db0be35a5bfd215518e37f709fea73e0186c4974"
+source = "git+https://github.com/netdur/llama_cpp_rust#9f372555343781aa5a5e4dde53a5a58eadaf7f35"
 dependencies = [
  "llama-cpp-ffi",
  "serde_json",
@@ -1886,7 +1886,7 @@ dependencies = [
 [[package]]
 name = "llama-cpp-ffi"
 version = "0.1.0"
-source = "git+https://github.com/netdur/llama_cpp_rust#db0be35a5bfd215518e37f709fea73e0186c4974"
+source = "git+https://github.com/netdur/llama_cpp_rust#9f372555343781aa5a5e4dde53a5a58eadaf7f35"
 dependencies = [
  "bindgen",
  "cc",

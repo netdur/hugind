@@ -1,5 +1,5 @@
 use crate::engine::EngineStats;
-use crate::engine::request::Request;
+use crate::engine::request::{Request, ThinkingMarkers};
 use crate::llm::sampling::SamplingConfig;
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -19,4 +19,5 @@ pub struct AppState {
     pub thinking_budget_tokens_default: Option<u32>,
     pub sampling_defaults: SamplingConfig,
     pub system_prompt: Option<String>,
+    pub thinking_markers: ThinkingMarkers,
 }

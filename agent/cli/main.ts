@@ -26,9 +26,36 @@ const LLM_STREAM_VISIBLE_OUTPUT: bool = true;
 const LLM_FORCE_JSON_RESPONSE_FORMAT: bool = true;
 const LLM_FALLBACK_THINKING_SPINNER: bool = true;
 
-const THINK_OPEN_TAG = "<think>";
-const THINK_CLOSE_TAG = "</think>";
+// Thinking tag pairs: [open, close] for each supported model family.
+const THINK_OPEN_TAGS: string[] = ["<think>", "<|channel>thought"];
+const THINK_CLOSE_TAGS: string[] = ["</think>", "<channel|>"];
 const THINK_SPINNER_FRAMES = "|/-\\";
+
+// Computed max tag length for scan-tail buffer sizing.
+function maxTagLength(): i32 {
+  let m: i32 = 0;
+  for (let i = 0; i < THINK_OPEN_TAGS.length; i++) {
+    if (THINK_OPEN_TAGS[i].length > m) m = THINK_OPEN_TAGS[i].length;
+  }
+  for (let i = 0; i < THINK_CLOSE_TAGS.length; i++) {
+    if (THINK_CLOSE_TAGS[i].length > m) m = THINK_CLOSE_TAGS[i].length;
+  }
+  return m;
+}
+
+// Find earliest occurrence of any tag from the array. Returns [index, tagIndex] or [-1, -1].
+function findEarliestTag(text: string, tags: string[]): i32[] {
+  let bestIdx: i32 = -1;
+  let bestTag: i32 = -1;
+  for (let i = 0; i < tags.length; i++) {
+    const idx = text.indexOf(tags[i]);
+    if (idx >= 0 && (bestIdx < 0 || idx < bestIdx)) {
+      bestIdx = idx;
+      bestTag = i;
+    }
+  }
+  return [bestIdx, bestTag];
+}
 
 let thinkingStreamActive: bool = false;
 let thinkingSpinnerVisible: bool = false;
@@ -77,26 +104,30 @@ function updateThinkingFromDelta(delta: string): void {
   // Some models emit only a closing tag. Treat it as a valid boundary and
   // stop fallback thinking animation immediately.
   if (!thinkingStreamActive && !thinkingOpenSeen) {
-    const closeWithoutOpenIdx = scan.indexOf(THINK_CLOSE_TAG);
+    const closeResult = findEarliestTag(scan, THINK_CLOSE_TAGS);
+    const closeWithoutOpenIdx = closeResult[0];
+    const closeTagIdx = closeResult[1];
     if (closeWithoutOpenIdx >= 0) {
       thinkingCloseSeen = true;
       fallbackThinkingActive = false;
       clearThinkingSpinner();
-      scan = scan.substring(closeWithoutOpenIdx + THINK_CLOSE_TAG.length);
+      scan = scan.substring(closeWithoutOpenIdx + THINK_CLOSE_TAGS[closeTagIdx].length);
     }
   }
 
   if (!thinkingStreamActive) {
-    const openIdx = scan.indexOf(THINK_OPEN_TAG);
+    const openResult = findEarliestTag(scan, THINK_OPEN_TAGS);
+    const openIdx = openResult[0];
+    const openTagIdx = openResult[1];
     if (openIdx >= 0) {
       thinkingStreamActive = true;
       thinkingOpenSeen = true;
       fallbackThinkingActive = false;
       thinkingSpinnerStep = 0;
       showThinkingSpinnerTick();
-      scan = scan.substring(openIdx + THINK_OPEN_TAG.length);
+      scan = scan.substring(openIdx + THINK_OPEN_TAGS[openTagIdx].length);
     } else {
-      const keep = THINK_OPEN_TAG.length + 8;
+      const keep = maxTagLength() + 8;
       if (scan.length > keep) {
         thinkingScanTail = scan.substring(scan.length - keep);
       } else {
@@ -107,18 +138,20 @@ function updateThinkingFromDelta(delta: string): void {
   }
 
   if (thinkingStreamActive) {
-    const closeIdx = scan.indexOf(THINK_CLOSE_TAG);
+    const closeResult = findEarliestTag(scan, THINK_CLOSE_TAGS);
+    const closeIdx = closeResult[0];
+    const closeTagIdx = closeResult[1];
     if (closeIdx >= 0) {
       thinkingStreamActive = false;
       thinkingCloseSeen = true;
       clearThinkingSpinner();
-      scan = scan.substring(closeIdx + THINK_CLOSE_TAG.length);
+      scan = scan.substring(closeIdx + THINK_CLOSE_TAGS[closeTagIdx].length);
     } else {
       showThinkingSpinnerTick();
     }
   }
 
-  const keep = THINK_CLOSE_TAG.length + 16;
+  const keep = maxTagLength() + 16;
   if (scan.length > keep) {
     thinkingScanTail = scan.substring(scan.length - keep);
   } else {
@@ -152,11 +185,15 @@ export function llm_on_token(ptr: i32, len: i32): void {
 
   let visible = delta;
   if (LLM_ENABLE_THINKING && !showThinkingDebug) {
-    while (visible.indexOf(THINK_OPEN_TAG) >= 0) {
-      visible = visible.replace(THINK_OPEN_TAG, "");
+    for (let i = 0; i < THINK_OPEN_TAGS.length; i++) {
+      while (visible.indexOf(THINK_OPEN_TAGS[i]) >= 0) {
+        visible = visible.replace(THINK_OPEN_TAGS[i], "");
+      }
     }
-    while (visible.indexOf(THINK_CLOSE_TAG) >= 0) {
-      visible = visible.replace(THINK_CLOSE_TAG, "");
+    for (let i = 0; i < THINK_CLOSE_TAGS.length; i++) {
+      while (visible.indexOf(THINK_CLOSE_TAGS[i]) >= 0) {
+        visible = visible.replace(THINK_CLOSE_TAGS[i], "");
+      }
     }
   }
   if (visible.length > 0) {
@@ -236,10 +273,18 @@ function buildLlmRequestJson(prompt: string): string {
 function normalizeLlmRaw(raw: string): string {
   if (!LLM_ENABLE_THINKING) return raw;
 
-  const closeTag = "</think>";
-  const closeIdx = raw.lastIndexOf(closeTag);
-  if (closeIdx >= 0) {
-    const after = raw.substring(closeIdx + closeTag.length).trim();
+  // Find the last occurrence of any close tag and return text after it.
+  let bestIdx: i32 = -1;
+  let bestLen: i32 = 0;
+  for (let i = 0; i < THINK_CLOSE_TAGS.length; i++) {
+    const idx = raw.lastIndexOf(THINK_CLOSE_TAGS[i]);
+    if (idx >= 0 && idx > bestIdx) {
+      bestIdx = idx;
+      bestLen = THINK_CLOSE_TAGS[i].length;
+    }
+  }
+  if (bestIdx >= 0) {
+    const after = raw.substring(bestIdx + bestLen).trim();
     if (after.length > 0) {
       return after;
     }
